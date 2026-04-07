@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     database_pool_size: int = 5
     database_max_overflow: int = 10
 
+    # Jira Cloud connection
+    jira_base_url: str = ""
+    jira_user_email: str = ""
+    jira_api_token: str = ""
+    jira_timeout_seconds: float = 30.0
+    jira_max_retries: int = 2
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
