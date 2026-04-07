@@ -211,3 +211,76 @@ utils/
 ## 📌 Philosophy
 
 > Build a system engineers trust — not one that guesses.
+
+---
+
+## 🧰 Local Development (Current Scaffold)
+
+This repository now includes an initial backend scaffold in `backend/` with:
+
+- FastAPI app entrypoint
+- Environment-based config loading
+- Thin health endpoint: `GET /health`
+- Service/module placeholders for future Jira sync, metrics, and signals
+- Docker Compose for backend + Postgres
+
+### Run with Docker
+
+From repository root:
+
+```bash
+docker compose up --build
+```
+
+Health check:
+
+```bash
+curl http://localhost:8000/health
+```
+
+### Run locally (without Docker)
+
+From `backend/`:
+
+```bash
+python -m pip install -e .
+python -m pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+### Database Foundation (MVP)
+
+The backend now includes a migration-ready PostgreSQL foundation with these tables:
+
+- `issues`
+- `issue_history`
+- `releases`
+- `metric_snapshots`
+- `release_signals`
+
+For local development, app startup runs a simple initialization path that calls
+SQLAlchemy metadata create for missing tables.
+
+Alembic is configured for migration-driven schema evolution.
+
+From `backend/`:
+
+```bash
+alembic upgrade head
+```
+
+Create a new migration after model changes:
+
+```bash
+alembic revision -m "describe change"
+```
+
+### Current Scope Note
+
+This is a scaffold-only MVP baseline.
+
+Not implemented yet:
+
+- Jira ingestion/sync behavior
+- Metrics computation logic
+- Release signal rule execution
