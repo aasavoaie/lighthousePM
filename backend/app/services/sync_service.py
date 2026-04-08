@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.repositories.sync_repository import SyncRepository
+from app.services.analytics_service import AnalyticsService
 from app.services.jira_errors import JiraServiceError
 from app.services.jira_service import JiraService
 from app.services.jira_types import JiraChangelogEntry, JiraIssueSummary
@@ -160,10 +161,18 @@ class SyncService:
                 result.history_inserted += inserted_count
                 result.history_skipped += skipped_count
 
+            # Keep metrics snapshots in sync with each successful Jira ingestion run.
+            analytics_service = AnalyticsService()
+            for release_id in version_name_to_release_id.values():
+                analytics_service.recompute_release_metrics(session=session, release_id=release_id)
+
             session.commit()
         except JiraServiceError as exc:
             session.rollback()
             raise SyncServiceError(f"Jira sync failed: {exc}") from exc
+        except ValueError as exc:
+            session.rollback()
+            raise SyncServiceError(f"Analytics recompute failed: {exc}") from exc
         except SQLAlchemyError as exc:
             session.rollback()
             raise SyncServiceError(f"Database sync failed: {exc}") from exc
