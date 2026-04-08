@@ -6,12 +6,16 @@ from fastapi import FastAPI
 from app.api.router import api_router
 from app.config import get_settings
 from app.db.init import init_db
+from app.jobs.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
 async def app_lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    settings = get_settings()
     init_db()
+    start_scheduler(settings)
     yield
+    stop_scheduler()
 
 
 def create_app() -> FastAPI:
