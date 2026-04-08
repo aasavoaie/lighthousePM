@@ -228,20 +228,28 @@ class JiraService:
     async def search_issues(
         self,
         jql: str,
-        start_at: int = 0,
+        next_page_token: str | None = None,
         max_results: int = 50,
         fields: list[str] | None = None,
-    ) -> list[JiraIssueSummary]:
-        """Return issues matching *jql* as lightweight summaries."""
+    ) -> tuple[list[JiraIssueSummary], str | None]:
+        """Return issues matching *jql* as lightweight summaries plus the next page token.
+
+        Uses the Jira Cloud enhanced search endpoint (cursor-based pagination).
+        Returns a tuple of (issues, next_page_token). next_page_token is None
+        when there are no further pages.
+        """
         payload: dict[str, Any] = {
             "jql": jql,
-            "startAt": start_at,
             "maxResults": max_results,
             "fields": fields or _DEFAULT_ISSUE_FIELDS[:7],  # summary subset for search
         }
-        data = await self._request("POST", "/rest/api/3/search", json=payload)
+        if next_page_token is not None:
+            payload["nextPageToken"] = next_page_token
+        data = await self._request("POST", "/rest/api/3/search/jql", json=payload)
         try:
-            return [_normalize_issue_summary(issue) for issue in data.get("issues", [])]
+            issues = [_normalize_issue_summary(issue) for issue in data.get("issues", [])]
+            returned_token: str | None = data.get("nextPageToken") or None
+            return issues, returned_token
         except (KeyError, TypeError) as exc:
             raise JiraResponseParseError(f"Unexpected search response structure: {exc}") from exc
 

@@ -54,20 +54,19 @@ class SyncService:
 
     async def _fetch_project_issues(self, project_key: str) -> list[JiraIssueSummary]:
         page_size = self._settings.jira_sync_page_size
-        start_at = 0
+        next_page_token: str | None = None
         all_issues: list[JiraIssueSummary] = []
         jql = f'project = "{project_key}" ORDER BY key ASC'
 
         while True:
-            batch = await self._jira_service.search_issues(
+            batch, next_page_token = await self._jira_service.search_issues(
                 jql=jql,
-                start_at=start_at,
+                next_page_token=next_page_token,
                 max_results=page_size,
             )
             all_issues.extend(batch)
-            if len(batch) < page_size:
+            if next_page_token is None:
                 break
-            start_at += page_size
 
         return all_issues
 
