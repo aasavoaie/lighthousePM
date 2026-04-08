@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     jira_sync_enabled: bool = True
     jira_sync_page_size: int = 50
     jira_sync_changelog_page_size: int = 100
+    jira_sync_interval_seconds: int = 0  # 0 = scheduler disabled
 
     model_config = SettingsConfigDict(
         env_file=".env",
