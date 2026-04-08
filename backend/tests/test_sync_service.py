@@ -29,24 +29,27 @@ class FakeJiraService:
     async def search_issues(
         self,
         jql: str,
-        start_at: int = 0,
+        next_page_token: str | None = None,
         max_results: int = 50,
         fields: list[str] | None = None,
-    ) -> list[JiraIssueSummary]:
-        if start_at > 0:
-            return []
-        return [
-            JiraIssueSummary(
-                key="LHPM-1",
-                summary="Fix login bug",
-                status="In Progress",
-                issue_type="Bug",
-                priority="High",
-                assignee="alice",
-                updated=datetime.now(UTC),
-                fix_versions=["Release 1"],
-            )
-        ]
+    ) -> tuple[list[JiraIssueSummary], str | None]:
+        if next_page_token is not None:
+            return ([], None)
+        return (
+            [
+                JiraIssueSummary(
+                    key="LHPM-1",
+                    summary="Fix login bug",
+                    status="In Progress",
+                    issue_type="Bug",
+                    priority="High",
+                    assignee="alice",
+                    updated=datetime.now(UTC),
+                    fix_versions=["Release 1"],
+                )
+            ],
+            None,
+        )
 
     async def get_issue_details(self, issue_key: str, fields: list[str] | None = None) -> JiraIssueDetail:
         return JiraIssueDetail(

@@ -49,8 +49,11 @@ def _mock_client(status_code: int, body: object, headers: dict[str, str] | None 
     )
 
 
-def _search_payload(issues: list[dict]) -> dict:
-    return {"issues": issues, "total": len(issues), "startAt": 0, "maxResults": 50}
+def _search_payload(issues: list[dict], next_page_token: str | None = None) -> dict:
+    payload: dict = {"isLast": next_page_token is None, "issues": issues}
+    if next_page_token is not None:
+        payload["nextPageToken"] = next_page_token
+    return payload
 
 
 def _issue_raw(key: str = "PROJ-1") -> dict:
@@ -80,12 +83,13 @@ async def test_search_issues_returns_summaries() -> None:
     client = _mock_client(200, _search_payload([_issue_raw("PROJ-1"), _issue_raw("PROJ-2")]))
     svc = JiraService(client=client, settings=_make_settings())
 
-    results = await svc.search_issues("project = PROJ")
+    issues, next_token = await svc.search_issues("project = PROJ")
 
-    assert len(results) == 2
-    assert results[0].key == "PROJ-1"
-    assert results[0].status == "In Progress"
-    assert results[0].assignee == "Alice"
+    assert len(issues) == 2
+    assert issues[0].key == "PROJ-1"
+    assert issues[0].status == "In Progress"
+    assert issues[0].assignee == "Alice"
+    assert next_token is None
 
 
 @pytest.mark.asyncio
@@ -93,9 +97,10 @@ async def test_search_issues_empty_result() -> None:
     client = _mock_client(200, _search_payload([]))
     svc = JiraService(client=client, settings=_make_settings())
 
-    results = await svc.search_issues("project = EMPTY")
+    issues, next_token = await svc.search_issues("project = EMPTY")
 
-    assert results == []
+    assert issues == []
+    assert next_token is None
 
 
 # ---------------------------------------------------------------------------
