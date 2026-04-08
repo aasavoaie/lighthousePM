@@ -20,6 +20,7 @@ class JiraIssueSummary:
     priority: str | None
     assignee: str | None
     updated: datetime | None
+    fix_versions: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -36,6 +37,7 @@ class JiraIssueDetail:
     description: str | None
     labels: list[str] = field(default_factory=list)
     components: list[str] = field(default_factory=list)
+    fix_versions: list[str] = field(default_factory=list)
     reporter: str | None = None
 
 

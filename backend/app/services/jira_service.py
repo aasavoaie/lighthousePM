@@ -36,6 +36,7 @@ _DEFAULT_ISSUE_FIELDS = [
     "priority",
     "assignee",
     "updated",
+    "fixVersions",
     "description",
     "labels",
     "components",
@@ -50,6 +51,13 @@ def _parse_datetime(value: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(value)
     except ValueError:
+        # Jira often returns timezone offsets as +0000 instead of +00:00.
+        if len(value) >= 5 and (value[-5] in {"+", "-"}) and value[-3] != ":":
+            patched = f"{value[:-5]}{value[-5:-2]}:{value[-2:]}"
+            try:
+                return datetime.fromisoformat(patched)
+            except ValueError:
+                return None
         return None
 
 
@@ -62,6 +70,7 @@ def _display_name(field: dict[str, Any] | None) -> str | None:
 
 def _normalize_issue_summary(raw: dict[str, Any]) -> JiraIssueSummary:
     fields: dict[str, Any] = raw.get("fields", {})
+    fix_versions = [version.get("name", "") for version in (fields.get("fixVersions") or [])]
     return JiraIssueSummary(
         key=raw["key"],
         summary=fields.get("summary", ""),
@@ -70,6 +79,7 @@ def _normalize_issue_summary(raw: dict[str, Any]) -> JiraIssueSummary:
         priority=_display_name(fields.get("priority")),
         assignee=_display_name(fields.get("assignee")),
         updated=_parse_datetime(fields.get("updated")),
+        fix_versions=[value for value in fix_versions if value],
     )
 
 
@@ -77,6 +87,7 @@ def _normalize_issue_detail(raw: dict[str, Any]) -> JiraIssueDetail:
     fields: dict[str, Any] = raw.get("fields", {})
     labels: list[str] = fields.get("labels") or []
     components: list[str] = [c.get("name", "") for c in (fields.get("components") or [])]
+    fix_versions = [version.get("name", "") for version in (fields.get("fixVersions") or [])]
     description_raw = fields.get("description")
     if isinstance(description_raw, dict):
         # Atlassian Document Format — flatten to a single marker; callers can
@@ -97,6 +108,7 @@ def _normalize_issue_detail(raw: dict[str, Any]) -> JiraIssueDetail:
         description=description,
         labels=labels,
         components=components,
+        fix_versions=[value for value in fix_versions if value],
         reporter=_display_name(fields.get("reporter")),
     )
 
