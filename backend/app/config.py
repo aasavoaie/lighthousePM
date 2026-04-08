@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     jira_api_token: str = ""
     jira_timeout_seconds: float = 30.0
     jira_max_retries: int = 2
+    jira_project_key: str = ""
+    jira_sync_enabled: bool = True
+    jira_sync_page_size: int = 50
+    jira_sync_changelog_page_size: int = 100
 
     model_config = SettingsConfigDict(
         env_file=".env",
