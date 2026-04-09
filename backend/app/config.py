@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     app_name: str = "Jira Release Signals"
     app_env: Literal["dev", "test", "prod"] = "dev"
     app_port: int = 8000
+    log_level: str = "INFO"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/lighthouse"
     database_echo: bool = False
     database_pool_size: int = 5

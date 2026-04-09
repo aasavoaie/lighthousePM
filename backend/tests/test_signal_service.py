@@ -1,7 +1,5 @@
 """Unit tests for SignalService._evaluate_signal() rule logic."""
 
-import pytest
-
 from app.services.signal_service import SignalService
 
 

@@ -8,6 +8,7 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health", response_model=HealthResponse)
 def get_health() -> HealthResponse:
+    """Return basic service health and runtime environment metadata."""
     settings = get_settings()
     return HealthResponse(
         status="ok",
