@@ -1,4 +1,5 @@
 from datetime import datetime
+from datetime import UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -8,6 +9,7 @@ from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.schemas.metrics import (
     ChartPoint,
+    MetricThresholds,
     MetricSeries,
     MetricValues,
     RecomputeMetricsResponse,
@@ -16,8 +18,40 @@ from app.schemas.metrics import (
 )
 from app.services.analytics_service import AnalyticsService
 from app.services.signal_service import SignalService
+from app.utils.constants import (
+    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
+    HIGH_SEVERITY_BUGS_RED_THRESHOLD,
+    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
+    OPEN_BLOCKERS_RED_THRESHOLD,
+    REOPEN_RATE_RED_THRESHOLD,
+    REOPEN_RATE_YELLOW_THRESHOLD,
+    SCOPE_CHURN_RED_THRESHOLD,
+    SCOPE_CHURN_YELLOW_THRESHOLD,
+)
 
 router = APIRouter(prefix="/releases", tags=["metrics"])
+
+METRIC_NAMES = [
+    "open_blockers",
+    "open_high_severity_bugs",
+    "scope_completed_pct",
+    "scope_churn_7d_pct",
+    "median_cycle_time_days",
+    "reopen_rate_pct",
+]
+
+
+def _build_metric_thresholds() -> MetricThresholds:
+    return MetricThresholds(
+        open_blockers_red=OPEN_BLOCKERS_RED_THRESHOLD,
+        open_high_severity_bugs_red=HIGH_SEVERITY_BUGS_RED_THRESHOLD,
+        open_high_severity_bugs_yellow=HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
+        scope_churn_7d_pct_red=SCOPE_CHURN_RED_THRESHOLD * 100,
+        scope_churn_7d_pct_yellow=SCOPE_CHURN_YELLOW_THRESHOLD * 100,
+        reopen_rate_pct_red=REOPEN_RATE_RED_THRESHOLD * 100,
+        reopen_rate_pct_yellow=REOPEN_RATE_YELLOW_THRESHOLD * 100,
+        median_cycle_time_days_yellow=CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
+    )
 
 
 @router.get("/{release_id}/metrics", response_model=ReleaseMetricsResponse)
@@ -42,7 +76,22 @@ def get_release_metrics(
                 median_cycle_time_days=None,
                 reopen_rate_pct=None,
             ),
+            metric_names=METRIC_NAMES,
+            metric_thresholds=None,
+            is_computed=False,
+            snapshot_age_hours=None,
         )
+
+    snapshot_at = snapshot.snapshot_at
+    if snapshot_at.tzinfo is None:
+        snapshot_at = snapshot_at.replace(tzinfo=UTC)
+    else:
+        snapshot_at = snapshot_at.astimezone(UTC)
+
+    snapshot_age_hours = round(
+        (datetime.now(UTC) - snapshot_at).total_seconds() / 3600.0,
+        3,
+    )
 
     return ReleaseMetricsResponse(
         release_id=release_id,
@@ -55,6 +104,10 @@ def get_release_metrics(
             median_cycle_time_days=snapshot.median_cycle_time_days,
             reopen_rate_pct=snapshot.reopen_rate_pct,
         ),
+        metric_names=METRIC_NAMES,
+        metric_thresholds=_build_metric_thresholds(),
+        is_computed=True,
+        snapshot_age_hours=snapshot_age_hours,
     )
 
 
@@ -108,6 +161,8 @@ def get_release_charts(
                 for snapshot in snapshots
             ],
         ),
+        metric_names=METRIC_NAMES,
+        point_count=len(snapshots),
     )
 
 

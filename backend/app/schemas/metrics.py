@@ -12,10 +12,25 @@ class MetricValues(BaseModel):
     reopen_rate_pct: float | None
 
 
+class MetricThresholds(BaseModel):
+    open_blockers_red: int
+    open_high_severity_bugs_red: int
+    open_high_severity_bugs_yellow: int
+    scope_churn_7d_pct_red: float
+    scope_churn_7d_pct_yellow: float
+    reopen_rate_pct_red: float
+    reopen_rate_pct_yellow: float
+    median_cycle_time_days_yellow: float
+
+
 class ReleaseMetricsResponse(BaseModel):
     release_id: str
     snapshot_at: datetime | None
     metrics: MetricValues
+    metric_names: list[str]
+    metric_thresholds: MetricThresholds | None
+    is_computed: bool
+    snapshot_age_hours: float | None
 
 
 class ChartPoint(BaseModel):
@@ -35,6 +50,8 @@ class MetricSeries(BaseModel):
 class ReleaseChartsResponse(BaseModel):
     release_id: str
     series: MetricSeries
+    metric_names: list[str]
+    point_count: int
 
 
 class RecomputeMetricsResponse(BaseModel):
