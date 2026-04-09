@@ -142,7 +142,7 @@ def test_get_release_signal_after_metrics_recompute_returns_red(client: TestClie
     payload = response.json()
     assert payload["release_id"] == "REL-1"
     assert payload["signal"] == "RED"
-    assert any("open blockers" in reason for reason in payload["reasons"])
+    assert any("blocker" in reason.lower() for reason in payload["reasons"])
 
 
 def test_get_release_signal_after_metrics_recompute_returns_green(client: TestClient) -> None:

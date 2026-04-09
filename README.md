@@ -275,8 +275,8 @@ Example `GET /releases/REL-1/signal` (signal exists):
   "release_id": "REL-1",
   "signal": "YELLOW",
   "reasons": [
-    "Open high-severity bugs present (1)",
-    "Scope churn above yellow threshold (12.50% > 10%)"
+    "High-severity bugs present: 1 > 0",
+    "Scope churn: 12.5% > 10.0%"
   ],
   "updated_at": "2026-04-09T12:00:00Z"
 }
@@ -292,6 +292,66 @@ Example `GET /releases/REL-1/signal` (empty state, release exists):
   "updated_at": null
 }
 ```
+
+### Modifying Signal Rules and Thresholds
+
+Signal rules are **entirely deterministic and easy to modify**. To add a new rule or change thresholds:
+
+#### 1. Define or update the threshold constant
+In `app/utils/constants.py`:
+```python
+MY_NEW_METRIC_RED_THRESHOLD = 0.50  # Example: 50% of something
+MY_NEW_METRIC_YELLOW_THRESHOLD = 0.25
+```
+
+#### 2. Update the `_evaluate_signal()` method
+In `app/services/signal_service.py`, add a new condition in the RED or YELLOW section:
+```python
+# RED condition example:
+if my_new_metric > MY_NEW_METRIC_RED_THRESHOLD:
+    red_reasons.append(f"My metric: {my_new_metric:.1f} > {MY_NEW_METRIC_RED_THRESHOLD}")
+
+# Or YELLOW condition:
+if my_new_metric > MY_NEW_METRIC_YELLOW_THRESHOLD:
+    yellow_reasons.append(f"My metric: {my_new_metric:.1f} > {MY_NEW_METRIC_YELLOW_THRESHOLD}")
+```
+
+**Important:** Include an inline comment above the condition explaining:
+- **Why** this threshold exists (e.g., "indicates quality risk")
+- **What value range** puts it in RED vs YELLOW
+- **How it impacts** release decisions
+
+#### 3. Add unit test cases
+In `app/tests/test_signal_service.py`, add test cases for:
+- Metric exactly at the threshold (boundary test)
+- Metric above the threshold (trigger test)
+- Metric interacting with other YELLOW/RED conditions
+- Edge cases (null values, zero, very high values)
+
+Example test:
+```python
+def test_red_my_new_metric_exceeds_threshold(self) -> None:
+    signal, reasons = SignalService._evaluate_signal(
+        ...,
+        my_new_metric=0.51,
+        ...
+    )
+    assert signal == "RED"
+    assert any("my_metric" in r.lower() for r in reasons)
+```
+
+#### 4. Update this README
+Document the new threshold and its intent in the "Release Signals" section above.
+
+#### 5. Run tests
+```bash
+pytest backend/tests/test_signal_service.py -v
+pytest backend/tests/test_signals_api.py -v
+```
+
+Ensure all tests pass, including boundary values and multiple simultaneous conditions.
+
+**Rule of thumb:** Every threshold should have a comment explaining *why*, and every rule should have at least 2 test cases (boundary and trigger).
 
 ---
 
