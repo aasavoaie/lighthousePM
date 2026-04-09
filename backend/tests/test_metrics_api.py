@@ -11,7 +11,7 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import Issue, IssueHistory, Release
+from app.models import Issue, IssueHistory, MetricSnapshot, Release
 
 
 @pytest.fixture
@@ -100,6 +100,26 @@ def _seed_history(
     )
 
 
+def _seed_snapshot(
+    session: Session,
+    release_id: str,
+    snapshot_at: datetime,
+    open_blockers: int,
+) -> None:
+    session.add(
+        MetricSnapshot(
+            release_id=release_id,
+            snapshot_at=snapshot_at,
+            open_blockers=open_blockers,
+            open_high_severity_bugs=open_blockers,
+            scope_completed_pct=float(open_blockers),
+            scope_churn_7d_pct=float(open_blockers),
+            median_cycle_time_days=float(open_blockers),
+            reopen_rate_pct=float(open_blockers),
+        )
+    )
+
+
 def test_get_release_metrics_not_found_when_release_missing(client: TestClient) -> None:
     response = client.get("/releases/UNKNOWN/metrics")
 
@@ -107,14 +127,43 @@ def test_get_release_metrics_not_found_when_release_missing(client: TestClient) 
     assert response.json()["detail"] == "Release 'UNKNOWN' not found"
 
 
-def test_get_release_metrics_not_found_when_snapshot_missing(client: TestClient) -> None:
+def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")
 
     response = client.get("/releases/REL-1/metrics")
 
-    assert response.status_code == 404
-    assert response.json()["detail"] == "No metrics found for release 'REL-1'"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["release_id"] == "REL-1"
+    assert payload["snapshot_at"] is None
+    assert payload["metrics"] == {
+        "open_blockers": None,
+        "open_high_severity_bugs": None,
+        "scope_completed_pct": None,
+        "scope_churn_7d_pct": None,
+        "median_cycle_time_days": None,
+        "reopen_rate_pct": None,
+    }
+
+
+def test_get_release_charts_returns_empty_series_when_snapshot_missing(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+
+    response = client.get("/releases/REL-1/charts")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["release_id"] == "REL-1"
+    assert payload["series"] == {
+        "open_blockers": [],
+        "open_high_severity_bugs": [],
+        "scope_completed_pct": [],
+        "scope_churn_7d_pct": [],
+        "median_cycle_time_days": [],
+        "reopen_rate_pct": [],
+    }
 
 
 def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
@@ -128,24 +177,89 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
         _seed_history(session, "LHPM-2", "fix version", "Release 0", "Release 1", now - timedelta(days=2))
         session.commit()
 
-    recompute = client.post("/releases/REL-1/metrics/recompute")
+    recompute = client.post("/releases/REL-1/recompute")
     assert recompute.status_code == 200
     payload = recompute.json()
     assert payload["release_id"] == "REL-1"
+    assert payload["status"] == "ok"
 
     response = client.get("/releases/REL-1/metrics")
     assert response.status_code == 200
     metrics = response.json()
     assert metrics["release_id"] == "REL-1"
-    assert metrics["open_blockers"] == 1
-    assert metrics["open_high_severity_bugs"] == 1
-    assert metrics["scope_completed_pct"] == 50.0
-    assert metrics["scope_churn_7d_pct"] == 50.0
-    assert metrics["reopen_rate_pct"] == 0.0
+    assert metrics["snapshot_at"] is not None
+    assert metrics["metrics"]["open_blockers"] == 1
+    assert metrics["metrics"]["open_high_severity_bugs"] == 1
+    assert metrics["metrics"]["scope_completed_pct"] == 50.0
+    assert metrics["metrics"]["scope_churn_7d_pct"] == 50.0
+    assert metrics["metrics"]["reopen_rate_pct"] == 0.0
+
+    charts = client.get("/releases/REL-1/charts")
+    assert charts.status_code == 200
+    series = charts.json()["series"]
+    assert len(series["open_blockers"]) == 1
+    assert series["open_blockers"][0]["value"] == 1
+    assert len(series["scope_completed_pct"]) == 1
+    assert series["scope_completed_pct"][0]["value"] == 50.0
 
 
 def test_recompute_release_metrics_returns_404_when_missing_release(client: TestClient) -> None:
-    response = client.post("/releases/MISSING/metrics/recompute")
+    response = client.post("/releases/MISSING/recompute")
 
     assert response.status_code == 404
     assert "Release not found" in response.json()["detail"]
+
+
+def test_get_release_charts_not_found_when_release_missing(client: TestClient) -> None:
+    response = client.get("/releases/UNKNOWN/charts")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Release 'UNKNOWN' not found"
+
+
+def test_get_release_charts_limit_param(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_snapshot(session, "REL-1", base + timedelta(days=1), open_blockers=1)
+        _seed_snapshot(session, "REL-1", base + timedelta(days=2), open_blockers=2)
+        _seed_snapshot(session, "REL-1", base + timedelta(days=3), open_blockers=3)
+        session.commit()
+
+    response = client.get("/releases/REL-1/charts?limit=2")
+
+    assert response.status_code == 200
+    points = response.json()["series"]["open_blockers"]
+    assert len(points) == 2
+    assert [point["value"] for point in points] == [1, 2]
+
+
+def test_get_release_charts_from_to_params(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_snapshot(session, "REL-1", base + timedelta(days=1), open_blockers=1)
+        _seed_snapshot(session, "REL-1", base + timedelta(days=2), open_blockers=2)
+        _seed_snapshot(session, "REL-1", base + timedelta(days=3), open_blockers=3)
+        session.commit()
+
+    from_param = (datetime(2026, 4, 2, tzinfo=UTC)).isoformat().replace("+00:00", "Z")
+    to_param = (datetime(2026, 4, 3, tzinfo=UTC)).isoformat().replace("+00:00", "Z")
+    response = client.get(f"/releases/REL-1/charts?from={from_param}&to={to_param}")
+
+    assert response.status_code == 200
+    points = response.json()["series"]["open_blockers"]
+    assert len(points) == 2
+    assert [point["value"] for point in points] == [1, 2]
+
+
+def test_get_release_charts_invalid_from_to_range(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+
+    from_param = (datetime(2026, 4, 3, tzinfo=UTC)).isoformat().replace("+00:00", "Z")
+    to_param = (datetime(2026, 4, 2, tzinfo=UTC)).isoformat().replace("+00:00", "Z")
+    response = client.get(f"/releases/REL-1/charts?from={from_param}&to={to_param}")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "'from' must be less than or equal to 'to'"
