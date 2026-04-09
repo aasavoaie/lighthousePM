@@ -231,7 +231,7 @@ def test_get_release_charts_limit_param(client: TestClient) -> None:
     assert response.status_code == 200
     points = response.json()["series"]["open_blockers"]
     assert len(points) == 2
-    assert [point["value"] for point in points] == [1, 2]
+    assert [point["value"] for point in points] == [2, 3]
 
 
 def test_get_release_charts_from_to_params(client: TestClient) -> None:

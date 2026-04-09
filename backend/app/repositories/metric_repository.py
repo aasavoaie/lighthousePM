@@ -32,5 +32,9 @@ class MetricRepository:
             query = query.where(MetricSnapshot.snapshot_at >= from_at)
         if to_at is not None:
             query = query.where(MetricSnapshot.snapshot_at <= to_at)
-        query = query.order_by(MetricSnapshot.snapshot_at.asc(), MetricSnapshot.id.asc()).limit(limit)
-        return list(session.scalars(query).all())
+        # Limit should represent the latest N snapshots; return them in chronological
+        # order so chart consumers can plot directly without resorting points.
+        query = query.order_by(MetricSnapshot.snapshot_at.desc(), MetricSnapshot.id.desc()).limit(limit)
+        snapshots = list(session.scalars(query).all())
+        snapshots.reverse()
+        return snapshots

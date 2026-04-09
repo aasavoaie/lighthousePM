@@ -151,6 +151,22 @@ Final release health output
 - `POST /sync/jira`
 - `POST /releases/{id}/recompute`
 
+### Metrics API Notes (MVP)
+
+- `GET /releases/{id}/metrics` returns the latest computed snapshot for a release.
+- If a release exists but has no snapshots yet, metrics returns `200` with:
+  - `snapshot_at: null`
+  - all metric fields set to `null`
+- `GET /releases/{id}/charts` returns frontend-agnostic series data:
+  - one array per metric
+  - each item has `snapshot_at` and `value`
+  - no chart-library-specific payloads
+- Optional query parameters for charts:
+  - `limit` (default `500`) returns the latest N snapshots
+  - `from` and `to` apply inclusive datetime bounds (`from <= snapshot_at <= to`)
+  - when `from > to`, API returns `400`
+- Unknown release IDs return `404`.
+
 ---
 
 ## ⚙️ Tech Stack
