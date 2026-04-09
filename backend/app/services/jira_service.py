@@ -91,8 +91,7 @@ def _normalize_issue_detail(raw: dict[str, Any]) -> JiraIssueDetail:
     description_raw = fields.get("description")
     if isinstance(description_raw, dict):
         # Atlassian Document Format — flatten to a single marker; callers can
-        # extend this mapping as needed.
-        # TODO: implement full ADF-to-text rendering if required.
+        # extend this mapping as needed. MVP intentionally keeps this lightweight.
         description = "[ADF content]"
     else:
         description = description_raw

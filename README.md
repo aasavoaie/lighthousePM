@@ -490,3 +490,118 @@ Known remaining gaps for full vision:
 
 - Additional quality/flow metrics (for example, aging work and bug trend)
 - Expanded signal tuning per team/project conventions
+
+---
+
+## Local Development
+
+### 1. Prerequisites
+
+- Python 3.11+
+- PostgreSQL 14+
+- Optional: Docker Desktop
+
+### 2. Configure Environment
+
+From `backend/`:
+
+```bash
+cp .env.example .env
+```
+
+Update at least:
+
+- `DATABASE_URL`
+- `JIRA_BASE_URL`
+- `JIRA_USER_EMAIL`
+- `JIRA_API_TOKEN`
+- `JIRA_PROJECT_KEY`
+
+### 3. Install Dependencies
+
+From `backend/`:
+
+```bash
+python -m pip install -e .
+python -m pip install -r requirements-dev.txt
+```
+
+### 4. Initialize Database
+
+From `backend/`:
+
+```bash
+alembic upgrade head
+```
+
+### 5. Run the API
+
+From `backend/`:
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+Open docs: `http://localhost:8000/docs`
+
+### 6. Developer Commands
+
+From `backend/`:
+
+```bash
+make test
+make lint
+make format
+make run
+```
+
+If `make` is unavailable (common on Windows PowerShell), use these equivalents:
+
+```bash
+python -m pip install -e .
+python -m pip install -r requirements-dev.txt
+uvicorn app.main:app --reload --port 8000
+pytest tests/ -v --tb=short
+ruff check app tests
+ruff format app tests
+mypy app
+alembic upgrade head
+python seed.py
+```
+
+Mapping to Make targets:
+
+- `make install` -> `python -m pip install -e .`
+- `make install-dev` -> `python -m pip install -e .` and `python -m pip install -r requirements-dev.txt`
+- `make run` -> `uvicorn app.main:app --reload --port 8000`
+- `make test` -> `pytest tests/ -v --tb=short`
+- `make lint` -> `ruff check app tests`
+- `make format` -> `ruff format app tests`
+- `make typecheck` -> `mypy app`
+- `make db-upgrade` -> `alembic upgrade head`
+- `make seed` -> `python seed.py`
+
+CI note: `tests/test_seed.py` is a lightweight smoke test intended as the
+first automated gate when CI is introduced.
+
+### 7. Sample Data for Local Testing
+
+A lightweight sample data script is included:
+
+```bash
+python seed.py
+```
+
+This creates one release plus a small set of issues and history rows so you can
+test `/releases/{id}/metrics`, `/releases/{id}/charts`, and `/releases/{id}/signal`
+without connecting to Jira.
+
+Sample release ID: `REL-DEMO-1`
+
+### 8. Run with Docker (optional)
+
+From repository root:
+
+```bash
+docker compose up --build
+```

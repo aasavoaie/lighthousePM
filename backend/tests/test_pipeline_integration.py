@@ -11,16 +11,12 @@ that metrics are computed correctly and signals accurately reflect computed metr
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 
-from fastapi.testclient import TestClient
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.main as main_module
 from app.db.base import Base
-from app.db.session import get_db_session
-from app.main import app
 from app.models import Issue, IssueHistory, MetricSnapshot, Release, ReleaseSignal
 from app.services.analytics_service import AnalyticsService
 from app.services.signal_service import SignalService
@@ -249,7 +245,7 @@ def test_pipeline_yellow_from_scope_churn(db_session: Session) -> None:
     make_release(db_session, release_id="REL-1", name="v1.0")
 
     # Create issue
-    issue = make_issue(
+    make_issue(
         db_session,
         issue_key="TEST-1",
         release_id="REL-1",
@@ -290,7 +286,7 @@ def test_pipeline_yellow_from_elevated_cycle_time(db_session: Session) -> None:
     make_release(db_session, release_id="REL-1")
 
     # Create issue and simulate workflow
-    issue = make_issue(
+    make_issue(
         db_session,
         issue_key="TEST-1",
         release_id="REL-1",
