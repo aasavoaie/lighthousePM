@@ -167,6 +167,132 @@ Final release health output
   - when `from > to`, API returns `400`
 - Unknown release IDs return `404`.
 
+Example `GET /releases/REL-1/metrics` (snapshot exists):
+
+```json
+{
+  "release_id": "REL-1",
+  "snapshot_at": "2026-04-09T12:00:00Z",
+  "metrics": {
+    "open_blockers": 1,
+    "open_high_severity_bugs": 2,
+    "scope_completed_pct": 55.56,
+    "scope_churn_7d_pct": 12.5,
+    "median_cycle_time_days": 4.0,
+    "reopen_rate_pct": 8.33
+  }
+}
+```
+
+Example `GET /releases/REL-1/metrics` (empty state, release exists):
+
+```json
+{
+  "release_id": "REL-1",
+  "snapshot_at": null,
+  "metrics": {
+    "open_blockers": null,
+    "open_high_severity_bugs": null,
+    "scope_completed_pct": null,
+    "scope_churn_7d_pct": null,
+    "median_cycle_time_days": null,
+    "reopen_rate_pct": null
+  }
+}
+```
+
+Example `GET /releases/REL-1/charts?limit=2`:
+
+```json
+{
+  "release_id": "REL-1",
+  "series": {
+    "open_blockers": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 2},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 1}
+    ],
+    "open_high_severity_bugs": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 2},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 2}
+    ],
+    "scope_completed_pct": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 50.0},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 55.56}
+    ],
+    "scope_churn_7d_pct": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 15.0},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 12.5}
+    ],
+    "median_cycle_time_days": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 5.0},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 4.0}
+    ],
+    "reopen_rate_pct": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 10.0},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 8.33}
+    ]
+  }
+}
+```
+
+Example `POST /releases/REL-1/recompute`:
+
+```json
+{
+  "release_id": "REL-1",
+  "snapshot_at": "2026-04-09T12:00:00Z",
+  "status": "ok"
+}
+```
+
+### Signals API Notes (MVP)
+
+- `GET /releases/{id}/signal` returns the latest computed release signal.
+- If a release exists but signal was not computed yet, returns `200` with:
+  - `signal: null`
+  - `reasons: []`
+  - `updated_at: null`
+- Signal rules are deterministic and threshold-based:
+  - **RED** if any of:
+    - `open_blockers > 0`
+    - `open_high_severity_bugs > 1`
+    - `scope_churn_7d_pct > 20%`
+    - `reopen_rate_pct > 15%`
+  - **YELLOW** if not RED and any of:
+    - `open_high_severity_bugs > 0`
+    - `scope_churn_7d_pct > 10%`
+    - `reopen_rate_pct > 10%`
+    - `median_cycle_time_days > 7`
+  - **GREEN** otherwise.
+- Percent metrics in DB are stored as `0-100` and normalized to `0-1` only for
+  threshold comparisons.
+- MVP retention policy: signal is stored as latest-only per release (updated in place).
+
+Example `GET /releases/REL-1/signal` (signal exists):
+
+```json
+{
+  "release_id": "REL-1",
+  "signal": "YELLOW",
+  "reasons": [
+    "Open high-severity bugs present (1)",
+    "Scope churn above yellow threshold (12.50% > 10%)"
+  ],
+  "updated_at": "2026-04-09T12:00:00Z"
+}
+```
+
+Example `GET /releases/REL-1/signal` (empty state, release exists):
+
+```json
+{
+  "release_id": "REL-1",
+  "signal": null,
+  "reasons": [],
+  "updated_at": null
+}
+```
+
 ---
 
 ## ⚙️ Tech Stack
@@ -237,7 +363,7 @@ This repository now includes an initial backend scaffold in `backend/` with:
 - FastAPI app entrypoint
 - Environment-based config loading
 - Thin health endpoint: `GET /health`
-- Service/module placeholders for future Jira sync, metrics, and signals
+- Implemented services for Jira sync, metrics recompute, and release signal computation
 - Docker Compose for backend + Postgres
 
 ### Run with Docker
@@ -293,10 +419,14 @@ alembic revision -m "describe change"
 
 ### Current Scope Note
 
-This is a scaffold-only MVP baseline.
+This backend currently includes a working MVP path for:
 
-Not implemented yet:
+- Jira sync ingestion (`POST /sync/jira`)
+- Deterministic metrics snapshots (`metric_snapshots`)
+- Deterministic release signals (`release_signals`)
+- Release-level metrics/charts/signal read APIs
 
-- Jira ingestion/sync behavior
-- Metrics computation logic
-- Release signal rule execution
+Known remaining gaps for full vision:
+
+- Additional quality/flow metrics (for example, aging work and bug trend)
+- Expanded signal tuning per team/project conventions

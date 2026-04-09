@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.config import Settings
 from app.db.base import Base
-from app.models import Issue, IssueHistory, MetricSnapshot, Release
+from app.models import Issue, IssueHistory, MetricSnapshot, Release, ReleaseSignal
 from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraIssueSummary, JiraVersion
 from app.services.sync_service import SyncService
 
@@ -136,11 +136,14 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     issues = list(db_session.scalars(select(Issue)).all())
     history = list(db_session.scalars(select(IssueHistory)).all())
     snapshots = list(db_session.scalars(select(MetricSnapshot)).all())
+    signals = list(db_session.scalars(select(ReleaseSignal)).all())
 
     assert len(releases) == 1
     assert len(issues) == 1
     assert len(history) == 1
     assert len(snapshots) == 1
+    assert len(signals) == 1
+    assert signals[0].signal == "YELLOW"
     assert issues[0].release_id == "1001"
 
 
@@ -159,5 +162,7 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
 
     history = list(db_session.scalars(select(IssueHistory)).all())
     snapshots = list(db_session.scalars(select(MetricSnapshot)).all())
+    signals = list(db_session.scalars(select(ReleaseSignal)).all())
     assert len(history) == 1
     assert len(snapshots) == 2
+    assert len(signals) == 1

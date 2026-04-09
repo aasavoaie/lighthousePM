@@ -5,6 +5,13 @@ SCOPE_CHURN_RED_THRESHOLD = 0.20
 SCOPE_CHURN_YELLOW_THRESHOLD = 0.10
 REOPEN_RATE_RED_THRESHOLD = 0.15
 
+# Signal-layer thresholds (MVP assumptions)
+# Percent-based metrics are stored as 0-100 in metric_snapshots and converted to
+# normalized ratios (0-1) before comparing to ratio thresholds above.
+HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD = 0
+REOPEN_RATE_YELLOW_THRESHOLD = 0.10
+CYCLE_TIME_YELLOW_THRESHOLD_DAYS = 7.0
+
 # ---------------------------------------------------------------------------
 # Jira field value mappings
 # All status/priority comparisons are case-insensitive (use .casefold()).

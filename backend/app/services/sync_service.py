@@ -10,6 +10,7 @@ from app.services.analytics_service import AnalyticsService
 from app.services.jira_errors import JiraServiceError
 from app.services.jira_service import JiraService
 from app.services.jira_types import JiraChangelogEntry, JiraIssueSummary
+from app.services.signal_service import SignalService
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +164,10 @@ class SyncService:
 
             # Keep metrics snapshots in sync with each successful Jira ingestion run.
             analytics_service = AnalyticsService()
+            signal_service = SignalService()
             for release_id in version_name_to_release_id.values():
                 analytics_service.recompute_release_metrics(session=session, release_id=release_id)
+                signal_service.recompute_release_signal(session=session, release_id=release_id)
 
             session.commit()
         except JiraServiceError as exc:
@@ -172,7 +175,7 @@ class SyncService:
             raise SyncServiceError(f"Jira sync failed: {exc}") from exc
         except ValueError as exc:
             session.rollback()
-            raise SyncServiceError(f"Analytics recompute failed: {exc}") from exc
+            raise SyncServiceError(f"Post-sync recompute failed: {exc}") from exc
         except SQLAlchemyError as exc:
             session.rollback()
             raise SyncServiceError(f"Database sync failed: {exc}") from exc

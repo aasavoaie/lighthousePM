@@ -15,6 +15,7 @@ from app.schemas.metrics import (
     ReleaseMetricsResponse,
 )
 from app.services.analytics_service import AnalyticsService
+from app.services.signal_service import SignalService
 
 router = APIRouter(prefix="/releases", tags=["metrics"])
 
@@ -115,9 +116,11 @@ def recompute_release_metrics(
     release_id: str,
     session: Session = Depends(get_db_session),
 ) -> RecomputeMetricsResponse:
-    service = AnalyticsService()
+    analytics_service = AnalyticsService()
+    signal_service = SignalService()
     try:
-        snapshot = service.recompute_release_metrics(session=session, release_id=release_id)
+        snapshot = analytics_service.recompute_release_metrics(session=session, release_id=release_id)
+        signal_service.recompute_release_signal(session=session, release_id=release_id)
         session.commit()
     except ValueError as exc:
         session.rollback()
