@@ -137,6 +137,17 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
     payload = response.json()
     assert payload["release_id"] == "REL-1"
     assert payload["snapshot_at"] is None
+    assert payload["metric_names"] == [
+        "open_blockers",
+        "open_high_severity_bugs",
+        "scope_completed_pct",
+        "scope_churn_7d_pct",
+        "median_cycle_time_days",
+        "reopen_rate_pct",
+    ]
+    assert payload["metric_thresholds"] is None
+    assert payload["is_computed"] is False
+    assert payload["snapshot_age_hours"] is None
     assert payload["metrics"] == {
         "open_blockers": None,
         "open_high_severity_bugs": None,
@@ -156,6 +167,15 @@ def test_get_release_charts_returns_empty_series_when_snapshot_missing(client: T
     assert response.status_code == 200
     payload = response.json()
     assert payload["release_id"] == "REL-1"
+    assert payload["metric_names"] == [
+        "open_blockers",
+        "open_high_severity_bugs",
+        "scope_completed_pct",
+        "scope_churn_7d_pct",
+        "median_cycle_time_days",
+        "reopen_rate_pct",
+    ]
+    assert payload["point_count"] == 0
     assert payload["series"] == {
         "open_blockers": [],
         "open_high_severity_bugs": [],
@@ -188,6 +208,27 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     metrics = response.json()
     assert metrics["release_id"] == "REL-1"
     assert metrics["snapshot_at"] is not None
+    assert metrics["is_computed"] is True
+    assert isinstance(metrics["snapshot_age_hours"], float)
+    assert metrics["snapshot_age_hours"] >= 0.0
+    assert metrics["metric_names"] == [
+        "open_blockers",
+        "open_high_severity_bugs",
+        "scope_completed_pct",
+        "scope_churn_7d_pct",
+        "median_cycle_time_days",
+        "reopen_rate_pct",
+    ]
+    assert metrics["metric_thresholds"] == {
+        "open_blockers_red": 0,
+        "open_high_severity_bugs_red": 1,
+        "open_high_severity_bugs_yellow": 0,
+        "scope_churn_7d_pct_red": 20.0,
+        "scope_churn_7d_pct_yellow": 10.0,
+        "reopen_rate_pct_red": 15.0,
+        "reopen_rate_pct_yellow": 10.0,
+        "median_cycle_time_days_yellow": 7.0,
+    }
     assert metrics["metrics"]["open_blockers"] == 1
     assert metrics["metrics"]["open_high_severity_bugs"] == 1
     assert metrics["metrics"]["scope_completed_pct"] == 50.0
@@ -196,7 +237,17 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
 
     charts = client.get("/releases/REL-1/charts")
     assert charts.status_code == 200
-    series = charts.json()["series"]
+    charts_payload = charts.json()
+    assert charts_payload["metric_names"] == [
+        "open_blockers",
+        "open_high_severity_bugs",
+        "scope_completed_pct",
+        "scope_churn_7d_pct",
+        "median_cycle_time_days",
+        "reopen_rate_pct",
+    ]
+    assert charts_payload["point_count"] == 1
+    series = charts_payload["series"]
     assert len(series["open_blockers"]) == 1
     assert series["open_blockers"][0]["value"] == 1
     assert len(series["scope_completed_pct"]) == 1
@@ -229,7 +280,9 @@ def test_get_release_charts_limit_param(client: TestClient) -> None:
     response = client.get("/releases/REL-1/charts?limit=2")
 
     assert response.status_code == 200
-    points = response.json()["series"]["open_blockers"]
+    payload = response.json()
+    assert payload["point_count"] == 2
+    points = payload["series"]["open_blockers"]
     assert len(points) == 2
     assert [point["value"] for point in points] == [2, 3]
 
@@ -248,7 +301,9 @@ def test_get_release_charts_from_to_params(client: TestClient) -> None:
     response = client.get(f"/releases/REL-1/charts?from={from_param}&to={to_param}")
 
     assert response.status_code == 200
-    points = response.json()["series"]["open_blockers"]
+    payload = response.json()
+    assert payload["point_count"] == 2
+    points = payload["series"]["open_blockers"]
     assert len(points) == 2
     assert [point["value"] for point in points] == [1, 2]
 

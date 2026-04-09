@@ -125,6 +125,17 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
         "release_id": "REL-1",
         "signal": None,
         "reasons": [],
+        "reason_details": [],
+        "thresholds": {
+            "open_blockers_red": 0,
+            "open_high_severity_bugs_red": 1,
+            "open_high_severity_bugs_yellow": 0,
+            "scope_churn_7d_pct_red": 20.0,
+            "scope_churn_7d_pct_yellow": 10.0,
+            "reopen_rate_pct_red": 15.0,
+            "reopen_rate_pct_yellow": 10.0,
+            "median_cycle_time_days_yellow": 7.0,
+        },
         "updated_at": None,
     }
 
@@ -143,6 +154,9 @@ def test_get_release_signal_after_metrics_recompute_returns_red(client: TestClie
     assert payload["release_id"] == "REL-1"
     assert payload["signal"] == "RED"
     assert any("blocker" in reason.lower() for reason in payload["reasons"])
+    assert payload["thresholds"]["open_blockers_red"] == 0
+    assert any(detail["metric_name"] == "open_blockers" for detail in payload["reason_details"])
+    assert all(detail["message"] in payload["reasons"] for detail in payload["reason_details"])
 
 
 def test_get_release_signal_after_metrics_recompute_returns_green(client: TestClient) -> None:
@@ -166,3 +180,5 @@ def test_get_release_signal_after_metrics_recompute_returns_green(client: TestCl
     payload = response.json()
     assert payload["signal"] == "GREEN"
     assert payload["reasons"] == ["No major risk indicators"]
+    assert payload["reason_details"] == []
+    assert payload["thresholds"]["median_cycle_time_days_yellow"] == 7.0

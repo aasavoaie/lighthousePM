@@ -173,6 +173,26 @@ Example `GET /releases/REL-1/metrics` (snapshot exists):
 {
   "release_id": "REL-1",
   "snapshot_at": "2026-04-09T12:00:00Z",
+  "metric_names": [
+    "open_blockers",
+    "open_high_severity_bugs",
+    "scope_completed_pct",
+    "scope_churn_7d_pct",
+    "median_cycle_time_days",
+    "reopen_rate_pct"
+  ],
+  "metric_thresholds": {
+    "open_blockers_red": 0,
+    "open_high_severity_bugs_red": 1,
+    "open_high_severity_bugs_yellow": 0,
+    "scope_churn_7d_pct_red": 20.0,
+    "scope_churn_7d_pct_yellow": 10.0,
+    "reopen_rate_pct_red": 15.0,
+    "reopen_rate_pct_yellow": 10.0,
+    "median_cycle_time_days_yellow": 7.0
+  },
+  "is_computed": true,
+  "snapshot_age_hours": 0.1,
   "metrics": {
     "open_blockers": 1,
     "open_high_severity_bugs": 2,
@@ -190,6 +210,17 @@ Example `GET /releases/REL-1/metrics` (empty state, release exists):
 {
   "release_id": "REL-1",
   "snapshot_at": null,
+  "metric_names": [
+    "open_blockers",
+    "open_high_severity_bugs",
+    "scope_completed_pct",
+    "scope_churn_7d_pct",
+    "median_cycle_time_days",
+    "reopen_rate_pct"
+  ],
+  "metric_thresholds": null,
+  "is_computed": false,
+  "snapshot_age_hours": null,
   "metrics": {
     "open_blockers": null,
     "open_high_severity_bugs": null,
@@ -206,6 +237,15 @@ Example `GET /releases/REL-1/charts?limit=2`:
 ```json
 {
   "release_id": "REL-1",
+  "metric_names": [
+    "open_blockers",
+    "open_high_severity_bugs",
+    "scope_completed_pct",
+    "scope_churn_7d_pct",
+    "median_cycle_time_days",
+    "reopen_rate_pct"
+  ],
+  "point_count": 2,
   "series": {
     "open_blockers": [
       {"snapshot_at": "2026-04-09T11:00:00Z", "value": 2},
@@ -278,6 +318,34 @@ Example `GET /releases/REL-1/signal` (signal exists):
     "High-severity bugs present: 1 > 0",
     "Scope churn: 12.5% > 10.0%"
   ],
+  "reason_details": [
+    {
+      "metric_name": "open_high_severity_bugs",
+      "level": "YELLOW",
+      "value": 1,
+      "comparison": ">",
+      "threshold": 0,
+      "message": "High-severity bugs present: 1 > 0"
+    },
+    {
+      "metric_name": "scope_churn_7d_pct",
+      "level": "YELLOW",
+      "value": 12.5,
+      "comparison": ">",
+      "threshold": 10.0,
+      "message": "Scope churn: 12.5% > 10%"
+    }
+  ],
+  "thresholds": {
+    "open_blockers_red": 0,
+    "open_high_severity_bugs_red": 1,
+    "open_high_severity_bugs_yellow": 0,
+    "scope_churn_7d_pct_red": 20.0,
+    "scope_churn_7d_pct_yellow": 10.0,
+    "reopen_rate_pct_red": 15.0,
+    "reopen_rate_pct_yellow": 10.0,
+    "median_cycle_time_days_yellow": 7.0
+  },
   "updated_at": "2026-04-09T12:00:00Z"
 }
 ```
@@ -289,9 +357,37 @@ Example `GET /releases/REL-1/signal` (empty state, release exists):
   "release_id": "REL-1",
   "signal": null,
   "reasons": [],
+  "reason_details": [],
+  "thresholds": {
+    "open_blockers_red": 0,
+    "open_high_severity_bugs_red": 1,
+    "open_high_severity_bugs_yellow": 0,
+    "scope_churn_7d_pct_red": 20.0,
+    "scope_churn_7d_pct_yellow": 10.0,
+    "reopen_rate_pct_red": 15.0,
+    "reopen_rate_pct_yellow": 10.0,
+    "median_cycle_time_days_yellow": 7.0
+  },
   "updated_at": null
 }
 ```
+
+### Output Contract Note (Internal)
+
+- **Release signal output** (`GET /releases/{id}/signal`):
+  - Human-readable `reasons` for immediate UI rendering.
+  - Machine-friendly `reason_details` with `metric_name`, `value`, `threshold`, and `level`.
+  - Explicit `thresholds` object so downstream services do not hardcode rule boundaries.
+- **Metrics output** (`GET /releases/{id}/metrics`):
+  - `metrics` values plus `metric_names` for stable key ordering.
+  - `is_computed` differentiates uncomputed releases from computed snapshots.
+  - `snapshot_age_hours` exposes freshness for dashboard staleness indicators.
+- **Notable issues output**:
+  - Use existing `GET /releases/{id}/issues` and issue fields (`is_blocker`, `priority`, `status`).
+  - No dedicated notable-issues endpoint is introduced in MVP.
+- **Historical trend output** (`GET /releases/{id}/charts`):
+  - Time series remains metric-keyed (`series.<metric_name>[]`).
+  - `metric_names` and `point_count` make chart wiring deterministic for consumers.
 
 ### Modifying Signal Rules and Thresholds
 
