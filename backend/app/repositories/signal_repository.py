@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -40,4 +42,5 @@ class SignalRepository:
 
         existing.signal = signal
         existing.reasons = reasons
+        existing.updated_at = datetime.now(timezone.utc)
         return existing
