@@ -8,14 +8,12 @@ from app.config import Settings, get_settings
 from app.repositories.sync_repository import SyncRepository
 from app.services.analytics_service import AnalyticsService
 from app.services.jira_errors import JiraServiceError
+from app.services.jira_field_mapper import JiraFieldMapper
 from app.services.jira_service import JiraService
 from app.services.jira_types import JiraChangelogEntry, JiraIssueSummary
 from app.services.signal_service import SignalService
 
 logger = logging.getLogger(__name__)
-
-_RELEVANT_CHANGE_FIELDS = {"status", "assignee", "priority", "fix version", "fixversion"}
-
 
 @dataclass
 class SyncResult:
@@ -45,13 +43,16 @@ class SyncService:
         settings: Settings | None = None,
     ) -> None:
         self._settings = settings or get_settings()
+        self._field_mapper = JiraFieldMapper(self._settings)
         self._jira_service = jira_service or JiraService(settings=self._settings)
 
     def _validate_sync_settings(self) -> str:
         if not self._settings.jira_sync_enabled:
             raise SyncServiceError("Jira sync is disabled by configuration")
-        if not self._settings.jira_project_key.strip():
-            raise SyncServiceError("JIRA_PROJECT_KEY must be configured for sync")
+        try:
+            self._settings.validate_startup_settings()
+        except ValueError as exc:
+            raise SyncServiceError(str(exc)) from exc
         return self._settings.jira_project_key.strip()
 
     async def _fetch_project_issues(self, project_key: str) -> list[JiraIssueSummary]:
@@ -72,27 +73,29 @@ class SyncService:
 
         return all_issues
 
-    @staticmethod
-    def _is_blocker(issue_type: str, priority: str | None, status: str) -> bool:
+    def _is_blocker(
+        self,
+        issue_type: str,
+        priority: str | None,
+        status: str,
+        blocker_flag: bool | None,
+    ) -> bool:
         """Temporary deterministic blocker heuristic for MVP sync.
 
         Assumption: blocker-like work is identified by issue type or priority labels
         because custom Jira fields vary between projects and are not yet standardized.
         """
-        issue_type_value = issue_type.lower()
-        priority_value = (priority or "").lower()
-        status_value = status.lower()
-        return (
-            issue_type_value in {"blocker", "incident"}
-            or priority_value in {"blocker", "highest", "critical"}
-        ) and status_value not in {"done", "closed", "resolved"}
+        return self._field_mapper.classify_blocker(
+            issue_type=issue_type,
+            severity=priority,
+            status=status,
+            blocker_flag=blocker_flag,
+        )
 
-    @staticmethod
-    def _filter_relevant_history(entries: list[JiraChangelogEntry]) -> list[JiraChangelogEntry]:
+    def _filter_relevant_history(self, entries: list[JiraChangelogEntry]) -> list[JiraChangelogEntry]:
         filtered: list[JiraChangelogEntry] = []
         for entry in entries:
-            normalized = entry.field_name.strip().lower()
-            if normalized in _RELEVANT_CHANGE_FIELDS:
+            if self._field_mapper.is_relevant_history_field(entry.field_name):
                 filtered.append(entry)
         return filtered
 
@@ -141,6 +144,7 @@ class SyncService:
                         issue_type=issue_detail.issue_type,
                         priority=issue_detail.priority,
                         status=issue_detail.status,
+                        blocker_flag=issue_detail.blocker_flag,
                     ),
                 )
                 if created:

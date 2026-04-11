@@ -110,6 +110,9 @@ def _test_settings() -> Settings:
     return Settings(
         app_env="test",
         database_url="sqlite:///:memory:",
+        jira_base_url="https://test.atlassian.net",
+        jira_user_email="test@example.com",
+        jira_api_token="token",
         jira_project_key="LHPM",
         jira_sync_enabled=True,
         jira_sync_page_size=50,
@@ -166,3 +169,42 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     assert len(history) == 1
     assert len(snapshots) == 2
     assert len(signals) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_uses_blocker_flag_when_present(db_session: Session) -> None:
+    class BlockerFlagJiraService(FakeJiraService):
+        async def get_issue_details(self, issue_key: str, fields: list[str] | None = None) -> JiraIssueDetail:
+            return JiraIssueDetail(
+                key=issue_key,
+                summary="Flagged blocker",
+                status="In Progress",
+                issue_type="Story",
+                priority="Low",
+                assignee="alice",
+                updated=datetime.now(UTC),
+                description="details",
+                labels=["backend"],
+                components=["api"],
+                fix_versions=["Release 1"],
+                reporter="bob",
+                blocker_flag=True,
+            )
+
+    settings = Settings(
+        app_env="test",
+        database_url="sqlite:///:memory:",
+        jira_base_url="https://test.atlassian.net",
+        jira_user_email="test@example.com",
+        jira_api_token="token",
+        jira_project_key="LHPM",
+        jira_sync_enabled=True,
+        jira_field_blocker="customfield_blocker",
+    )
+    service = SyncService(jira_service=BlockerFlagJiraService(), settings=settings)
+
+    await service.sync_from_jira(session=db_session)
+
+    stored_issue = db_session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
+    assert stored_issue is not None
+    assert stored_issue.is_blocker is True

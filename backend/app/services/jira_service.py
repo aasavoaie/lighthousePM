@@ -20,6 +20,7 @@ from app.services.jira_errors import (
     JiraRequestError,
     JiraResponseParseError,
 )
+from app.services.jira_field_mapper import JiraFieldMapper
 from app.services.jira_types import (
     JiraChangelogEntry,
     JiraIssueDetail,
@@ -28,20 +29,6 @@ from app.services.jira_types import (
 )
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_ISSUE_FIELDS = [
-    "summary",
-    "status",
-    "issuetype",
-    "priority",
-    "assignee",
-    "updated",
-    "fixVersions",
-    "description",
-    "labels",
-    "components",
-    "reporter",
-]
 
 
 def _parse_datetime(value: str | None) -> datetime | None:
@@ -66,50 +53,6 @@ def _display_name(field: dict[str, Any] | None) -> str | None:
     if field is None:
         return None
     return field.get("displayName") or field.get("name")
-
-
-def _normalize_issue_summary(raw: dict[str, Any]) -> JiraIssueSummary:
-    fields: dict[str, Any] = raw.get("fields", {})
-    fix_versions = [version.get("name", "") for version in (fields.get("fixVersions") or [])]
-    return JiraIssueSummary(
-        key=raw["key"],
-        summary=fields.get("summary", ""),
-        status=_display_name(fields.get("status")) or "",
-        issue_type=_display_name(fields.get("issuetype")) or "",
-        priority=_display_name(fields.get("priority")),
-        assignee=_display_name(fields.get("assignee")),
-        updated=_parse_datetime(fields.get("updated")),
-        fix_versions=[value for value in fix_versions if value],
-    )
-
-
-def _normalize_issue_detail(raw: dict[str, Any]) -> JiraIssueDetail:
-    fields: dict[str, Any] = raw.get("fields", {})
-    labels: list[str] = fields.get("labels") or []
-    components: list[str] = [c.get("name", "") for c in (fields.get("components") or [])]
-    fix_versions = [version.get("name", "") for version in (fields.get("fixVersions") or [])]
-    description_raw = fields.get("description")
-    if isinstance(description_raw, dict):
-        # Atlassian Document Format — flatten to a single marker; callers can
-        # extend this mapping as needed. MVP intentionally keeps this lightweight.
-        description = "[ADF content]"
-    else:
-        description = description_raw
-
-    return JiraIssueDetail(
-        key=raw["key"],
-        summary=fields.get("summary", ""),
-        status=_display_name(fields.get("status")) or "",
-        issue_type=_display_name(fields.get("issuetype")) or "",
-        priority=_display_name(fields.get("priority")),
-        assignee=_display_name(fields.get("assignee")),
-        updated=_parse_datetime(fields.get("updated")),
-        description=description,
-        labels=labels,
-        components=components,
-        fix_versions=[value for value in fix_versions if value],
-        reporter=_display_name(fields.get("reporter")),
-    )
 
 
 def _normalize_changelog_entry(issue_key: str, history: dict[str, Any]) -> list[JiraChangelogEntry]:
@@ -143,6 +86,7 @@ class JiraService:
         settings: Settings | None = None,
     ) -> None:
         self._settings = settings or get_settings()
+        self._field_mapper = JiraFieldMapper(self._settings)
         self._external_client = client
         self._owned_client: httpx.AsyncClient | None = None
 
@@ -240,13 +184,19 @@ class JiraService:
         payload: dict[str, Any] = {
             "jql": jql,
             "maxResults": max_results,
-            "fields": fields or _DEFAULT_ISSUE_FIELDS[:7],  # summary subset for search
+            "fields": fields or self._field_mapper.search_issue_fields(),
         }
         if next_page_token is not None:
             payload["nextPageToken"] = next_page_token
         data = await self._request("POST", "/rest/api/3/search/jql", json=payload)
         try:
-            issues = [_normalize_issue_summary(issue) for issue in data.get("issues", [])]
+            issues = [
+                self._field_mapper.normalize_issue_summary(
+                    raw=issue,
+                    updated=_parse_datetime(issue.get("fields", {}).get("updated")),
+                )
+                for issue in data.get("issues", [])
+            ]
             returned_token: str | None = data.get("nextPageToken") or None
             return issues, returned_token
         except (KeyError, TypeError) as exc:
@@ -258,10 +208,13 @@ class JiraService:
         fields: list[str] | None = None,
     ) -> JiraIssueDetail:
         """Return full detail for a single issue."""
-        params: dict[str, str] = {"fields": ",".join(fields or _DEFAULT_ISSUE_FIELDS)}
+        params: dict[str, str] = {"fields": ",".join(fields or self._field_mapper.detail_issue_fields())}
         data = await self._request("GET", f"/rest/api/3/issue/{issue_key}", params=params)
         try:
-            return _normalize_issue_detail(data)
+            return self._field_mapper.normalize_issue_detail(
+                raw=data,
+                updated=_parse_datetime(data.get("fields", {}).get("updated")),
+            )
         except (KeyError, TypeError) as exc:
             raise JiraResponseParseError(
                 f"Unexpected issue detail response structure for {issue_key}: {exc}"

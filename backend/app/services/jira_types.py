@@ -39,6 +39,8 @@ class JiraIssueDetail:
     components: list[str] = field(default_factory=list)
     fix_versions: list[str] = field(default_factory=list)
     reporter: str | None = None
+    story_points: float | None = None
+    blocker_flag: bool | None = None
 
 
 @dataclass

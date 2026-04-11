@@ -608,10 +608,40 @@ cp .env.example .env
 Update at least:
 
 - `DATABASE_URL`
+- `JIRA_SYNC_ENABLED`
+
+If `JIRA_SYNC_ENABLED=true`, these are required at startup:
+
 - `JIRA_BASE_URL`
 - `JIRA_USER_EMAIL`
 - `JIRA_API_TOKEN`
 - `JIRA_PROJECT_KEY`
+
+If sync is disabled, the API still starts for local/manual workflows.
+
+### Jira Field Mapping (Explicit Overrides)
+
+Field mapping is configurable per Jira instance using `.env` variables:
+
+- `JIRA_FIELD_SEVERITY` (default: `priority`)
+- `JIRA_FIELD_RELEASE` (default: `fixVersions`)
+- `JIRA_FIELD_STORY_POINTS` (optional)
+- `JIRA_FIELD_BLOCKER` (optional)
+- `JIRA_BLOCKER_TRUE_VALUES` (default: `true,yes,1,blocker`)
+- `JIRA_CHANGELOG_FIX_VERSION_FIELDS` (default: `fix version,fixversion`)
+
+These mappings keep assumptions explicit and avoid hardcoding custom field IDs in service code.
+
+### Assumptions Summary (Current)
+
+- Severity defaults to Jira `priority` unless `JIRA_FIELD_SEVERITY` is overridden.
+- Release linkage defaults to Jira `fixVersions` unless `JIRA_FIELD_RELEASE` is overridden.
+- Scope churn inspects changelog fields listed in `JIRA_CHANGELOG_FIX_VERSION_FIELDS`.
+- Blocker detection falls back to the original deterministic heuristic when `JIRA_FIELD_BLOCKER` is unset or missing:
+  - issue type is `blocker` or `incident`, or
+  - severity is `blocker`, `highest`, or `critical`,
+  - and status is not done.
+- If `JIRA_FIELD_BLOCKER` is configured and present on an issue, that flag takes precedence for blocker detection.
 
 ### 3. Install Dependencies
 
