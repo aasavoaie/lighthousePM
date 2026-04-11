@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import Issue, IssueHistory, MetricSnapshot, Release
-from app.utils.constants import DONE_STATUSES, HIGH_SEVERITY_PRIORITIES, IN_PROGRESS_STATUSES
+from app.services.jira_field_mapper import JiraFieldMapper
 
 
 class AnalyticsService:
@@ -27,15 +28,22 @@ class AnalyticsService:
         if release is None:
             raise ValueError(f"Release not found: {release_id!r}")
 
+        field_mapper = JiraFieldMapper(get_settings())
+
         snapshot = MetricSnapshot(
             release_id=release_id,
             snapshot_at=datetime.now(UTC),
-            open_blockers=self._count_open_blockers(session, release_id),
-            open_high_severity_bugs=self._count_open_high_severity_bugs(session, release_id),
-            scope_completed_pct=self._compute_scope_completed_pct(session, release_id),
-            scope_churn_7d_pct=self._compute_scope_churn_7d_pct(session, release_id, release.name),
-            reopen_rate_pct=self._compute_reopen_rate_pct(session, release_id),
-            median_cycle_time_days=self._compute_median_cycle_time_days(session, release_id),
+            open_blockers=self._count_open_blockers(session, release_id, field_mapper),
+            open_high_severity_bugs=self._count_open_high_severity_bugs(session, release_id, field_mapper),
+            scope_completed_pct=self._compute_scope_completed_pct(session, release_id, field_mapper),
+            scope_churn_7d_pct=self._compute_scope_churn_7d_pct(
+                session,
+                release_id,
+                release.name,
+                field_mapper,
+            ),
+            reopen_rate_pct=self._compute_reopen_rate_pct(session, release_id, field_mapper),
+            median_cycle_time_days=self._compute_median_cycle_time_days(session, release_id, field_mapper),
         )
         session.add(snapshot)
         return snapshot
@@ -45,7 +53,7 @@ class AnalyticsService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _count_open_blockers(session: Session, release_id: str) -> int:
+    def _count_open_blockers(session: Session, release_id: str, field_mapper: JiraFieldMapper) -> int:
         """COUNT issues WHERE is_blocker AND status NOT IN done statuses."""
         result = session.scalar(
             select(func.count())
@@ -53,13 +61,17 @@ class AnalyticsService:
             .where(
                 Issue.release_id == release_id,
                 Issue.is_blocker.is_(True),
-                func.lower(Issue.status).not_in(DONE_STATUSES),
+                func.lower(Issue.status).not_in(field_mapper.done_statuses),
             )
         )
         return int(result or 0)
 
     @staticmethod
-    def _count_open_high_severity_bugs(session: Session, release_id: str) -> int:
+    def _count_open_high_severity_bugs(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
         """COUNT issues WHERE type='bug' AND priority in high-severity AND status NOT done."""
         result = session.scalar(
             select(func.count())
@@ -67,14 +79,18 @@ class AnalyticsService:
             .where(
                 Issue.release_id == release_id,
                 func.lower(Issue.issue_type) == "bug",
-                func.lower(Issue.priority).in_(HIGH_SEVERITY_PRIORITIES),
-                func.lower(Issue.status).not_in(DONE_STATUSES),
+                func.lower(Issue.priority).in_(field_mapper.high_severity_values),
+                func.lower(Issue.status).not_in(field_mapper.done_statuses),
             )
         )
         return int(result or 0)
 
     @staticmethod
-    def _compute_scope_completed_pct(session: Session, release_id: str) -> float:
+    def _compute_scope_completed_pct(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> float:
         """100 * done_issues / total_issues. Returns 0.0 when release is empty.
 
         Assumption: scope is measured in issue count, not story points, because
@@ -90,14 +106,17 @@ class AnalyticsService:
             .select_from(Issue)
             .where(
                 Issue.release_id == release_id,
-                func.lower(Issue.status).in_(DONE_STATUSES),
+                func.lower(Issue.status).in_(field_mapper.done_statuses),
             )
         ) or 0
         return round(100.0 * done / total, 2)
 
     @staticmethod
     def _compute_scope_churn_7d_pct(
-        session: Session, release_id: str, release_name: str
+        session: Session,
+        release_id: str,
+        release_name: str,
+        field_mapper: JiraFieldMapper,
     ) -> float:
         """100 * distinct churned issues / total issues in last 7 days.
 
@@ -119,7 +138,7 @@ class AnalyticsService:
         churned_keys = session.scalars(
             select(IssueHistory.issue_key)
             .where(
-                IssueHistory.field_name.in_(["fix version", "fixversion"]),
+                func.lower(IssueHistory.field_name).in_(field_mapper.fix_version_changelog_fields),
                 IssueHistory.changed_at >= cutoff,
                 func.lower(IssueHistory.old_value).in_([release_name_lower])
                 | func.lower(IssueHistory.new_value).in_([release_name_lower]),
@@ -130,7 +149,11 @@ class AnalyticsService:
         return round(100.0 * len(churned_keys) / total, 2)
 
     @staticmethod
-    def _compute_reopen_rate_pct(session: Session, release_id: str) -> float:
+    def _compute_reopen_rate_pct(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> float:
         """100 * distinct reopened issues / total issues.
 
         Reopened = an issue in this release that has a status transition FROM a done
@@ -153,8 +176,8 @@ class AnalyticsService:
             .where(
                 IssueHistory.issue_key.in_(release_issue_keys_subq),
                 IssueHistory.field_name == "status",
-                func.lower(IssueHistory.old_value).in_(DONE_STATUSES),
-                func.lower(IssueHistory.new_value).not_in(DONE_STATUSES),
+                func.lower(IssueHistory.old_value).in_(field_mapper.done_statuses),
+                func.lower(IssueHistory.new_value).not_in(field_mapper.done_statuses),
             )
             .distinct()
         ).all()
@@ -162,7 +185,11 @@ class AnalyticsService:
         return round(100.0 * len(reopened_keys) / total, 2)
 
     @staticmethod
-    def _compute_median_cycle_time_days(session: Session, release_id: str) -> float | None:
+    def _compute_median_cycle_time_days(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> float | None:
         """Median elapsed days from first 'in progress' to first 'done' transition.
 
         Only issues in this release that have BOTH transitions in issue_history are included.
@@ -174,7 +201,7 @@ class AnalyticsService:
         done_issues = session.scalars(
             select(Issue.issue_key).where(
                 Issue.release_id == release_id,
-                func.lower(Issue.status).in_(DONE_STATUSES),
+                func.lower(Issue.status).in_(field_mapper.done_statuses),
             )
         ).all()
 
@@ -186,7 +213,7 @@ class AnalyticsService:
                 select(func.min(IssueHistory.changed_at)).where(
                     IssueHistory.issue_key == issue_key,
                     IssueHistory.field_name == "status",
-                    func.lower(IssueHistory.new_value).in_(IN_PROGRESS_STATUSES),
+                    func.lower(IssueHistory.new_value).in_(field_mapper.in_progress_statuses),
                 )
             )
             # Earliest transition INTO a done status
@@ -194,7 +221,7 @@ class AnalyticsService:
                 select(func.min(IssueHistory.changed_at)).where(
                     IssueHistory.issue_key == issue_key,
                     IssueHistory.field_name == "status",
-                    func.lower(IssueHistory.new_value).in_(DONE_STATUSES),
+                    func.lower(IssueHistory.new_value).in_(field_mapper.done_statuses),
                 )
             )
 

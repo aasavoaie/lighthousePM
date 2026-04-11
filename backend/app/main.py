@@ -22,6 +22,7 @@ def _configure_logging(level_name: str) -> None:
 @asynccontextmanager
 async def app_lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
+    settings.validate_startup_settings()
     init_db()
     start_scheduler(settings)
     yield

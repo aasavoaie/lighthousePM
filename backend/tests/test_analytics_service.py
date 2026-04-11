@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import Settings
 from app.db.base import Base
 from app.models import Issue, IssueHistory, MetricSnapshot, Release
 from app.services.analytics_service import AnalyticsService
@@ -209,6 +210,27 @@ def test_scope_churn_7d_case_insensitive_release_name(db_session: Session) -> No
     now = datetime.now(UTC)
     # Value stored in different case — should still match
     db_session.add(_history("P-1", "fix version", "RELEASE 1.0", "v2.0", now - timedelta(days=1)))
+    db_session.flush()
+
+    result = AnalyticsService().recompute_release_metrics(db_session, "R1")
+    assert result.scope_churn_7d_pct == 100.0
+
+
+def test_scope_churn_7d_supports_configured_changelog_alias(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.analytics_service.get_settings",
+        lambda: Settings(jira_changelog_fix_version_fields="release scope"),
+    )
+
+    db_session.add(_release(name="v1.0"))
+    db_session.add(_issue("P-1", "In Progress"))
+    db_session.flush()
+
+    now = datetime.now(UTC)
+    db_session.add(_history("P-1", "release scope", "v0.9", "v1.0", now - timedelta(days=1)))
     db_session.flush()
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")

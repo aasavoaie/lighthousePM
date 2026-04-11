@@ -134,6 +134,28 @@ async def test_get_issue_details_adf_description() -> None:
     assert detail.description == "[ADF content]"
 
 
+@pytest.mark.asyncio
+async def test_get_issue_details_uses_custom_mapping_fields() -> None:
+    raw = _issue_raw("PROJ-99")
+    raw["fields"]["customfield_release"] = [{"name": "Release 9"}]
+    raw["fields"]["customfield_severity"] = {"value": "Critical"}
+    raw["fields"].pop("priority")
+    raw["fields"].pop("fixVersions", None)
+    client = _mock_client(200, raw)
+    svc = JiraService(
+        client=client,
+        settings=_make_settings(
+            jira_field_release="customfield_release",
+            jira_field_severity="customfield_severity",
+        ),
+    )
+
+    detail = await svc.get_issue_details("PROJ-99")
+
+    assert detail.priority == "Critical"
+    assert detail.fix_versions == ["Release 9"]
+
+
 # ---------------------------------------------------------------------------
 # get_issue_changelog
 # ---------------------------------------------------------------------------
