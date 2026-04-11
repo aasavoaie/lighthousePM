@@ -253,6 +253,12 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     assert len(series["scope_completed_pct"]) == 1
     assert series["scope_completed_pct"][0]["value"] == 50.0
 
+    admin_status = client.get("/admin/status")
+    assert admin_status.status_code == 200
+    admin_payload = admin_status.json()
+    assert admin_payload["last_metrics_recompute_at"] is not None
+    assert admin_payload["last_signal_recompute_at"] is not None
+
 
 def test_recompute_release_metrics_returns_404_when_missing_release(client: TestClient) -> None:
     response = client.post("/releases/MISSING/recompute")

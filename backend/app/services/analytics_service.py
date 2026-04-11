@@ -1,12 +1,16 @@
 import statistics
 from datetime import UTC, datetime, timedelta
+import logging
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import Issue, IssueHistory, MetricSnapshot, Release
+from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.services.jira_field_mapper import JiraFieldMapper
+
+logger = logging.getLogger(__name__)
 
 
 class AnalyticsService:
@@ -28,6 +32,8 @@ class AnalyticsService:
         if release is None:
             raise ValueError(f"Release not found: {release_id!r}")
 
+        logger.info("metrics_recompute_started release_id=%s", release_id)
+
         field_mapper = JiraFieldMapper(get_settings())
 
         snapshot = MetricSnapshot(
@@ -46,6 +52,13 @@ class AnalyticsService:
             median_cycle_time_days=self._compute_median_cycle_time_days(session, release_id, field_mapper),
         )
         session.add(snapshot)
+        OperationalStatusRepository.mark_metrics_recomputed(session=session)
+        logger.info(
+            "metrics_recompute_completed release_id=%s open_blockers=%d open_high_severity_bugs=%d",
+            release_id,
+            snapshot.open_blockers,
+            snapshot.open_high_severity_bugs,
+        )
         return snapshot
 
     # ------------------------------------------------------------------

@@ -1,10 +1,13 @@
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Settings
 from app.db.session import SessionLocal
+from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.services.sync_service import SyncService, SyncServiceError
+from app.utils.error_sanitizer import sanitize_error_detail
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,15 @@ async def _run_sync_job() -> None:
         logger.error("scheduled_sync_failed error=%s", exc)
     except Exception as exc:  # noqa: BLE001
         logger.exception("scheduled_sync_unexpected_error error=%s", exc)
+        try:
+            OperationalStatusRepository.mark_sync_failed(
+                session=session,
+                failure_summary=sanitize_error_detail(f"{type(exc).__name__}: {exc}"),
+            )
+            session.commit()
+        except SQLAlchemyError as persist_exc:
+            session.rollback()
+            logger.warning("scheduled_sync_failure_status_persist_failed error=%s", persist_exc)
     finally:
         session.close()
 

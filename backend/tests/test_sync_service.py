@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.config import Settings
 from app.db.base import Base
-from app.models import Issue, IssueHistory, MetricSnapshot, Release, ReleaseSignal
+from app.models import Issue, IssueHistory, MetricSnapshot, OperationalStatus, Release, ReleaseSignal
 from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraIssueSummary, JiraVersion
 from app.services.sync_service import SyncService
 
@@ -149,6 +149,11 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert signals[0].signal == "YELLOW"
     assert issues[0].release_id == "1001"
 
+    status = db_session.scalar(select(OperationalStatus))
+    assert status is not None
+    assert status.last_sync_succeeded_at is not None
+    assert status.last_sync_failure_summary is None
+
 
 @pytest.mark.asyncio
 async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Session) -> None:
@@ -169,6 +174,24 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     assert len(history) == 1
     assert len(snapshots) == 2
     assert len(signals) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_persists_failed_status(db_session: Session) -> None:
+    class FailingJiraService(FakeJiraService):
+        async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
+            raise RuntimeError("api_token=verysecret")
+
+    service = SyncService(jira_service=FailingJiraService(), settings=_test_settings())
+
+    with pytest.raises(Exception):
+        await service.sync_from_jira(session=db_session)
+
+    status = db_session.scalar(select(OperationalStatus))
+    assert status is not None
+    assert status.last_sync_failed_at is not None
+    assert status.last_sync_failure_summary is not None
+    assert "verysecret" not in status.last_sync_failure_summary
 
 
 @pytest.mark.asyncio
