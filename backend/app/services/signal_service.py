@@ -1,6 +1,9 @@
+import logging
+
 from sqlalchemy.orm import Session
 
 from app.repositories.metric_repository import MetricRepository
+from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
 from app.utils.constants import (
@@ -13,6 +16,8 @@ from app.utils.constants import (
     SCOPE_CHURN_RED_THRESHOLD,
     SCOPE_CHURN_YELLOW_THRESHOLD,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SignalService:
@@ -36,6 +41,7 @@ class SignalService:
     """
 
     def recompute_release_signal(self, session: Session, release_id: str):
+        logger.info("signal_recompute_started release_id=%s", release_id)
         release = ReleaseRepository.get_release_by_id(session=session, release_id=release_id)
         if release is None:
             raise ValueError(f"Release not found: {release_id!r}")
@@ -53,6 +59,14 @@ class SignalService:
             scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
             reopen_rate_pct=snapshot.reopen_rate_pct,
             median_cycle_time_days=snapshot.median_cycle_time_days,
+        )
+
+        OperationalStatusRepository.mark_signal_recomputed(session=session)
+        logger.info(
+            "signal_recompute_completed release_id=%s signal=%s reason_count=%d",
+            release_id,
+            signal,
+            len(reasons),
         )
 
         return SignalRepository.upsert_signal(

@@ -160,6 +160,22 @@ Typical use:
 - issue detail views
 - validating a specific ingested ticket exists in local storage
 
+## Admin
+
+### `GET /admin/status`
+Returns the latest persisted operational markers for sync and recomputation activity.
+
+What it does:
+- returns last successful sync timestamp
+- returns last failed sync timestamp and sanitized failure summary
+- returns last metrics recompute timestamp
+- returns last signal recompute timestamp
+
+Typical use:
+- operational debugging in local/internal deployments
+- quickly checking if sync or recomputation recently failed
+- confirming recompute activity without scanning logs
+
 ## Sync
 
 ### `POST /sync/jira`

@@ -5,6 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.repositories.sync_repository import SyncRepository
 from app.services.analytics_service import AnalyticsService
 from app.services.jira_errors import JiraServiceError
@@ -12,8 +13,10 @@ from app.services.jira_field_mapper import JiraFieldMapper
 from app.services.jira_service import JiraService
 from app.services.jira_types import JiraChangelogEntry, JiraIssueSummary
 from app.services.signal_service import SignalService
+from app.utils.error_sanitizer import sanitize_error_detail
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class SyncResult:
@@ -102,6 +105,9 @@ class SyncService:
     async def sync_from_jira(self, session: Session) -> dict[str, int | str]:
         project_key = self._validate_sync_settings()
         result = SyncResult(project_key=project_key)
+        recompute_release_count = 0
+
+        logger.info("jira_sync_started project_key=%s", project_key)
 
         try:
             versions = await self._jira_service.get_project_versions(project_key=project_key)
@@ -115,6 +121,14 @@ class SyncService:
                     result.releases_inserted += 1
                 else:
                     result.releases_updated += 1
+
+            logger.info(
+                "jira_sync_releases_processed project_key=%s releases_fetched=%d releases_inserted=%d releases_updated=%d",
+                project_key,
+                result.releases_fetched,
+                result.releases_inserted,
+                result.releases_updated,
+            )
 
             issue_summaries = await self._fetch_project_issues(project_key=project_key)
             result.issues_fetched = len(issue_summaries)
@@ -166,23 +180,55 @@ class SyncService:
                 result.history_inserted += inserted_count
                 result.history_skipped += skipped_count
 
+            logger.info(
+                "jira_sync_issues_processed project_key=%s issues_fetched=%d issues_inserted=%d issues_updated=%d issues_skipped=%d",
+                project_key,
+                result.issues_fetched,
+                result.issues_inserted,
+                result.issues_updated,
+                result.issues_skipped,
+            )
+            logger.info(
+                "jira_sync_changelog_processed project_key=%s history_fetched=%d history_inserted=%d history_skipped=%d",
+                project_key,
+                result.history_fetched,
+                result.history_inserted,
+                result.history_skipped,
+            )
+
             # Keep metrics snapshots in sync with each successful Jira ingestion run.
             analytics_service = AnalyticsService()
             signal_service = SignalService()
             for release_id in version_name_to_release_id.values():
                 analytics_service.recompute_release_metrics(session=session, release_id=release_id)
                 signal_service.recompute_release_signal(session=session, release_id=release_id)
+                recompute_release_count += 1
+
+            logger.info(
+                "jira_sync_recompute_processed project_key=%s releases_recomputed=%d",
+                project_key,
+                recompute_release_count,
+            )
+
+            OperationalStatusRepository.mark_sync_succeeded(session=session)
 
             session.commit()
         except JiraServiceError as exc:
             session.rollback()
+            self._persist_sync_failure_status(session=session, exc=exc)
             raise SyncServiceError(f"Jira sync failed: {exc}") from exc
         except ValueError as exc:
             session.rollback()
+            self._persist_sync_failure_status(session=session, exc=exc)
             raise SyncServiceError(f"Post-sync recompute failed: {exc}") from exc
         except SQLAlchemyError as exc:
             session.rollback()
+            self._persist_sync_failure_status(session=session, exc=exc)
             raise SyncServiceError(f"Database sync failed: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            self._persist_sync_failure_status(session=session, exc=exc)
+            raise SyncServiceError(f"Unexpected sync failure: {type(exc).__name__}") from exc
 
         logger.info(
             "jira_sync_completed project_key=%s releases_fetched=%d releases_inserted=%d "
@@ -201,3 +247,16 @@ class SyncService:
             result.history_skipped,
         )
         return asdict(result)
+
+    @staticmethod
+    def _persist_sync_failure_status(session: Session, exc: Exception) -> None:
+        failure_summary = sanitize_error_detail(f"{type(exc).__name__}: {exc}")
+        try:
+            OperationalStatusRepository.mark_sync_failed(
+                session=session,
+                failure_summary=failure_summary,
+            )
+            session.commit()
+        except SQLAlchemyError as persist_exc:
+            session.rollback()
+            logger.warning("jira_sync_failure_status_persist_failed error=%s", persist_exc)

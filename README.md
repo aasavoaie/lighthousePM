@@ -148,8 +148,23 @@ Final release health output
 - `GET /issues/{key}`
 
 ### Admin
+- `GET /admin/status`
 - `POST /sync/jira`
 - `POST /releases/{id}/recompute`
+
+### Operational Visibility Notes (MVP)
+
+- Sync emits structured logs for:
+  - sync start and completion
+  - issue fetched/inserted/updated/skipped counts
+  - changelog fetched/inserted/skipped counts
+  - release recomputation counts
+- `/admin/status` exposes persisted operational markers:
+  - last successful sync time
+  - last failed sync time
+  - last metrics recompute time
+  - last signal recompute time
+- Failure details are sanitized to avoid exposing credentials or token-like values.
 
 ### Metrics API Notes (MVP)
 

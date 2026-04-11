@@ -1,5 +1,7 @@
 from datetime import datetime
 from datetime import UTC
+import logging
+from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -30,6 +32,7 @@ from app.utils.constants import (
 )
 
 router = APIRouter(prefix="/releases", tags=["metrics"])
+logger = logging.getLogger(__name__)
 
 METRIC_NAMES = [
     "open_blockers",
@@ -173,12 +176,21 @@ def recompute_release_metrics(
 ) -> RecomputeMetricsResponse:
     analytics_service = AnalyticsService()
     signal_service = SignalService()
+    started_at = perf_counter()
+    logger.info("release_recompute_started release_id=%s", release_id)
     try:
         snapshot = analytics_service.recompute_release_metrics(session=session, release_id=release_id)
         signal_service.recompute_release_signal(session=session, release_id=release_id)
         session.commit()
+        elapsed = perf_counter() - started_at
+        logger.info(
+            "release_recompute_completed release_id=%s elapsed_seconds=%.3f",
+            release_id,
+            elapsed,
+        )
     except ValueError as exc:
         session.rollback()
+        logger.warning("release_recompute_failed release_id=%s error=%s", release_id, exc)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return RecomputeMetricsResponse(
