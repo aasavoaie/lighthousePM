@@ -75,6 +75,10 @@ select {
   grid-column: span 4;
 }
 
+.action-panel {
+  grid-column: span 4;
+}
+
 .metrics-panel,
 .charts-panel,
 .error-panel,
@@ -113,6 +117,25 @@ select {
   border-radius: 12px;
   border: 1px solid #c6d3e1;
   background: #ffffff;
+}
+
+.primary-button {
+  border: 0;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 600;
+  color: #ffffff;
+  background: #0b6bcb;
+  cursor: pointer;
+}
+
+.primary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.action-status {
+  margin: 12px 0 0;
 }
 
 .signal-badge {
@@ -186,6 +209,7 @@ select {
 
 @media (max-width: 980px) {
   .selector-panel,
+  .action-panel,
   .signal-panel,
   .metrics-panel,
   .charts-panel,

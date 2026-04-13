@@ -12,6 +12,7 @@ from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
 from app.models import Issue, IssueHistory, MetricSnapshot, Release
+from app.services.analytics_service import AnalyticsService
 
 
 @pytest.fixture
@@ -324,3 +325,73 @@ def test_get_release_charts_invalid_from_to_range(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "'from' must be less than or equal to 'to'"
+
+
+def test_recompute_all_release_metrics_recomputes_all_releases(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1", name="Release 1")
+        _seed_release(session, release_id="REL-2", name="Release 2")
+
+        _seed_issue(session, "LHPM-1", "REL-1", "In Progress", is_blocker=True)
+        _seed_issue(session, "LHPM-2", "REL-1", "Done", is_blocker=False)
+        _seed_issue(session, "LHPM-3", "REL-2", "In Progress", is_blocker=False)
+
+        now = datetime.now(UTC)
+        _seed_history(session, "LHPM-2", "status", "To Do", "In Progress", now - timedelta(days=3))
+        _seed_history(session, "LHPM-2", "status", "In Progress", "Done", now - timedelta(days=1))
+        _seed_history(session, "LHPM-2", "fix version", "Release 0", "Release 1", now - timedelta(days=2))
+        session.commit()
+
+    response = client.post("/releases/recompute-all")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["releases_total"] == 2
+    assert payload["releases_recomputed"] == 2
+    assert payload["releases_failed"] == 0
+    assert isinstance(payload["elapsed_seconds"], float)
+    assert payload["elapsed_seconds"] >= 0.0
+    assert payload["errors"] == []
+
+    rel_1_metrics = client.get("/releases/REL-1/metrics").json()
+    rel_2_metrics = client.get("/releases/REL-2/metrics").json()
+    assert rel_1_metrics["is_computed"] is True
+    assert rel_1_metrics["snapshot_at"] is not None
+    assert rel_2_metrics["is_computed"] is True
+    assert rel_2_metrics["snapshot_at"] is not None
+
+
+def test_recompute_all_release_metrics_is_best_effort(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1", name="Release 1")
+        _seed_release(session, release_id="REL-2", name="Release 2")
+        _seed_issue(session, "LHPM-1", "REL-1", "In Progress", is_blocker=False)
+        _seed_issue(session, "LHPM-2", "REL-2", "In Progress", is_blocker=False)
+        session.commit()
+
+    original_recompute = AnalyticsService.recompute_release_metrics
+
+    def recompute_with_injected_failure(
+        self: AnalyticsService, session: Session, release_id: str
+    ) -> MetricSnapshot:
+        if release_id == "REL-2":
+            raise ValueError("Synthetic recompute failure")
+        return original_recompute(self, session, release_id)
+
+    monkeypatch.setattr(AnalyticsService, "recompute_release_metrics", recompute_with_injected_failure)
+
+    response = client.post("/releases/recompute-all")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["releases_total"] == 2
+    assert payload["releases_recomputed"] == 1
+    assert payload["releases_failed"] == 1
+    assert len(payload["errors"]) == 1
+    assert payload["errors"][0]["release_id"] == "REL-2"
+    assert "Synthetic recompute failure" in payload["errors"][0]["reason"]
+
+    rel_1_metrics = client.get("/releases/REL-1/metrics").json()
+    rel_2_metrics = client.get("/releases/REL-2/metrics").json()
+    assert rel_1_metrics["is_computed"] is True
+    assert rel_2_metrics["is_computed"] is False

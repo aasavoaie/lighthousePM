@@ -1,4 +1,6 @@
 import type {
+  RecomputeAllMetricsResponse,
+  RecomputeMetricsResponse,
   Release,
   ReleaseChartsResponse,
   ReleaseListResponse,
@@ -8,8 +10,8 @@ import type {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`);
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, options);
 
   if (!response.ok) {
     const fallback = `Request failed with status ${response.status}`;
@@ -39,5 +41,11 @@ export const apiClient = {
   },
   getSignal(releaseId: string): Promise<ReleaseSignalResponse> {
     return request<ReleaseSignalResponse>(`/releases/${releaseId}/signal`);
+  },
+  recomputeRelease(releaseId: string): Promise<RecomputeMetricsResponse> {
+    return request<RecomputeMetricsResponse>(`/releases/${releaseId}/recompute`, { method: "POST" });
+  },
+  recomputeAllSnapshots(): Promise<RecomputeAllMetricsResponse> {
+    return request<RecomputeAllMetricsResponse>("/releases/recompute-all", { method: "POST" });
   },
 };

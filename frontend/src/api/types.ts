@@ -96,3 +96,22 @@ export interface ReleaseSignalResponse {
   thresholds: SignalThresholds;
   updated_at: string | null;
 }
+
+export interface RecomputeMetricsResponse {
+  release_id: string;
+  snapshot_at: string;
+  status: string;
+}
+
+export interface RecomputeAllError {
+  release_id: string;
+  reason: string;
+}
+
+export interface RecomputeAllMetricsResponse {
+  releases_total: number;
+  releases_recomputed: number;
+  releases_failed: number;
+  elapsed_seconds: number;
+  errors: RecomputeAllError[];
+}

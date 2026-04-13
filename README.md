@@ -157,6 +157,7 @@ Final release health output
 - `GET /admin/status`
 - `POST /sync/jira`
 - `POST /releases/{id}/recompute`
+- `POST /releases/recompute-all`
 
 ### Operational Visibility Notes (MVP)
 
@@ -305,6 +306,30 @@ Example `POST /releases/REL-1/recompute`:
   "status": "ok"
 }
 ```
+
+Example `POST /releases/recompute-all`:
+
+```json
+{
+  "releases_total": 3,
+  "releases_recomputed": 2,
+  "releases_failed": 1,
+  "elapsed_seconds": 0.412,
+  "errors": [
+    {
+      "release_id": "REL-3",
+      "reason": "Release not found: 'REL-3'"
+    }
+  ]
+}
+```
+
+Bulk recompute notes:
+
+- scope is all releases currently stored in the database
+- operation recomputes metrics snapshots and signals from existing DB data only
+- operation does not trigger Jira sync
+- failure mode is best-effort per release with per-release error summaries
 
 ### Signals API Notes (MVP)
 
@@ -738,6 +763,7 @@ Current MVP frontend behavior:
 - assumes no auth or reverse proxy in local development
 - auto-selects the first release returned by `GET /releases`
 - currently charts three metrics: open blockers, open high-severity bugs, and scope completed percentage
+- "Recompute All Snapshots" triggers `POST /releases/recompute-all` and shows a final summary
 
 From repository root:
 

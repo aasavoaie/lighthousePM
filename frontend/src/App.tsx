@@ -22,6 +22,9 @@ export default function App() {
   const [signal, setSignal] = useState<ReleaseSignalResponse | null>(null);
   const [isLoadingReleases, setIsLoadingReleases] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [isRecomputingAll, setIsRecomputingAll] = useState(false);
+  const [recomputeMessage, setRecomputeMessage] = useState<string | null>(null);
+  const [dashboardRefreshNonce, setDashboardRefreshNonce] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,6 +58,33 @@ export default function App() {
       isActive = false;
     };
   }, []);
+
+  async function handleRecomputeAll() {
+    if (releases.length === 0 || isRecomputingAll) {
+      return;
+    }
+
+    setIsRecomputingAll(true);
+    setErrorMessage(null);
+    setRecomputeMessage("Recomputing snapshots for all releases...");
+
+    try {
+      const result = await apiClient.recomputeAllSnapshots();
+      if (result.releases_failed > 0) {
+        const failedReleaseIds = result.errors.map((error) => error.release_id).join(", ");
+        setRecomputeMessage(
+          `Recompute finished: ${result.releases_recomputed}/${result.releases_total} releases succeeded, ${result.releases_failed} failed (${failedReleaseIds}).`
+        );
+      } else {
+        setRecomputeMessage(`Recompute complete for ${result.releases_recomputed}/${result.releases_total} releases.`);
+      }
+      setDashboardRefreshNonce((current) => current + 1);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to recompute snapshots.");
+    } finally {
+      setIsRecomputingAll(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedReleaseId) {
@@ -102,7 +132,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [selectedReleaseId]);
+  }, [selectedReleaseId, dashboardRefreshNonce]);
 
   return (
     <div className="app-shell">
@@ -116,6 +146,21 @@ export default function App() {
       />
 
       <main className="dashboard-grid">
+        <section className="panel action-panel">
+          <div className="panel-heading">
+            <h2>Actions</h2>
+          </div>
+          <button
+            type="button"
+            className="primary-button"
+            disabled={isLoadingReleases || isRecomputingAll || releases.length === 0}
+            onClick={() => void handleRecomputeAll()}
+          >
+            {isRecomputingAll ? "Recomputing..." : "Recompute All Snapshots"}
+          </button>
+          {recomputeMessage ? <p className="muted action-status">{recomputeMessage}</p> : null}
+        </section>
+
         <ReleaseSelector
           releases={releases}
           selectedReleaseId={selectedReleaseId}
