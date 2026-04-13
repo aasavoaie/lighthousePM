@@ -96,6 +96,12 @@ Single-service backend:
   - `analytics_service`
   - `signal_service`
 
+Optional local client:
+
+- A small React + TypeScript dashboard in `frontend/`
+- Read-only browser client over the same backend API
+- Intended for internal/local use in the MVP, not as a separate deployed service
+
 ---
 
 ## 🔄 Data Flow
@@ -721,6 +727,59 @@ Mapping to Make targets:
 - `make typecheck` -> `mypy app`
 - `make db-upgrade` -> `alembic upgrade head`
 - `make seed` -> `python seed.py`
+
+### 6a. Frontend Dashboard (Vite + React)
+
+The repository includes an optional internal dashboard in `frontend/`.
+
+Current MVP frontend behavior:
+
+- reads data directly from the backend API from the browser
+- assumes no auth or reverse proxy in local development
+- auto-selects the first release returned by `GET /releases`
+- currently charts three metrics: open blockers, open high-severity bugs, and scope completed percentage
+
+From repository root:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Create `frontend/.env` from `frontend/.env.example` before starting the app.
+
+Examples:
+
+```bash
+cp .env.example .env
+```
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Frontend defaults:
+
+- app URL: `http://localhost:5173`
+- backend URL: `http://localhost:8000`
+
+Set `VITE_API_BASE_URL` in `frontend/.env` if your backend runs elsewhere.
+
+Backend CORS must allow the frontend origin. The default backend setting is:
+
+```env
+CORS_ORIGINS=http://localhost:5173
+```
+
+If you change the frontend origin, update `CORS_ORIGINS` in `backend/.env` to match.
+
+To produce a production build:
+
+```bash
+cd frontend
+npm run build
+```
 
 CI note: `tests/test_seed.py` is a lightweight smoke test intended as the
 first automated gate when CI is introduced.
