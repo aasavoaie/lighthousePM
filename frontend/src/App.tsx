@@ -7,11 +7,16 @@ import type {
   ReleaseMetricsResponse,
   ReleaseSignalResponse,
 } from "./api/types";
+import { AdminPanel } from "./components/AdminPanel";
 import { ChartsPanel } from "./components/ChartsPanel";
 import { Header } from "./components/Header";
+import { IssueDetailModal } from "./components/IssueDetailModal";
+import { IssuesPanel } from "./components/IssuesPanel";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { ReleaseSelector } from "./components/ReleaseSelector";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
+
+type AppTab = "dashboard" | "charts" | "issues" | "admin";
 
 export default function App() {
   const [releases, setReleases] = useState<Release[]>([]);
@@ -25,6 +30,8 @@ export default function App() {
   const [isRecomputingAll, setIsRecomputingAll] = useState(false);
   const [recomputeMessage, setRecomputeMessage] = useState<string | null>(null);
   const [dashboardRefreshNonce, setDashboardRefreshNonce] = useState(0);
+  const [selectedTab, setSelectedTab] = useState<AppTab>("dashboard");
+  const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -86,6 +93,10 @@ export default function App() {
     }
   }
 
+  function handleOperationalDataChanged() {
+    setDashboardRefreshNonce((current) => current + 1);
+  }
+
   useEffect(() => {
     if (!selectedReleaseId) {
       setSelectedRelease(null);
@@ -145,22 +156,38 @@ export default function App() {
         }
       />
 
-      <main className="dashboard-grid">
-        <section className="panel action-panel">
-          <div className="panel-heading">
-            <h2>Actions</h2>
-          </div>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={isLoadingReleases || isRecomputingAll || releases.length === 0}
-            onClick={() => void handleRecomputeAll()}
-          >
-            {isRecomputingAll ? "Recomputing..." : "Recompute All Snapshots"}
-          </button>
-          {recomputeMessage ? <p className="muted action-status">{recomputeMessage}</p> : null}
-        </section>
+      <nav className="tab-row" aria-label="Dashboard sections">
+        <button
+          type="button"
+          className={`tab-button ${selectedTab === "dashboard" ? "active" : ""}`}
+          onClick={() => setSelectedTab("dashboard")}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
+          className={`tab-button ${selectedTab === "issues" ? "active" : ""}`}
+          onClick={() => setSelectedTab("issues")}
+        >
+          Issues
+        </button>
+        <button
+          type="button"
+          className={`tab-button ${selectedTab === "charts" ? "active" : ""}`}
+          onClick={() => setSelectedTab("charts")}
+        >
+          Charts
+        </button>
+        <button
+          type="button"
+          className={`tab-button ${selectedTab === "admin" ? "active" : ""}`}
+          onClick={() => setSelectedTab("admin")}
+        >
+          Admin
+        </button>
+      </nav>
 
+      <main className="dashboard-grid">
         <ReleaseSelector
           releases={releases}
           selectedReleaseId={selectedReleaseId}
@@ -168,23 +195,45 @@ export default function App() {
           onChange={setSelectedReleaseId}
         />
 
-        {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
+        {errorMessage && selectedTab === "dashboard" ? <div className="panel error-panel">{errorMessage}</div> : null}
 
-        {!isLoadingReleases && releases.length === 0 ? (
+        {!isLoadingReleases && releases.length === 0 && selectedTab !== "admin" ? (
           <section className="panel empty-panel">
             <h2>No releases</h2>
             <p className="muted">Seed data or sync Jira to populate the dashboard.</p>
           </section>
         ) : null}
 
-        {selectedReleaseId ? (
+        {selectedReleaseId && selectedTab === "dashboard" ? (
           <>
             <SignalSummaryPanel signal={signal} isLoading={isLoadingDetails} />
             <MetricsPanel metrics={metrics} isLoading={isLoadingDetails} />
-            <ChartsPanel charts={charts} isLoading={isLoadingDetails} />
           </>
         ) : null}
+
+        {selectedReleaseId && selectedTab === "charts" ? (
+          <ChartsPanel charts={charts} isLoading={isLoadingDetails} />
+        ) : null}
+
+        {selectedTab === "issues" ? (
+          <IssuesPanel
+            releaseId={selectedReleaseId}
+            refreshNonce={dashboardRefreshNonce}
+            onSelectIssue={setSelectedIssueKey}
+          />
+        ) : null}
+
+        {selectedTab === "admin" ? (
+          <AdminPanel
+            onRecomputeAll={handleRecomputeAll}
+            isRecomputingAll={isRecomputingAll}
+            recomputeMessage={recomputeMessage}
+            onOperationalDataChanged={handleOperationalDataChanged}
+          />
+        ) : null}
       </main>
+
+      <IssueDetailModal issueKey={selectedIssueKey} onClose={() => setSelectedIssueKey(null)} />
     </div>
   );
 }

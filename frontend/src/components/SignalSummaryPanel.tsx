@@ -18,6 +18,19 @@ function signalClassName(signalValue: string | null) {
   return "signal-badge signal-unknown";
 }
 
+function signalDescription(signalValue: string | null) {
+  if (signalValue === "RED") {
+    return "High release risk: one or more red-threshold conditions are currently triggered.";
+  }
+  if (signalValue === "YELLOW") {
+    return "Moderate release risk: warning conditions are present and should be reviewed.";
+  }
+  if (signalValue === "GREEN") {
+    return "Low release risk: no major threshold violations are currently detected.";
+  }
+  return "Signal not computed yet for this release snapshot.";
+}
+
 export function SignalSummaryPanel({ signal, isLoading }: SignalSummaryPanelProps) {
   return (
     <section className="panel signal-panel">
@@ -25,6 +38,7 @@ export function SignalSummaryPanel({ signal, isLoading }: SignalSummaryPanelProp
         <h2>Signal</h2>
         <span className={signalClassName(signal?.signal ?? null)}>{signal?.signal ?? "N/A"}</span>
       </div>
+      <p className="signal-description">{signalDescription(signal?.signal ?? null)}</p>
       {isLoading ? <p className="muted">Loading signal...</p> : null}
       {!isLoading && signal && signal.reasons.length > 0 ? (
         <ul className="reason-list">

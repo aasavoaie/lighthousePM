@@ -763,6 +763,10 @@ Current MVP frontend behavior:
 - assumes no auth or reverse proxy in local development
 - auto-selects the first release returned by `GET /releases`
 - currently charts three metrics: open blockers, open high-severity bugs, and scope completed percentage
+- includes tabs for Dashboard, Issues, and Admin views
+- Issues tab uses `GET /releases/{id}/issues` with pagination and issue drilldown via `GET /issues/{key}`
+- Issues tab loads release tickets without UI pagination and provides two filters: Not Done and Done Only (done statuses: done, closed, resolved)
+- Admin tab displays `GET /admin/status` and supports `POST /sync/jira`
 - "Recompute All Snapshots" triggers `POST /releases/recompute-all` and shows a final summary
 
 From repository root:

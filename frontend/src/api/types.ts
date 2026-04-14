@@ -115,3 +115,53 @@ export interface RecomputeAllMetricsResponse {
   elapsed_seconds: number;
   errors: RecomputeAllError[];
 }
+
+export interface Issue {
+  issue_key: string;
+  summary: string;
+  issue_type: string;
+  status: string;
+  priority: string | null;
+  assignee: string | null;
+  release_id: string | null;
+  is_blocker: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IssueListResponse {
+  items: Issue[];
+  skip: number;
+  limit: number;
+  total: number;
+}
+
+export interface AdminStatusResponse {
+  service: string;
+  environment: string;
+  last_sync_succeeded_at: string | null;
+  last_sync_failed_at: string | null;
+  last_sync_failure_summary: string | null;
+  last_metrics_recompute_at: string | null;
+  last_signal_recompute_at: string | null;
+}
+
+export interface SyncJiraResponse {
+  project_key: string;
+  releases_fetched: number;
+  releases_inserted: number;
+  releases_updated: number;
+  issues_fetched: number;
+  issues_inserted: number;
+  issues_updated: number;
+  issues_skipped: number;
+  history_fetched: number;
+  history_inserted: number;
+  history_skipped: number;
+}
+
+export interface HealthResponse {
+  status: string;
+  service: string;
+  environment: string;
+}

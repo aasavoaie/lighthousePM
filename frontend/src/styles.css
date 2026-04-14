@@ -48,6 +48,27 @@ select {
   font-size: 2rem;
 }
 
+.tab-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.tab-button {
+  border: 1px solid #b9c9da;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #33506f;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.tab-button.active {
+  background: #0b6bcb;
+  color: #ffffff;
+  border-color: #0b6bcb;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   font-size: 0.75rem;
@@ -77,6 +98,11 @@ select {
 
 .action-panel {
   grid-column: span 4;
+}
+
+.issues-panel,
+.admin-panel {
+  grid-column: span 8;
 }
 
 .metrics-panel,
@@ -134,8 +160,132 @@ select {
   cursor: not-allowed;
 }
 
+.secondary-button {
+  border: 1px solid #b9c9da;
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #1d3959;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: #0b6bcb;
+  cursor: pointer;
+  padding: 0;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.error-text {
+  color: #a63124;
+}
+
 .action-status {
   margin: 12px 0 0;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #33506f;
+}
+
+.issues-filter-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.filter-chip {
+  border: 1px solid #b9c9da;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #33506f;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  background: #0b6bcb;
+  border-color: #0b6bcb;
+  color: #ffffff;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.issues-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.issues-table th,
+.issues-table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid #d9e5f0;
+  vertical-align: top;
+}
+
+.pagination-row,
+.action-row {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-status-grid p {
+  margin: 0 0 10px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 27, 43, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 20;
+}
+
+.modal-content {
+  width: min(760px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 20px;
+}
+
+.issue-detail-grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.issue-detail-grid dt {
+  color: #4f6480;
+  font-weight: 600;
+}
+
+.issue-detail-grid dd {
+  margin: 0;
 }
 
 .signal-badge {
@@ -191,10 +341,21 @@ select {
   border: 1px solid #dbe7f2;
 }
 
+.metric-description {
+  margin: 8px 0 0;
+  color: #58677c;
+  font-size: 0.9rem;
+}
+
 .metric-card strong {
   display: block;
   margin-top: 10px;
   font-size: 1.45rem;
+}
+
+.signal-description {
+  margin: 0 0 12px;
+  color: #58677c;
 }
 
 .chart-wrapper {
@@ -211,6 +372,8 @@ select {
   .selector-panel,
   .action-panel,
   .signal-panel,
+  .issues-panel,
+  .admin-panel,
   .metrics-panel,
   .charts-panel,
   .error-panel,

@@ -14,6 +14,15 @@ const metricLabels: Record<keyof MetricValues, string> = {
   reopen_rate_pct: "Reopen rate %",
 };
 
+const metricDescriptions: Record<keyof MetricValues, string> = {
+  open_blockers: "Number of currently open issues flagged as blockers.",
+  open_high_severity_bugs: "Open bugs with high or critical severity levels.",
+  scope_completed_pct: "Percentage of release issues currently in done status.",
+  scope_churn_7d_pct: "Scope changes affecting this release during the last 7 days.",
+  median_cycle_time_days: "Median days from first in-progress to first done transition.",
+  reopen_rate_pct: "Share of release issues that moved from done back to active work.",
+};
+
 function formatMetricValue(metricName: keyof MetricValues, value: number | null) {
   if (value === null) {
     return "N/A";
@@ -42,6 +51,7 @@ export function MetricsPanel({ metrics, isLoading }: MetricsPanelProps) {
           {(Object.keys(metrics.metrics) as Array<keyof MetricValues>).map((metricName) => (
             <article className="metric-card" key={metricName}>
               <h3>{metricLabels[metricName]}</h3>
+              <p className="metric-description">{metricDescriptions[metricName]}</p>
               <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
             </article>
           ))}
