@@ -1,5 +1,6 @@
 """Tests for JiraService — uses httpx.MockTransport to avoid network calls."""
 
+import asyncio
 import json
 from unittest.mock import AsyncMock
 
@@ -196,6 +197,54 @@ async def test_get_issue_changelog_empty() -> None:
     assert entries == []
 
 
+@pytest.mark.asyncio
+async def test_get_issue_changelog_paginates_all_pages() -> None:
+    first_page = {
+        "startAt": 0,
+        "maxResults": 1,
+        "total": 2,
+        "isLast": False,
+        "values": [
+            {
+                "author": {"displayName": "Alice"},
+                "created": "2026-03-15T08:00:00.000+0000",
+                "items": [{"field": "status", "fromString": "To Do", "toString": "In Progress"}],
+            }
+        ],
+    }
+    second_page = {
+        "startAt": 1,
+        "maxResults": 1,
+        "total": 2,
+        "isLast": True,
+        "values": [
+            {
+                "author": {"displayName": "Bob"},
+                "created": "2026-03-16T08:00:00.000+0000",
+                "items": [{"field": "priority", "fromString": "Medium", "toString": "High"}],
+            }
+        ],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        start_at = request.url.params.get("startAt")
+        if start_at == "0":
+            return httpx.Response(200, content=json.dumps(first_page).encode())
+        if start_at == "1":
+            return httpx.Response(200, content=json.dumps(second_page).encode())
+        raise AssertionError(f"Unexpected startAt value: {start_at}")
+
+    client = httpx.AsyncClient(base_url="https://test.atlassian.net", transport=httpx.MockTransport(handler))
+    svc = JiraService(client=client, settings=_make_settings())
+
+    entries = await svc.get_issue_changelog("PROJ-1", max_results=1)
+
+    assert len(entries) == 2
+    assert entries[0].field_name == "status"
+    assert entries[1].field_name == "priority"
+    assert entries[1].author == "Bob"
+
+
 # ---------------------------------------------------------------------------
 # get_project_versions
 # ---------------------------------------------------------------------------
@@ -259,6 +308,36 @@ async def test_429_raises_jira_rate_limit_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_429_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = iter(
+        [
+            httpx.Response(429, headers={"Retry-After": "1"}, content=b"{}"),
+            httpx.Response(200, content=json.dumps(_search_payload([_issue_raw("PROJ-1")])).encode()),
+        ]
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return next(responses)
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    client = httpx.AsyncClient(base_url="https://test.atlassian.net", transport=httpx.MockTransport(handler))
+    svc = JiraService(client=client, settings=_make_settings(jira_max_retries=1))
+
+    issues, next_token = await svc.search_issues("project = PROJ")
+
+    assert len(issues) == 1
+    assert issues[0].key == "PROJ-1"
+    assert next_token is None
+    assert sleep_calls == [1]
+
+
+@pytest.mark.asyncio
 async def test_5xx_exhausts_retries_and_raises() -> None:
     client = _mock_client(503, {"message": "Service Unavailable"})
     svc = JiraService(client=client, settings=_make_settings(jira_max_retries=1))
@@ -282,6 +361,33 @@ async def test_network_error_raises_jira_request_error() -> None:
 
     with pytest.raises(JiraRequestError, match="Network error"):
         await svc.search_issues("project = PROJ")
+
+
+@pytest.mark.asyncio
+async def test_5xx_retries_before_raising(monkeypatch: pytest.MonkeyPatch) -> None:
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(503, content=b'{"message":"Service Unavailable"}')
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    client = httpx.AsyncClient(base_url="https://test.atlassian.net", transport=httpx.MockTransport(handler))
+    svc = JiraService(client=client, settings=_make_settings(jira_max_retries=1))
+
+    with pytest.raises(JiraRequestError) as exc_info:
+        await svc.search_issues("project = PROJ")
+
+    assert exc_info.value.status_code == 503
+    assert call_count == 2
+    assert sleep_calls == [1]
 
 
 @pytest.mark.asyncio
