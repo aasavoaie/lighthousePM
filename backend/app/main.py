@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.config import get_settings
@@ -33,6 +34,13 @@ def create_app() -> FastAPI:
     settings = get_settings()
     _configure_logging(settings.log_level)
     app = FastAPI(title=settings.app_name, lifespan=app_lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.include_router(api_router)
     return app
 

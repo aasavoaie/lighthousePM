@@ -14,6 +14,8 @@ from app.schemas.metrics import (
     MetricThresholds,
     MetricSeries,
     MetricValues,
+    RecomputeAllError,
+    RecomputeAllMetricsResponse,
     RecomputeMetricsResponse,
     ReleaseChartsResponse,
     ReleaseMetricsResponse,
@@ -197,4 +199,47 @@ def recompute_release_metrics(
         release_id=snapshot.release_id,
         snapshot_at=snapshot.snapshot_at,
         status="ok",
+    )
+
+
+@router.post("/recompute-all", response_model=RecomputeAllMetricsResponse)
+def recompute_all_release_metrics(
+    session: Session = Depends(get_db_session),
+) -> RecomputeAllMetricsResponse:
+    analytics_service = AnalyticsService()
+    signal_service = SignalService()
+    started_at = perf_counter()
+
+    release_ids = ReleaseRepository.list_release_ids(session=session)
+    errors: list[RecomputeAllError] = []
+    recomputed_count = 0
+
+    logger.info("release_recompute_all_started release_count=%d", len(release_ids))
+
+    for release_id in release_ids:
+        try:
+            analytics_service.recompute_release_metrics(session=session, release_id=release_id)
+            signal_service.recompute_release_signal(session=session, release_id=release_id)
+            session.commit()
+            recomputed_count += 1
+        except Exception as exc:  # noqa: BLE001 - collect per-release errors and continue best-effort
+            session.rollback()
+            errors.append(RecomputeAllError(release_id=release_id, reason=str(exc)))
+            logger.warning("release_recompute_all_item_failed release_id=%s error=%s", release_id, exc)
+
+    elapsed = perf_counter() - started_at
+    logger.info(
+        "release_recompute_all_completed release_count=%d recomputed=%d failed=%d elapsed_seconds=%.3f",
+        len(release_ids),
+        recomputed_count,
+        len(errors),
+        elapsed,
+    )
+
+    return RecomputeAllMetricsResponse(
+        releases_total=len(release_ids),
+        releases_recomputed=recomputed_count,
+        releases_failed=len(errors),
+        elapsed_seconds=round(elapsed, 3),
+        errors=errors,
     )

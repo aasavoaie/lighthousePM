@@ -7,6 +7,7 @@ Responsibilities:
 - Map HTTP errors to the domain exceptions defined in jira_errors.py.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -109,6 +110,12 @@ class JiraService:
             )
         return self._owned_client
 
+    @staticmethod
+    async def _sleep_before_retry(attempt: int, retry_after: int | None = None) -> None:
+        """Apply explicit backoff between retry attempts."""
+        delay_seconds = retry_after if retry_after is not None and retry_after > 0 else min(2 ** (attempt - 1), 8)
+        await asyncio.sleep(delay_seconds)
+
     async def _request(
         self,
         method: str,
@@ -127,6 +134,8 @@ class JiraService:
             except httpx.RequestError as exc:
                 logger.warning("Jira network error on %s %s: %s", method.upper(), path, exc)
                 last_exc = JiraRequestError(f"Network error contacting Jira: {exc}")
+                if attempt < attempts:
+                    await self._sleep_before_retry(attempt)
                 continue
 
             logger.debug("Jira %s %s → %d", method.upper(), path, response.status_code)
@@ -138,15 +147,21 @@ class JiraService:
             if response.status_code == 429:
                 retry_after_raw = response.headers.get("Retry-After")
                 retry_after = int(retry_after_raw) if retry_after_raw and retry_after_raw.isdigit() else None
-                raise JiraRateLimitError(
+                last_exc = JiraRateLimitError(
                     f"Jira rate limit hit for {method.upper()} {path}",
                     retry_after=retry_after,
                 )
+                if attempt < attempts:
+                    await self._sleep_before_retry(attempt, retry_after=retry_after)
+                    continue
+                raise last_exc
             if response.status_code >= 500:
                 last_exc = JiraRequestError(
                     f"Jira server error {response.status_code} for {method.upper()} {path}",
                     status_code=response.status_code,
                 )
+                if attempt < attempts:
+                    await self._sleep_before_retry(attempt)
                 continue
             if not response.is_success:
                 raise JiraRequestError(
@@ -226,20 +241,35 @@ class JiraService:
         start_at: int = 0,
         max_results: int = 100,
     ) -> list[JiraChangelogEntry]:
-        """Return changelog entries for an issue, oldest-first."""
-        params: dict[str, Any] = {"startAt": start_at, "maxResults": max_results}
-        data = await self._request(
-            "GET", f"/rest/api/3/issue/{issue_key}/changelog", params=params
-        )
-        try:
-            entries: list[JiraChangelogEntry] = []
-            for history in data.get("values", []):
-                entries.extend(_normalize_changelog_entry(issue_key, history))
-            return entries
-        except (KeyError, TypeError) as exc:
-            raise JiraResponseParseError(
-                f"Unexpected changelog response structure for {issue_key}: {exc}"
-            ) from exc
+        """Return all changelog entries for an issue, oldest-first."""
+        current_start = start_at
+        entries: list[JiraChangelogEntry] = []
+
+        while True:
+            params: dict[str, Any] = {"startAt": current_start, "maxResults": max_results}
+            data = await self._request("GET", f"/rest/api/3/issue/{issue_key}/changelog", params=params)
+            try:
+                page_values = data.get("values", [])
+                for history in page_values:
+                    entries.extend(_normalize_changelog_entry(issue_key, history))
+
+                fetched_count = len(page_values)
+                total_raw = data.get("total")
+                total = int(total_raw) if total_raw is not None else None
+                is_last = data.get("isLast")
+
+                if fetched_count == 0 or is_last is True:
+                    return entries
+                if total is not None and current_start + fetched_count >= total:
+                    return entries
+                if fetched_count < max_results:
+                    return entries
+
+                current_start += fetched_count
+            except (KeyError, TypeError, ValueError) as exc:
+                raise JiraResponseParseError(
+                    f"Unexpected changelog response structure for {issue_key}: {exc}"
+                ) from exc
 
     async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
         """Return all versions for a Jira project."""

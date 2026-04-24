@@ -20,6 +20,11 @@ class ReleaseRepository:
         return session.scalar(query)
 
     @staticmethod
+    def list_release_ids(session: Session) -> list[str]:
+        query = select(Release.release_id).order_by(Release.release_id)
+        return list(session.scalars(query).all())
+
+    @staticmethod
     def list_release_issues(
         session: Session, release_id: str, skip: int, limit: int
     ) -> tuple[list[Issue], int]:

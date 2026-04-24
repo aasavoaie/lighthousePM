@@ -96,6 +96,12 @@ Single-service backend:
   - `analytics_service`
   - `signal_service`
 
+Optional local client:
+
+- A small React + TypeScript dashboard in `frontend/`
+- Read-only browser client over the same backend API
+- Intended for internal/local use in the MVP, not as a separate deployed service
+
 ---
 
 ## 🔄 Data Flow
@@ -151,6 +157,7 @@ Final release health output
 - `GET /admin/status`
 - `POST /sync/jira`
 - `POST /releases/{id}/recompute`
+- `POST /releases/recompute-all`
 
 ### Operational Visibility Notes (MVP)
 
@@ -299,6 +306,30 @@ Example `POST /releases/REL-1/recompute`:
   "status": "ok"
 }
 ```
+
+Example `POST /releases/recompute-all`:
+
+```json
+{
+  "releases_total": 3,
+  "releases_recomputed": 2,
+  "releases_failed": 1,
+  "elapsed_seconds": 0.412,
+  "errors": [
+    {
+      "release_id": "REL-3",
+      "reason": "Release not found: 'REL-3'"
+    }
+  ]
+}
+```
+
+Bulk recompute notes:
+
+- scope is all releases currently stored in the database
+- operation recomputes metrics snapshots and signals from existing DB data only
+- operation does not trigger Jira sync
+- failure mode is best-effort per release with per-release error summaries
 
 ### Signals API Notes (MVP)
 
@@ -721,6 +752,64 @@ Mapping to Make targets:
 - `make typecheck` -> `mypy app`
 - `make db-upgrade` -> `alembic upgrade head`
 - `make seed` -> `python seed.py`
+
+### 6a. Frontend Dashboard (Vite + React)
+
+The repository includes an optional internal dashboard in `frontend/`.
+
+Current MVP frontend behavior:
+
+- reads data directly from the backend API from the browser
+- assumes no auth or reverse proxy in local development
+- auto-selects the first release returned by `GET /releases`
+- currently charts three metrics: open blockers, open high-severity bugs, and scope completed percentage
+- includes tabs for Dashboard, Issues, and Admin views
+- Issues tab uses `GET /releases/{id}/issues` with pagination and issue drilldown via `GET /issues/{key}`
+- Issues tab loads release tickets without UI pagination and provides two filters: Not Done and Done Only (done statuses: done, closed, resolved)
+- Admin tab displays `GET /admin/status` and supports `POST /sync/jira`
+- "Recompute All Snapshots" triggers `POST /releases/recompute-all` and shows a final summary
+
+From repository root:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Create `frontend/.env` from `frontend/.env.example` before starting the app.
+
+Examples:
+
+```bash
+cp .env.example .env
+```
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Frontend defaults:
+
+- app URL: `http://localhost:5173`
+- backend URL: `http://localhost:8000`
+
+Set `VITE_API_BASE_URL` in `frontend/.env` if your backend runs elsewhere.
+
+Backend CORS must allow the frontend origin. The default backend setting is:
+
+```env
+CORS_ORIGINS=http://localhost:5173
+```
+
+If you change the frontend origin, update `CORS_ORIGINS` in `backend/.env` to match.
+
+To produce a production build:
+
+```bash
+cd frontend
+npm run build
+```
 
 CI note: `tests/test_seed.py` is a lightweight smoke test intended as the
 first automated gate when CI is introduced.

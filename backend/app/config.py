@@ -1,8 +1,11 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
@@ -12,6 +15,7 @@ class Settings(BaseSettings):
     app_env: Literal["dev", "test", "prod"] = "dev"
     app_port: int = 8000
     log_level: str = "INFO"
+    cors_origins: str = "http://localhost:5173"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/lighthouse"
     database_echo: bool = False
     database_pool_size: int = 5
@@ -38,7 +42,7 @@ class Settings(BaseSettings):
     jira_changelog_fix_version_fields: str = "fix version,fixversion"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

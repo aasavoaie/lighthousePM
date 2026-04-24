@@ -58,3 +58,16 @@ class RecomputeMetricsResponse(BaseModel):
     release_id: str
     snapshot_at: datetime
     status: str
+
+
+class RecomputeAllError(BaseModel):
+    release_id: str
+    reason: str
+
+
+class RecomputeAllMetricsResponse(BaseModel):
+    releases_total: int
+    releases_recomputed: int
+    releases_failed: int
+    elapsed_seconds: float
+    errors: list[RecomputeAllError]
