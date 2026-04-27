@@ -10,6 +10,20 @@ from datetime import datetime
 
 
 @dataclass
+class JiraSprintRef:
+    """A Jira sprint value extracted from an issue sprint field."""
+
+    id: str
+    name: str
+    state: str
+    board_id: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    complete_date: str | None = None
+    goal: str | None = None
+
+
+@dataclass
 class JiraIssueSummary:
     """Lightweight view of a Jira issue returned from JQL search results."""
 
@@ -21,6 +35,7 @@ class JiraIssueSummary:
     assignee: str | None
     updated: datetime | None
     fix_versions: list[str] = field(default_factory=list)
+    sprints: list[JiraSprintRef] = field(default_factory=list)
 
 
 @dataclass
@@ -38,6 +53,7 @@ class JiraIssueDetail:
     labels: list[str] = field(default_factory=list)
     components: list[str] = field(default_factory=list)
     fix_versions: list[str] = field(default_factory=list)
+    sprints: list[JiraSprintRef] = field(default_factory=list)
     reporter: str | None = None
     story_points: float | None = None
     blocker_flag: bool | None = None

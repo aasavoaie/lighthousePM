@@ -17,6 +17,64 @@ export interface ReleaseListResponse {
   total: number;
 }
 
+export interface Sprint {
+  sprint_id: string;
+  name: string;
+  state: string;
+  project_key: string;
+  board_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  complete_date: string | null;
+  goal: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SprintListResponse {
+  items: Sprint[];
+  skip: number;
+  limit: number;
+  total: number;
+}
+
+export interface CurrentSprintResponse {
+  item: Sprint | null;
+}
+
+export interface SprintMetricValues {
+  committed_scope: number | null;
+  completed_scope_pct: number | null;
+  open_blockers: number | null;
+  open_high_severity_bugs: number | null;
+  in_progress_count: number | null;
+  not_started_count: number | null;
+  rollover_count: number | null;
+  median_cycle_time_days: number | null;
+  reopen_rate_pct: number | null;
+}
+
+export interface MetricIssueKeys {
+  open_blockers: string[];
+  open_high_severity_bugs: string[];
+}
+
+export interface SprintMetricsResponse {
+  sprint_id: string;
+  snapshot_at: string | null;
+  metrics: SprintMetricValues;
+  metric_issue_keys: MetricIssueKeys;
+  metric_names: string[];
+  is_computed: boolean;
+  snapshot_age_hours: number | null;
+}
+
+export interface RecomputeSprintMetricsResponse {
+  sprint_id: string;
+  snapshot_at: string;
+  status: string;
+}
+
 export interface MetricValues {
   open_blockers: number | null;
   open_high_severity_bugs: number | null;
@@ -41,6 +99,7 @@ export interface ReleaseMetricsResponse {
   release_id: string;
   snapshot_at: string | null;
   metrics: MetricValues;
+  metric_issue_keys: MetricIssueKeys;
   metric_names: string[];
   metric_thresholds: MetricThresholds | null;
   is_computed: boolean;
@@ -151,6 +210,8 @@ export interface SyncJiraResponse {
   releases_fetched: number;
   releases_inserted: number;
   releases_updated: number;
+  sprints_inserted: number;
+  sprints_updated: number;
   issues_fetched: number;
   issues_inserted: number;
   issues_updated: number;

@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Issue, IssueHistory, MetricSnapshot, Release
+from app.models import Issue, IssueHistory, IssueSprint, MetricSnapshot, Release, Sprint, SprintMetricSnapshot
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.services.jira_field_mapper import JiraFieldMapper
 
@@ -36,11 +36,20 @@ class AnalyticsService:
 
         field_mapper = JiraFieldMapper(get_settings())
 
+        open_blocker_issue_keys = self._list_open_blocker_issue_keys(session, release_id, field_mapper)
+        open_high_severity_bug_issue_keys = self._list_open_high_severity_bug_issue_keys(
+            session,
+            release_id,
+            field_mapper,
+        )
+
         snapshot = MetricSnapshot(
             release_id=release_id,
             snapshot_at=datetime.now(UTC),
-            open_blockers=self._count_open_blockers(session, release_id, field_mapper),
-            open_high_severity_bugs=self._count_open_high_severity_bugs(session, release_id, field_mapper),
+            open_blockers=len(open_blocker_issue_keys),
+            open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
+            open_blocker_issue_keys=open_blocker_issue_keys,
+            open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
             scope_completed_pct=self._compute_scope_completed_pct(session, release_id, field_mapper),
             scope_churn_7d_pct=self._compute_scope_churn_7d_pct(
                 session,
@@ -61,6 +70,52 @@ class AnalyticsService:
         )
         return snapshot
 
+    def recompute_sprint_metrics(self, session: Session, sprint_id: str) -> SprintMetricSnapshot:
+        """Compute sprint metrics and persist a new SprintMetricSnapshot row.
+
+        Sprint scope is the explicit issue_sprints membership stored from Jira.
+        Rollover count is only populated for closed sprints and means sprint
+        issues that are not currently in a configured done status.
+        """
+        sprint = session.scalar(select(Sprint).where(Sprint.sprint_id == sprint_id))
+        if sprint is None:
+            raise ValueError(f"Sprint not found: {sprint_id!r}")
+
+        logger.info("sprint_metrics_recompute_started sprint_id=%s", sprint_id)
+        field_mapper = JiraFieldMapper(get_settings())
+
+        open_blocker_issue_keys = self._list_sprint_open_blocker_issue_keys(session, sprint_id, field_mapper)
+        open_high_severity_bug_issue_keys = self._list_sprint_open_high_severity_bug_issue_keys(
+            session,
+            sprint_id,
+            field_mapper,
+        )
+
+        snapshot = SprintMetricSnapshot(
+            sprint_id=sprint_id,
+            snapshot_at=datetime.now(UTC),
+            committed_scope=self._count_sprint_issues(session, sprint_id),
+            completed_scope_pct=self._compute_sprint_completed_scope_pct(session, sprint_id, field_mapper),
+            open_blockers=len(open_blocker_issue_keys),
+            open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
+            open_blocker_issue_keys=open_blocker_issue_keys,
+            open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
+            in_progress_count=self._count_sprint_in_progress(session, sprint_id, field_mapper),
+            not_started_count=self._count_sprint_not_started(session, sprint_id, field_mapper),
+            rollover_count=self._count_sprint_rollover(session, sprint_id, sprint.state, field_mapper),
+            median_cycle_time_days=self._compute_sprint_median_cycle_time_days(session, sprint_id, field_mapper),
+            reopen_rate_pct=self._compute_sprint_reopen_rate_pct(session, sprint_id, field_mapper),
+        )
+        session.add(snapshot)
+        OperationalStatusRepository.mark_metrics_recomputed(session=session)
+        logger.info(
+            "sprint_metrics_recompute_completed sprint_id=%s committed_scope=%d completed_scope_pct=%.2f",
+            sprint_id,
+            snapshot.committed_scope,
+            snapshot.completed_scope_pct,
+        )
+        return snapshot
+
     # ------------------------------------------------------------------
     # Private helpers — each computes exactly one metric
     # ------------------------------------------------------------------
@@ -68,16 +123,48 @@ class AnalyticsService:
     @staticmethod
     def _count_open_blockers(session: Session, release_id: str, field_mapper: JiraFieldMapper) -> int:
         """COUNT issues WHERE is_blocker AND status NOT IN done statuses."""
-        result = session.scalar(
-            select(func.count())
-            .select_from(Issue)
-            .where(
-                Issue.release_id == release_id,
-                Issue.is_blocker.is_(True),
-                func.lower(Issue.status).not_in(field_mapper.done_statuses),
-            )
+        return len(AnalyticsService._list_open_blocker_issue_keys(session, release_id, field_mapper))
+
+    @staticmethod
+    def _list_open_blocker_issue_keys(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> list[str]:
+        """Sorted issue keys WHERE is_blocker AND status NOT IN done statuses."""
+        return list(
+            session.scalars(
+                select(Issue.issue_key)
+                .select_from(Issue)
+                .where(
+                    Issue.release_id == release_id,
+                    Issue.is_blocker.is_(True),
+                    func.lower(Issue.status).not_in(field_mapper.done_statuses),
+                )
+                .order_by(Issue.issue_key)
+            ).all()
         )
-        return int(result or 0)
+
+    @staticmethod
+    def _list_open_high_severity_bug_issue_keys(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> list[str]:
+        """Sorted issue keys WHERE type='bug' AND priority in high-severity AND status NOT done."""
+        return list(
+            session.scalars(
+                select(Issue.issue_key)
+                .select_from(Issue)
+                .where(
+                    Issue.release_id == release_id,
+                    func.lower(Issue.issue_type) == "bug",
+                    func.lower(Issue.priority).in_(field_mapper.high_severity_values),
+                    func.lower(Issue.status).not_in(field_mapper.done_statuses),
+                )
+                .order_by(Issue.issue_key)
+            ).all()
+        )
 
     @staticmethod
     def _count_open_high_severity_bugs(
@@ -86,17 +173,7 @@ class AnalyticsService:
         field_mapper: JiraFieldMapper,
     ) -> int:
         """COUNT issues WHERE type='bug' AND priority in high-severity AND status NOT done."""
-        result = session.scalar(
-            select(func.count())
-            .select_from(Issue)
-            .where(
-                Issue.release_id == release_id,
-                func.lower(Issue.issue_type) == "bug",
-                func.lower(Issue.priority).in_(field_mapper.high_severity_values),
-                func.lower(Issue.status).not_in(field_mapper.done_statuses),
-            )
-        )
-        return int(result or 0)
+        return len(AnalyticsService._list_open_high_severity_bug_issue_keys(session, release_id, field_mapper))
 
     @staticmethod
     def _compute_scope_completed_pct(
@@ -243,6 +320,205 @@ class AnalyticsService:
             if started_at >= ended_at:
                 continue
 
+            cycle_days.append((ended_at - started_at).total_seconds() / 86400)
+
+        return round(statistics.median(cycle_days), 4) if cycle_days else None
+
+    # ------------------------------------------------------------------
+    # Sprint metrics
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sprint_issue_keys_subquery(sprint_id: str):
+        return select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint_id)
+
+    @staticmethod
+    def _count_sprint_issues(session: Session, sprint_id: str) -> int:
+        total = session.scalar(
+            select(func.count()).select_from(IssueSprint).where(IssueSprint.sprint_id == sprint_id)
+        )
+        return int(total or 0)
+
+    @staticmethod
+    def _compute_sprint_completed_scope_pct(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> float:
+        total = AnalyticsService._count_sprint_issues(session, sprint_id)
+        if total == 0:
+            return 0.0
+        done = session.scalar(
+            select(func.count())
+            .select_from(Issue)
+            .where(
+                Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                func.lower(Issue.status).in_(field_mapper.done_statuses),
+            )
+        ) or 0
+        return round(100.0 * done / total, 2)
+
+    @staticmethod
+    def _count_sprint_open_blockers(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        return len(AnalyticsService._list_sprint_open_blocker_issue_keys(session, sprint_id, field_mapper))
+
+    @staticmethod
+    def _list_sprint_open_blocker_issue_keys(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> list[str]:
+        return list(
+            session.scalars(
+                select(Issue.issue_key)
+                .select_from(Issue)
+                .where(
+                    Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                    Issue.is_blocker.is_(True),
+                    func.lower(Issue.status).not_in(field_mapper.done_statuses),
+                )
+                .order_by(Issue.issue_key)
+            ).all()
+        )
+
+    @staticmethod
+    def _count_sprint_open_high_severity_bugs(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        return len(AnalyticsService._list_sprint_open_high_severity_bug_issue_keys(session, sprint_id, field_mapper))
+
+    @staticmethod
+    def _list_sprint_open_high_severity_bug_issue_keys(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> list[str]:
+        return list(
+            session.scalars(
+                select(Issue.issue_key)
+                .select_from(Issue)
+                .where(
+                    Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                    func.lower(Issue.issue_type) == "bug",
+                    func.lower(Issue.priority).in_(field_mapper.high_severity_values),
+                    func.lower(Issue.status).not_in(field_mapper.done_statuses),
+                )
+                .order_by(Issue.issue_key)
+            ).all()
+        )
+
+    @staticmethod
+    def _count_sprint_in_progress(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        result = session.scalar(
+            select(func.count())
+            .select_from(Issue)
+            .where(
+                Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                func.lower(Issue.status).in_(field_mapper.in_progress_statuses),
+            )
+        )
+        return int(result or 0)
+
+    @staticmethod
+    def _count_sprint_not_started(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        result = session.scalar(
+            select(func.count())
+            .select_from(Issue)
+            .where(
+                Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                func.lower(Issue.status).not_in(field_mapper.done_statuses),
+                func.lower(Issue.status).not_in(field_mapper.in_progress_statuses),
+            )
+        )
+        return int(result or 0)
+
+    @staticmethod
+    def _count_sprint_rollover(
+        session: Session,
+        sprint_id: str,
+        sprint_state: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        if sprint_state.casefold() != "closed":
+            return 0
+        result = session.scalar(
+            select(func.count())
+            .select_from(Issue)
+            .where(
+                Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                func.lower(Issue.status).not_in(field_mapper.done_statuses),
+            )
+        )
+        return int(result or 0)
+
+    @staticmethod
+    def _compute_sprint_reopen_rate_pct(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> float:
+        total = AnalyticsService._count_sprint_issues(session, sprint_id)
+        if total == 0:
+            return 0.0
+
+        reopened_keys = session.scalars(
+            select(IssueHistory.issue_key)
+            .where(
+                IssueHistory.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                IssueHistory.field_name == "status",
+                func.lower(IssueHistory.old_value).in_(field_mapper.done_statuses),
+                func.lower(IssueHistory.new_value).not_in(field_mapper.done_statuses),
+            )
+            .distinct()
+        ).all()
+
+        return round(100.0 * len(reopened_keys) / total, 2)
+
+    @staticmethod
+    def _compute_sprint_median_cycle_time_days(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> float | None:
+        done_issues = session.scalars(
+            select(Issue.issue_key).where(
+                Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                func.lower(Issue.status).in_(field_mapper.done_statuses),
+            )
+        ).all()
+
+        cycle_days: list[float] = []
+        for issue_key in done_issues:
+            started_at = session.scalar(
+                select(func.min(IssueHistory.changed_at)).where(
+                    IssueHistory.issue_key == issue_key,
+                    IssueHistory.field_name == "status",
+                    func.lower(IssueHistory.new_value).in_(field_mapper.in_progress_statuses),
+                )
+            )
+            ended_at = session.scalar(
+                select(func.min(IssueHistory.changed_at)).where(
+                    IssueHistory.issue_key == issue_key,
+                    IssueHistory.field_name == "status",
+                    func.lower(IssueHistory.new_value).in_(field_mapper.done_statuses),
+                )
+            )
+            if started_at is None or ended_at is None or started_at >= ended_at:
+                continue
             cycle_days.append((ended_at - started_at).total_seconds() / 86400)
 
         return round(statistics.median(cycle_days), 4) if cycle_days else None

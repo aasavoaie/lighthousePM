@@ -6,6 +6,8 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY app /app/app
+COPY alembic /app/alembic
+COPY alembic.ini /app/alembic.ini
 COPY pyproject.toml /app/pyproject.toml
 
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .

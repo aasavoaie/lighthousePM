@@ -49,6 +49,8 @@ def test_post_sync_jira_returns_sync_counts(client: TestClient, monkeypatch: pyt
             "releases_fetched": 1,
             "releases_inserted": 1,
             "releases_updated": 0,
+            "sprints_inserted": 0,
+            "sprints_updated": 0,
             "issues_fetched": 4,
             "issues_inserted": 3,
             "issues_updated": 1,

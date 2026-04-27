@@ -6,6 +6,8 @@ class SyncJiraResponse(BaseModel):
     releases_fetched: int
     releases_inserted: int
     releases_updated: int
+    sprints_inserted: int
+    sprints_updated: int
     issues_fetched: int
     issues_inserted: int
     issues_updated: int

@@ -1,3 +1,1 @@
-INFO:     127.0.0.1:61762 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:50550 - "POST /sync/jira HTTP/1.1" 200 OK
- 
+INFO:     127.0.0.1:52670 - "GET /health HTTP/1.1" 200 OK

@@ -1,5 +1,6 @@
 import type {
   AdminStatusResponse,
+  CurrentSprintResponse,
   HealthResponse,
   Issue,
   IssueListResponse,
@@ -10,6 +11,10 @@ import type {
   ReleaseListResponse,
   ReleaseMetricsResponse,
   ReleaseSignalResponse,
+  RecomputeSprintMetricsResponse,
+  Sprint,
+  SprintListResponse,
+  SprintMetricsResponse,
   SyncJiraResponse,
 } from "./types";
 
@@ -40,6 +45,21 @@ export const apiClient = {
   },
   getReleaseIssues(releaseId: string, skip = 0, limit = 50): Promise<IssueListResponse> {
     return request<IssueListResponse>(`/releases/${releaseId}/issues?skip=${skip}&limit=${limit}`);
+  },
+  getClosedSprints(): Promise<SprintListResponse> {
+    return request<SprintListResponse>("/sprints?state=closed&limit=100");
+  },
+  getCurrentSprint(): Promise<CurrentSprintResponse> {
+    return request<CurrentSprintResponse>("/sprints/current");
+  },
+  getSprintIssues(sprintId: string, skip = 0, limit = 50): Promise<IssueListResponse> {
+    return request<IssueListResponse>(`/sprints/${sprintId}/issues?skip=${skip}&limit=${limit}`);
+  },
+  getSprintMetrics(sprintId: string): Promise<SprintMetricsResponse> {
+    return request<SprintMetricsResponse>(`/sprints/${sprintId}/metrics`);
+  },
+  recomputeSprint(sprintId: string): Promise<RecomputeSprintMetricsResponse> {
+    return request<RecomputeSprintMetricsResponse>(`/sprints/${sprintId}/recompute`, { method: "POST" });
   },
   getIssue(jiraKey: string): Promise<Issue> {
     return request<Issue>(`/issues/${jiraKey}`);
