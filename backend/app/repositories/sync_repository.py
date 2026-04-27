@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Issue, IssueHistory, Release
-from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraVersion
+from app.models import Issue, IssueHistory, IssueSprint, Release, Sprint
+from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraSprintRef, JiraVersion
 
 
 def _parse_iso_date(value: str | None) -> datetime | None:
@@ -12,6 +12,16 @@ def _parse_iso_date(value: str | None) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(f"{value}T00:00:00+00:00")
+    except ValueError:
+        return None
+
+
+def _parse_jira_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
     except ValueError:
         return None
 
@@ -78,6 +88,43 @@ class SyncRepository:
         existing.is_blocker = is_blocker
         session.flush()
         return existing, False
+
+    @staticmethod
+    def upsert_sprint(session: Session, sprint_ref: JiraSprintRef, project_key: str) -> tuple[Sprint, bool]:
+        existing = session.scalar(select(Sprint).where(Sprint.sprint_id == sprint_ref.id))
+        if existing is None:
+            sprint = Sprint(
+                sprint_id=sprint_ref.id,
+                name=sprint_ref.name,
+                state=sprint_ref.state,
+                project_key=project_key,
+                board_id=sprint_ref.board_id,
+                start_date=_parse_jira_datetime(sprint_ref.start_date),
+                end_date=_parse_jira_datetime(sprint_ref.end_date),
+                complete_date=_parse_jira_datetime(sprint_ref.complete_date),
+                goal=sprint_ref.goal,
+            )
+            session.add(sprint)
+            session.flush()
+            return sprint, True
+
+        existing.name = sprint_ref.name
+        existing.state = sprint_ref.state
+        existing.project_key = project_key
+        existing.board_id = sprint_ref.board_id
+        existing.start_date = _parse_jira_datetime(sprint_ref.start_date)
+        existing.end_date = _parse_jira_datetime(sprint_ref.end_date)
+        existing.complete_date = _parse_jira_datetime(sprint_ref.complete_date)
+        existing.goal = sprint_ref.goal
+        session.flush()
+        return existing, False
+
+    @staticmethod
+    def replace_issue_sprints(session: Session, issue_key: str, sprint_ids: list[str]) -> None:
+        session.execute(delete(IssueSprint).where(IssueSprint.issue_key == issue_key))
+        for sprint_id in dict.fromkeys(sprint_ids):
+            session.add(IssueSprint(issue_key=issue_key, sprint_id=sprint_id))
+        session.flush()
 
     @staticmethod
     def insert_issue_history_entries(

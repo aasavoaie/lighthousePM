@@ -24,6 +24,8 @@ class SyncResult:
     releases_fetched: int = 0
     releases_inserted: int = 0
     releases_updated: int = 0
+    sprints_inserted: int = 0
+    sprints_updated: int = 0
     issues_fetched: int = 0
     issues_inserted: int = 0
     issues_updated: int = 0
@@ -106,6 +108,7 @@ class SyncService:
         project_key = self._validate_sync_settings()
         result = SyncResult(project_key=project_key)
         recompute_release_count = 0
+        sprint_ids_seen: set[str] = set()
 
         logger.info("jira_sync_started project_key=%s", project_key)
 
@@ -150,6 +153,20 @@ class SyncService:
                         linked_release_id = mapped_release_id
                         break
 
+                linked_sprint_ids: list[str] = []
+                for sprint_ref in issue_detail.sprints:
+                    _, sprint_created = SyncRepository.upsert_sprint(
+                        session=session,
+                        sprint_ref=sprint_ref,
+                        project_key=project_key,
+                    )
+                    linked_sprint_ids.append(sprint_ref.id)
+                    sprint_ids_seen.add(sprint_ref.id)
+                    if sprint_created:
+                        result.sprints_inserted += 1
+                    else:
+                        result.sprints_updated += 1
+
                 _, created = SyncRepository.upsert_issue(
                     session=session,
                     issue_detail=issue_detail,
@@ -165,6 +182,12 @@ class SyncService:
                     result.issues_inserted += 1
                 else:
                     result.issues_updated += 1
+
+                SyncRepository.replace_issue_sprints(
+                    session=session,
+                    issue_key=issue_detail.key,
+                    sprint_ids=linked_sprint_ids,
+                )
 
                 changelog_entries = await self._jira_service.get_issue_changelog(
                     issue_key=issue_summary.key,
@@ -203,11 +226,14 @@ class SyncService:
                 analytics_service.recompute_release_metrics(session=session, release_id=release_id)
                 signal_service.recompute_release_signal(session=session, release_id=release_id)
                 recompute_release_count += 1
+            for sprint_id in sorted(sprint_ids_seen):
+                analytics_service.recompute_sprint_metrics(session=session, sprint_id=sprint_id)
 
             logger.info(
-                "jira_sync_recompute_processed project_key=%s releases_recomputed=%d",
+                "jira_sync_recompute_processed project_key=%s releases_recomputed=%d sprints_recomputed=%d",
                 project_key,
                 recompute_release_count,
+                len(sprint_ids_seen),
             )
 
             OperationalStatusRepository.mark_sync_succeeded(session=session)

@@ -222,6 +222,10 @@ Example `GET /releases/REL-1/metrics` (snapshot exists):
     "scope_churn_7d_pct": 12.5,
     "median_cycle_time_days": 4.0,
     "reopen_rate_pct": 8.33
+  },
+  "metric_issue_keys": {
+    "open_blockers": ["LHPM-12"],
+    "open_high_severity_bugs": ["LHPM-18", "LHPM-23"]
   }
 }
 ```
@@ -250,6 +254,10 @@ Example `GET /releases/REL-1/metrics` (empty state, release exists):
     "scope_churn_7d_pct": null,
     "median_cycle_time_days": null,
     "reopen_rate_pct": null
+  },
+  "metric_issue_keys": {
+    "open_blockers": [],
+    "open_high_severity_bugs": []
   }
 }
 ```
@@ -426,8 +434,11 @@ Example `GET /releases/REL-1/signal` (empty state, release exists):
   - Explicit `thresholds` object so downstream services do not hardcode rule boundaries.
 - **Metrics output** (`GET /releases/{id}/metrics`):
   - `metrics` values plus `metric_names` for stable key ordering.
+  - `metric_issue_keys` stores the exact issue keys behind `open_blockers` and `open_high_severity_bugs`.
   - `is_computed` differentiates uncomputed releases from computed snapshots.
   - `snapshot_age_hours` exposes freshness for dashboard staleness indicators.
+- **Sprint metrics output** (`GET /sprints/{id}/metrics`):
+  - Uses the same `metric_issue_keys` shape for sprint `open_blockers` and `open_high_severity_bugs`.
 - **Notable issues output**:
   - Use existing `GET /releases/{id}/issues` and issue fields (`is_blocker`, `priority`, `status`).
   - No dedicated notable-issues endpoint is introduced in MVP.
@@ -671,10 +682,12 @@ Field mapping is configurable per Jira instance using `.env` variables:
 
 - `JIRA_FIELD_SEVERITY` (default: `priority`)
 - `JIRA_FIELD_RELEASE` (default: `fixVersions`)
+- `JIRA_FIELD_SPRINT` (optional; set to the Jira sprint custom field)
 - `JIRA_FIELD_STORY_POINTS` (optional)
 - `JIRA_FIELD_BLOCKER` (optional)
 - `JIRA_BLOCKER_TRUE_VALUES` (default: `true,yes,1,blocker`)
 - `JIRA_CHANGELOG_FIX_VERSION_FIELDS` (default: `fix version,fixversion`)
+- `JIRA_CHANGELOG_SPRINT_FIELDS` (default: `sprint`)
 
 These mappings keep assumptions explicit and avoid hardcoding custom field IDs in service code.
 
@@ -682,7 +695,9 @@ These mappings keep assumptions explicit and avoid hardcoding custom field IDs i
 
 - Severity defaults to Jira `priority` unless `JIRA_FIELD_SEVERITY` is overridden.
 - Release linkage defaults to Jira `fixVersions` unless `JIRA_FIELD_RELEASE` is overridden.
+- Sprint linkage is only ingested when `JIRA_FIELD_SPRINT` is configured.
 - Scope churn inspects changelog fields listed in `JIRA_CHANGELOG_FIX_VERSION_FIELDS`.
+- Sprint metrics use explicit issue-to-sprint membership from Jira sprint fields.
 - Blocker detection falls back to the original deterministic heuristic when `JIRA_FIELD_BLOCKER` is unset or missing:
   - issue type is `blocker` or `incident`, or
   - severity is `blocker`, `highest`, or `critical`,

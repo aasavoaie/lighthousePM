@@ -37,9 +37,11 @@ class Settings(BaseSettings):
     jira_field_story_points: str = ""
     jira_field_severity: str = "priority"
     jira_field_release: str = "fixVersions"
+    jira_field_sprint: str = ""
     jira_field_blocker: str = ""
     jira_blocker_true_values: str = "true,yes,1,blocker"
     jira_changelog_fix_version_fields: str = "fix version,fixversion"
+    jira_changelog_sprint_fields: str = "sprint"
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",
@@ -67,6 +69,10 @@ class Settings(BaseSettings):
     @property
     def changelog_fix_version_fields(self) -> frozenset[str]:
         return _csv_to_set(self.jira_changelog_fix_version_fields)
+
+    @property
+    def changelog_sprint_fields(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_changelog_sprint_fields)
 
     def validate_startup_settings(self) -> None:
         """Fail-fast validation for required Jira sync settings.

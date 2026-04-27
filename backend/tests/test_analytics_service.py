@@ -94,6 +94,7 @@ def test_open_blockers_counts_only_open(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.open_blockers == 2
+    assert result.open_blocker_issue_keys == ["P-1", "P-2"]
 
 
 def test_open_blockers_empty_release(db_session: Session) -> None:
@@ -102,6 +103,7 @@ def test_open_blockers_empty_release(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.open_blockers == 0
+    assert result.open_blocker_issue_keys == []
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +122,7 @@ def test_open_high_severity_bugs_counts_correctly(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.open_high_severity_bugs == 2
+    assert result.open_high_severity_bug_issue_keys == ["P-1", "P-2"]
 
 
 def test_open_high_severity_bugs_case_insensitive(db_session: Session) -> None:
@@ -129,6 +132,7 @@ def test_open_high_severity_bugs_case_insensitive(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.open_high_severity_bugs == 1
+    assert result.open_high_severity_bug_issue_keys == ["P-1"]
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +369,7 @@ def test_recompute_inserts_metric_snapshot_row(db_session: Session) -> None:
     stored = db_session.scalar(select(MetricSnapshot).where(MetricSnapshot.release_id == "R1"))
     assert stored is not None
     assert stored.open_blockers == 1
+    assert stored.open_blocker_issue_keys == ["P-2"]
     assert stored.scope_completed_pct == 50.0
     assert stored is snapshot
 

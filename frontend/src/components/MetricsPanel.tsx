@@ -3,6 +3,7 @@ import type { MetricValues, ReleaseMetricsResponse } from "../api/types";
 interface MetricsPanelProps {
   metrics: ReleaseMetricsResponse | null;
   isLoading: boolean;
+  onSelectIssue: (issueKey: string) => void;
 }
 
 const metricLabels: Record<keyof MetricValues, string> = {
@@ -33,7 +34,35 @@ function formatMetricValue(metricName: keyof MetricValues, value: number | null)
   return value.toFixed(2);
 }
 
-export function MetricsPanel({ metrics, isLoading }: MetricsPanelProps) {
+function renderMetricIssueKeys(
+  metricName: keyof MetricValues,
+  value: number | null,
+  metrics: ReleaseMetricsResponse,
+  onSelectIssue: (issueKey: string) => void
+) {
+  if (metricName !== "open_blockers" && metricName !== "open_high_severity_bugs") {
+    return null;
+  }
+
+  const issueKeys = metrics.metric_issue_keys[metricName];
+  if (issueKeys.length === 0) {
+    return value !== null && value > 0 ? <p className="metric-ticket-empty">Recompute to populate ticket list.</p> : null;
+  }
+
+  return (
+    <ul className="metric-ticket-list" aria-label={`${metricLabels[metricName]} tickets`}>
+      {issueKeys.map((issueKey) => (
+        <li key={issueKey}>
+          <button type="button" className="link-button" onClick={() => onSelectIssue(issueKey)}>
+            {issueKey}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function MetricsPanel({ metrics, isLoading, onSelectIssue }: MetricsPanelProps) {
   return (
     <section className="panel metrics-panel">
       <div className="panel-heading">
@@ -53,6 +82,7 @@ export function MetricsPanel({ metrics, isLoading }: MetricsPanelProps) {
               <h3>{metricLabels[metricName]}</h3>
               <p className="metric-description">{metricDescriptions[metricName]}</p>
               <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
+              {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, onSelectIssue)}
             </article>
           ))}
         </div>

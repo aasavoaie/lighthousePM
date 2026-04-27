@@ -15,8 +15,9 @@ import { IssuesPanel } from "./components/IssuesPanel";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { ReleaseSelector } from "./components/ReleaseSelector";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
+import { SprintsPanel } from "./components/SprintsPanel";
 
-type AppTab = "dashboard" | "charts" | "issues" | "admin";
+type AppTab = "dashboard" | "sprints" | "charts" | "issues" | "admin";
 
 export default function App() {
   const [releases, setReleases] = useState<Release[]>([]);
@@ -173,6 +174,13 @@ export default function App() {
         </button>
         <button
           type="button"
+          className={`tab-button ${selectedTab === "sprints" ? "active" : ""}`}
+          onClick={() => setSelectedTab("sprints")}
+        >
+          Sprints
+        </button>
+        <button
+          type="button"
           className={`tab-button ${selectedTab === "charts" ? "active" : ""}`}
           onClick={() => setSelectedTab("charts")}
         >
@@ -188,16 +196,18 @@ export default function App() {
       </nav>
 
       <main className="dashboard-grid">
-        <ReleaseSelector
-          releases={releases}
-          selectedReleaseId={selectedReleaseId}
-          isLoading={isLoadingReleases}
-          onChange={setSelectedReleaseId}
-        />
+        {selectedTab !== "sprints" ? (
+          <ReleaseSelector
+            releases={releases}
+            selectedReleaseId={selectedReleaseId}
+            isLoading={isLoadingReleases}
+            onChange={setSelectedReleaseId}
+          />
+        ) : null}
 
         {errorMessage && selectedTab === "dashboard" ? <div className="panel error-panel">{errorMessage}</div> : null}
 
-        {!isLoadingReleases && releases.length === 0 && selectedTab !== "admin" ? (
+        {!isLoadingReleases && releases.length === 0 && selectedTab !== "admin" && selectedTab !== "sprints" ? (
           <section className="panel empty-panel">
             <h2>No releases</h2>
             <p className="muted">Seed data or sync Jira to populate the dashboard.</p>
@@ -207,7 +217,7 @@ export default function App() {
         {selectedReleaseId && selectedTab === "dashboard" ? (
           <>
             <SignalSummaryPanel signal={signal} isLoading={isLoadingDetails} />
-            <MetricsPanel metrics={metrics} isLoading={isLoadingDetails} />
+            <MetricsPanel metrics={metrics} isLoading={isLoadingDetails} onSelectIssue={setSelectedIssueKey} />
           </>
         ) : null}
 
@@ -221,6 +231,10 @@ export default function App() {
             refreshNonce={dashboardRefreshNonce}
             onSelectIssue={setSelectedIssueKey}
           />
+        ) : null}
+
+        {selectedTab === "sprints" ? (
+          <SprintsPanel refreshNonce={dashboardRefreshNonce} onSelectIssue={setSelectedIssueKey} />
         ) : null}
 
         {selectedTab === "admin" ? (

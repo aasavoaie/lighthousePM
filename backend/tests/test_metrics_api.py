@@ -64,15 +64,23 @@ def _seed_release(session: Session, release_id: str = "REL-1", name: str = "Rele
     session.commit()
 
 
-def _seed_issue(session: Session, issue_key: str, release_id: str, status: str, is_blocker: bool = False) -> None:
+def _seed_issue(
+    session: Session,
+    issue_key: str,
+    release_id: str,
+    status: str,
+    is_blocker: bool = False,
+    issue_type: str = "Bug",
+    priority: str | None = "High",
+) -> None:
     now = datetime.now(UTC)
     session.add(
         Issue(
             issue_key=issue_key,
             summary="Issue",
-            issue_type="Bug",
+            issue_type=issue_type,
             status=status,
-            priority="High",
+            priority=priority,
             assignee="alice",
             release_id=release_id,
             is_blocker=is_blocker,
@@ -149,6 +157,10 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
     assert payload["metric_thresholds"] is None
     assert payload["is_computed"] is False
     assert payload["snapshot_age_hours"] is None
+    assert payload["metric_issue_keys"] == {
+        "open_blockers": [],
+        "open_high_severity_bugs": [],
+    }
     assert payload["metrics"] == {
         "open_blockers": None,
         "open_high_severity_bugs": None,
@@ -235,6 +247,10 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     assert metrics["metrics"]["scope_completed_pct"] == 50.0
     assert metrics["metrics"]["scope_churn_7d_pct"] == 50.0
     assert metrics["metrics"]["reopen_rate_pct"] == 0.0
+    assert metrics["metric_issue_keys"] == {
+        "open_blockers": ["LHPM-1"],
+        "open_high_severity_bugs": ["LHPM-1"],
+    }
 
     charts = client.get("/releases/REL-1/charts")
     assert charts.status_code == 200
@@ -266,6 +282,29 @@ def test_recompute_release_metrics_returns_404_when_missing_release(client: Test
 
     assert response.status_code == 404
     assert "Release not found" in response.json()["detail"]
+
+
+def test_release_metrics_returns_metric_issue_keys(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(session, "LHPM-1", "REL-1", "In Progress", is_blocker=True, issue_type="Story")
+        _seed_issue(session, "LHPM-2", "REL-1", "To Do", issue_type="Bug", priority="Critical")
+        _seed_issue(session, "LHPM-3", "REL-1", "Done", is_blocker=True, issue_type="Bug", priority="High")
+        _seed_issue(session, "LHPM-4", "REL-1", "To Do", issue_type="Story", priority="High")
+        session.commit()
+
+    recompute = client.post("/releases/REL-1/recompute")
+    response = client.get("/releases/REL-1/metrics")
+
+    assert recompute.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]["open_blockers"] == 1
+    assert payload["metrics"]["open_high_severity_bugs"] == 1
+    assert payload["metric_issue_keys"] == {
+        "open_blockers": ["LHPM-1"],
+        "open_high_severity_bugs": ["LHPM-2"],
+    }
 
 
 def test_get_release_charts_not_found_when_release_missing(client: TestClient) -> None:

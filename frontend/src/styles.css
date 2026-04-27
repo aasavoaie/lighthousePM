@@ -353,6 +353,30 @@ select {
   font-size: 1.45rem;
 }
 
+.metric-ticket-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.metric-ticket-list .link-button {
+  border: 1px solid #b9c9da;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #ffffff;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.metric-ticket-empty {
+  margin: 10px 0 0;
+  color: #58677c;
+  font-size: 0.86rem;
+}
+
 .signal-description {
   margin: 0 0 12px;
   color: #58677c;

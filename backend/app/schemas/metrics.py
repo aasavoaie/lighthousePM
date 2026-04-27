@@ -12,6 +12,11 @@ class MetricValues(BaseModel):
     reopen_rate_pct: float | None
 
 
+class MetricIssueKeys(BaseModel):
+    open_blockers: list[str]
+    open_high_severity_bugs: list[str]
+
+
 class MetricThresholds(BaseModel):
     open_blockers_red: int
     open_high_severity_bugs_red: int
@@ -27,6 +32,7 @@ class ReleaseMetricsResponse(BaseModel):
     release_id: str
     snapshot_at: datetime | None
     metrics: MetricValues
+    metric_issue_keys: MetricIssueKeys
     metric_names: list[str]
     metric_thresholds: MetricThresholds | None
     is_computed: bool
