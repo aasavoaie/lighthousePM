@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -18,6 +18,7 @@ class Issue(Base):
     status: Mapped[str] = mapped_column("status", String(64), index=True)
     priority: Mapped[str | None] = mapped_column("priority", String(64), nullable=True)
     assignee: Mapped[str | None] = mapped_column("assignee", String(128), nullable=True)
+    story_points: Mapped[float | None] = mapped_column("story_points", Float, nullable=True)
     release_id: Mapped[str | None] = mapped_column(
         "release_id",
         String(64),

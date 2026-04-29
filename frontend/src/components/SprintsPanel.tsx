@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { Issue, Sprint, SprintMetricValues, SprintMetricsResponse } from "../api/types";
+import type { DeliveryConfidenceDetail, Issue, Sprint, SprintMetricValues, SprintMetricsResponse } from "../api/types";
 
 type SprintOption = {
   label: string;
@@ -18,6 +18,7 @@ const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
   rollover_count: "Rollover",
   median_cycle_time_days: "Median cycle time",
   reopen_rate_pct: "Reopen rate %",
+  delivery_confidence_score: "Delivery confidence",
 };
 
 const sprintMetricDescriptions: Record<keyof SprintMetricValues, string> = {
@@ -30,6 +31,14 @@ const sprintMetricDescriptions: Record<keyof SprintMetricValues, string> = {
   rollover_count: "Closed-sprint issues that did not reach done.",
   median_cycle_time_days: "Median days from first in-progress to first done.",
   reopen_rate_pct: "Sprint issues that moved from done back to active work.",
+  delivery_confidence_score: "Composite score from progress, velocity, blockers, and scope stability.",
+};
+
+const confidenceComponentLabels: Record<keyof DeliveryConfidenceDetail["components"], string> = {
+  progress_alignment: "Progress alignment",
+  velocity_fit: "Velocity fit",
+  blocker_penalty: "Blocker penalty",
+  scope_stability: "Scope stability",
 };
 
 function formatMetricValue(metricName: keyof SprintMetricValues, value: number | null) {
@@ -47,6 +56,13 @@ function formatMetricValue(metricName: keyof SprintMetricValues, value: number |
     return String(value);
   }
   return value.toFixed(2);
+}
+
+function formatNullableNumber(value: number | null | undefined, suffix = "") {
+  if (value === null || value === undefined) {
+    return "N/A";
+  }
+  return `${value.toFixed(2)}${suffix}`;
 }
 
 function renderMetricIssueKeys(
@@ -74,6 +90,54 @@ function renderMetricIssueKeys(
         </li>
       ))}
     </ul>
+  );
+}
+
+function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail, onSelectIssue: (issueKey: string) => void) {
+  return (
+    <div className="confidence-summary">
+      <div className="confidence-score">
+        <span className="muted">Delivery confidence</span>
+        <strong>{confidence.score.toFixed(2)}</strong>
+      </div>
+      <div className="confidence-breakdown">
+        {(Object.keys(confidence.components) as Array<keyof DeliveryConfidenceDetail["components"]>).map((key) => (
+          <div className="confidence-component" key={key}>
+            <span>{confidenceComponentLabels[key]}</span>
+            <strong>{confidence.components[key].toFixed(2)}</strong>
+          </div>
+        ))}
+      </div>
+      <dl className="confidence-inputs">
+        <dt>Committed pts</dt>
+        <dd>{confidence.inputs.committed_effective_points.toFixed(2)}</dd>
+        <dt>Completed pts</dt>
+        <dd>{confidence.inputs.completed_effective_points.toFixed(2)}</dd>
+        <dt>Remaining pts</dt>
+        <dd>{confidence.inputs.remaining_effective_points.toFixed(2)}</dd>
+        <dt>Elapsed</dt>
+        <dd>{formatNullableNumber(confidence.inputs.time_elapsed_pct, "%")}</dd>
+        <dt>Velocity</dt>
+        <dd>{formatNullableNumber(confidence.inputs.historical_velocity)}</dd>
+        <dt>Baseline</dt>
+        <dd>{confidence.inputs.baseline_sprint_count}</dd>
+        <dt>Blocked ratio</dt>
+        <dd>{confidence.inputs.blocked_issue_ratio.toFixed(4)}</dd>
+        <dt>Scope changes</dt>
+        <dd>{confidence.inputs.scope_change_count}</dd>
+      </dl>
+      {confidence.inputs.scope_change_issue_keys.length > 0 ? (
+        <ul className="metric-ticket-list" aria-label="Scope change tickets">
+          {confidence.inputs.scope_change_issue_keys.map((issueKey) => (
+            <li key={issueKey}>
+              <button type="button" className="link-button" onClick={() => onSelectIssue(issueKey)}>
+                {issueKey}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -275,16 +339,21 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           <p className="muted">Sprint metrics have not been computed yet.</p>
         ) : null}
         {!isLoadingDetails && metrics?.is_computed ? (
-          <div className="metric-grid">
-            {(Object.keys(metrics.metrics) as Array<keyof SprintMetricValues>).map((metricName) => (
-              <article className="metric-card" key={metricName}>
-                <h3>{sprintMetricLabels[metricName]}</h3>
-                <p className="metric-description">{sprintMetricDescriptions[metricName]}</p>
-                <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
-                {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, onSelectIssue)}
-              </article>
-            ))}
-          </div>
+          <>
+            {metrics.delivery_confidence ? renderDeliveryConfidence(metrics.delivery_confidence, onSelectIssue) : null}
+            <div className="metric-grid">
+              {(Object.keys(metrics.metrics) as Array<keyof SprintMetricValues>)
+                .filter((metricName) => metricName !== "delivery_confidence_score")
+                .map((metricName) => (
+                  <article className="metric-card" key={metricName}>
+                    <h3>{sprintMetricLabels[metricName]}</h3>
+                    <p className="metric-description">{sprintMetricDescriptions[metricName]}</p>
+                    <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
+                    {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, onSelectIssue)}
+                  </article>
+                ))}
+            </div>
+          </>
         ) : null}
       </section>
 
@@ -306,6 +375,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                   <th>Summary</th>
                   <th>Status</th>
                   <th>Priority</th>
+                  <th>Points</th>
                   <th>Assignee</th>
                 </tr>
               </thead>
@@ -320,6 +390,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                     <td>{issue.summary}</td>
                     <td>{issue.status}</td>
                     <td>{issue.priority ?? "None"}</td>
+                    <td>{issue.story_points ?? "None"}</td>
                     <td>{issue.assignee ?? "Unassigned"}</td>
                   </tr>
                 ))}

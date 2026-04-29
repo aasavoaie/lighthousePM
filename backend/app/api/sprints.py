@@ -9,6 +9,10 @@ from app.repositories.sprint_repository import SprintRepository
 from app.schemas.issues import IssueListResponse, IssueResponse
 from app.schemas.sprints import (
     CurrentSprintResponse,
+    DeliveryConfidenceComponents,
+    DeliveryConfidenceDetail,
+    DeliveryConfidenceInputs,
+    DeliveryConfidenceWeights,
     RecomputeSprintMetricsResponse,
     SprintListResponse,
     SprintMetricIssueKeys,
@@ -16,7 +20,7 @@ from app.schemas.sprints import (
     SprintMetricValues,
     SprintResponse,
 )
-from app.services.analytics_service import AnalyticsService
+from app.services.analytics_service import DELIVERY_CONFIDENCE_WEIGHTS, AnalyticsService
 
 router = APIRouter(prefix="/sprints", tags=["sprints"])
 
@@ -30,7 +34,23 @@ SPRINT_METRIC_NAMES = [
     "rollover_count",
     "median_cycle_time_days",
     "reopen_rate_pct",
+    "delivery_confidence_score",
 ]
+
+
+def _build_delivery_confidence(snapshot) -> DeliveryConfidenceDetail | None:
+    if (
+        snapshot.delivery_confidence_score is None
+        or snapshot.delivery_confidence_components is None
+        or snapshot.delivery_confidence_inputs is None
+    ):
+        return None
+    return DeliveryConfidenceDetail(
+        score=snapshot.delivery_confidence_score,
+        weights=DeliveryConfidenceWeights(**DELIVERY_CONFIDENCE_WEIGHTS),
+        components=DeliveryConfidenceComponents(**snapshot.delivery_confidence_components),
+        inputs=DeliveryConfidenceInputs(**snapshot.delivery_confidence_inputs),
+    )
 
 
 @router.get("", response_model=SprintListResponse)
@@ -109,12 +129,14 @@ def get_sprint_metrics(
                 rollover_count=None,
                 median_cycle_time_days=None,
                 reopen_rate_pct=None,
+                delivery_confidence_score=None,
             ),
             metric_issue_keys=SprintMetricIssueKeys(
                 open_blockers=[],
                 open_high_severity_bugs=[],
             ),
             metric_names=SPRINT_METRIC_NAMES,
+            delivery_confidence=None,
             is_computed=False,
             snapshot_age_hours=None,
         )
@@ -138,12 +160,14 @@ def get_sprint_metrics(
             rollover_count=snapshot.rollover_count,
             median_cycle_time_days=snapshot.median_cycle_time_days,
             reopen_rate_pct=snapshot.reopen_rate_pct,
+            delivery_confidence_score=snapshot.delivery_confidence_score,
         ),
         metric_issue_keys=SprintMetricIssueKeys(
             open_blockers=snapshot.open_blocker_issue_keys,
             open_high_severity_bugs=snapshot.open_high_severity_bug_issue_keys,
         ),
         metric_names=SPRINT_METRIC_NAMES,
+        delivery_confidence=_build_delivery_confidence(snapshot),
         is_computed=True,
         snapshot_age_hours=round((datetime.now(UTC) - snapshot_at).total_seconds() / 3600.0, 3),
     )

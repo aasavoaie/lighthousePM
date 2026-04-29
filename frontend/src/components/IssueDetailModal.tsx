@@ -82,6 +82,8 @@ export function IssueDetailModal({ issueKey, onClose }: IssueDetailModalProps) {
             <dd>{issue.priority ?? "N/A"}</dd>
             <dt>Assignee</dt>
             <dd>{issue.assignee ?? "Unassigned"}</dd>
+            <dt>Story points</dt>
+            <dd>{issue.story_points ?? "None"}</dd>
             <dt>Release</dt>
             <dd>{issue.release_id ?? "None"}</dd>
             <dt>Blocker</dt>

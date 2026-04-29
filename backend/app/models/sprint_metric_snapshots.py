@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from typing import Any
+
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,6 +42,21 @@ class SprintMetricSnapshot(Base):
     rollover_count: Mapped[int] = mapped_column("rollover_count", Integer, nullable=False)
     median_cycle_time_days: Mapped[float | None] = mapped_column("median_cycle_time_days", Float, nullable=True)
     reopen_rate_pct: Mapped[float] = mapped_column("reopen_rate_pct", Float, nullable=False)
+    delivery_confidence_score: Mapped[float | None] = mapped_column(
+        "delivery_confidence_score",
+        Float,
+        nullable=True,
+    )
+    delivery_confidence_components: Mapped[dict[str, float] | None] = mapped_column(
+        "delivery_confidence_components",
+        JSON,
+        nullable=True,
+    )
+    delivery_confidence_inputs: Mapped[dict[str, Any] | None] = mapped_column(
+        "delivery_confidence_inputs",
+        JSON,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
     )
