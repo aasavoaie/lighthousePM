@@ -71,6 +71,7 @@ def _seed_issue(
     status: str = "Done",
     priority: str | None = "Medium",
     is_blocker: bool = False,
+    story_points: float | None = None,
 ) -> None:
     session.add(
         Issue(
@@ -80,6 +81,7 @@ def _seed_issue(
             status=status,
             priority=priority,
             assignee=None,
+            story_points=story_points,
             release_id=None,
             is_blocker=is_blocker,
         )
@@ -125,6 +127,9 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     payload = metrics_response.json()
     assert payload["is_computed"] is True
     assert payload["metrics"]["committed_scope"] == 1
+    assert payload["metrics"]["delivery_confidence_score"] == 100.0
+    assert payload["delivery_confidence"]["score"] == 100.0
+    assert payload["delivery_confidence"]["inputs"]["committed_effective_points"] == 1.0
     assert payload["metric_issue_keys"] == {
         "open_blockers": [],
         "open_high_severity_bugs": [],

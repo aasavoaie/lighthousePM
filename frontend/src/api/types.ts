@@ -52,11 +52,48 @@ export interface SprintMetricValues {
   rollover_count: number | null;
   median_cycle_time_days: number | null;
   reopen_rate_pct: number | null;
+  delivery_confidence_score: number | null;
 }
 
 export interface MetricIssueKeys {
   open_blockers: string[];
   open_high_severity_bugs: string[];
+}
+
+export interface DeliveryConfidenceWeights {
+  progress_alignment: number;
+  velocity_fit: number;
+  blocker_penalty: number;
+  scope_stability: number;
+}
+
+export interface DeliveryConfidenceComponents {
+  progress_alignment: number;
+  velocity_fit: number;
+  blocker_penalty: number;
+  scope_stability: number;
+}
+
+export interface DeliveryConfidenceInputs {
+  committed_issue_count: number;
+  committed_effective_points: number;
+  completed_effective_points: number;
+  remaining_effective_points: number;
+  completed_scope_pct: number;
+  time_elapsed_pct: number | null;
+  historical_velocity: number | null;
+  baseline_sprint_count: number;
+  remaining_capacity_points: number | null;
+  blocked_issue_ratio: number;
+  scope_change_count: number;
+  scope_change_issue_keys: string[];
+}
+
+export interface DeliveryConfidenceDetail {
+  score: number;
+  weights: DeliveryConfidenceWeights;
+  components: DeliveryConfidenceComponents;
+  inputs: DeliveryConfidenceInputs;
 }
 
 export interface SprintMetricsResponse {
@@ -65,6 +102,7 @@ export interface SprintMetricsResponse {
   metrics: SprintMetricValues;
   metric_issue_keys: MetricIssueKeys;
   metric_names: string[];
+  delivery_confidence: DeliveryConfidenceDetail | null;
   is_computed: boolean;
   snapshot_age_hours: number | null;
 }
@@ -182,6 +220,7 @@ export interface Issue {
   status: string;
   priority: string | null;
   assignee: string | null;
+  story_points: number | null;
   release_id: string | null;
   is_blocker: boolean;
   created_at: string;

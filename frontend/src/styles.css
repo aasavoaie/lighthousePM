@@ -334,6 +334,63 @@ select {
   gap: 12px;
 }
 
+.confidence-summary {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #f8fbfe;
+  border: 1px solid #dbe7f2;
+}
+
+.confidence-score {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.confidence-score strong {
+  font-size: 2.25rem;
+  color: #123d6b;
+}
+
+.confidence-breakdown,
+.confidence-inputs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.confidence-component {
+  padding: 10px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #dbe7f2;
+}
+
+.confidence-component span,
+.confidence-inputs dt {
+  display: block;
+  color: #58677c;
+  font-size: 0.82rem;
+}
+
+.confidence-component strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.1rem;
+}
+
+.confidence-inputs {
+  margin: 14px 0 0;
+}
+
+.confidence-inputs dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+
 .metric-card {
   padding: 16px;
   border-radius: 14px;
@@ -417,5 +474,10 @@ select {
 
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .confidence-breakdown,
+  .confidence-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

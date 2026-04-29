@@ -65,6 +65,7 @@ class FakeJiraService:
             components=["api"],
             fix_versions=["Release 1"],
             reporter="bob",
+            story_points=5.0,
         )
 
     async def get_issue_changelog(
@@ -148,6 +149,7 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert len(signals) == 1
     assert signals[0].signal == "YELLOW"
     assert issues[0].release_id == "1001"
+    assert issues[0].story_points == 5.0
 
     status = db_session.scalar(select(OperationalStatus))
     assert status is not None
@@ -231,3 +233,26 @@ async def test_sync_from_jira_uses_blocker_flag_when_present(db_session: Session
     stored_issue = db_session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
     assert stored_issue is not None
     assert stored_issue.is_blocker is True
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_updates_story_points(db_session: Session) -> None:
+    class MutableStoryPointJiraService(FakeJiraService):
+        def __init__(self) -> None:
+            self.story_points = 3.0
+
+        async def get_issue_details(self, issue_key: str, fields: list[str] | None = None) -> JiraIssueDetail:
+            detail = await super().get_issue_details(issue_key=issue_key, fields=fields)
+            detail.story_points = self.story_points
+            return detail
+
+    jira_service = MutableStoryPointJiraService()
+    service = SyncService(jira_service=jira_service, settings=_test_settings())
+
+    await service.sync_from_jira(session=db_session)
+    jira_service.story_points = 8.0
+    await service.sync_from_jira(session=db_session)
+
+    stored_issue = db_session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
+    assert stored_issue is not None
+    assert stored_issue.story_points == 8.0

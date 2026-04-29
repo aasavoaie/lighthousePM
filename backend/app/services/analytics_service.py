@@ -12,6 +12,14 @@ from app.services.jira_field_mapper import JiraFieldMapper
 
 logger = logging.getLogger(__name__)
 
+DELIVERY_CONFIDENCE_WEIGHTS = {
+    "progress_alignment": 0.4,
+    "velocity_fit": 0.3,
+    "blocker_penalty": 0.2,
+    "scope_stability": 0.1,
+}
+HISTORICAL_VELOCITY_SPRINT_COUNT = 3
+
 
 class AnalyticsService:
     """Deterministic metrics computation for a single release.
@@ -90,10 +98,18 @@ class AnalyticsService:
             sprint_id,
             field_mapper,
         )
+        snapshot_at = datetime.now(UTC)
+        delivery_confidence = self._compute_delivery_confidence(
+            session=session,
+            sprint=sprint,
+            snapshot_at=snapshot_at,
+            field_mapper=field_mapper,
+            open_blockers=len(open_blocker_issue_keys),
+        )
 
         snapshot = SprintMetricSnapshot(
             sprint_id=sprint_id,
-            snapshot_at=datetime.now(UTC),
+            snapshot_at=snapshot_at,
             committed_scope=self._count_sprint_issues(session, sprint_id),
             completed_scope_pct=self._compute_sprint_completed_scope_pct(session, sprint_id, field_mapper),
             open_blockers=len(open_blocker_issue_keys),
@@ -105,6 +121,9 @@ class AnalyticsService:
             rollover_count=self._count_sprint_rollover(session, sprint_id, sprint.state, field_mapper),
             median_cycle_time_days=self._compute_sprint_median_cycle_time_days(session, sprint_id, field_mapper),
             reopen_rate_pct=self._compute_sprint_reopen_rate_pct(session, sprint_id, field_mapper),
+            delivery_confidence_score=delivery_confidence["score"],
+            delivery_confidence_components=delivery_confidence["components"],
+            delivery_confidence_inputs=delivery_confidence["inputs"],
         )
         session.add(snapshot)
         OperationalStatusRepository.mark_metrics_recomputed(session=session)
@@ -183,8 +202,8 @@ class AnalyticsService:
     ) -> float:
         """100 * done_issues / total_issues. Returns 0.0 when release is empty.
 
-        Assumption: scope is measured in issue count, not story points, because
-        no story_points column exists in the MVP schema.
+        Assumption: release scope remains measured in issue count for API
+        compatibility; sprint delivery confidence uses story points separately.
         """
         total = session.scalar(
             select(func.count()).select_from(Issue).where(Issue.release_id == release_id)
@@ -522,3 +541,240 @@ class AnalyticsService:
             cycle_days.append((ended_at - started_at).total_seconds() / 86400)
 
         return round(statistics.median(cycle_days), 4) if cycle_days else None
+
+    @staticmethod
+    def _compute_delivery_confidence(
+        session: Session,
+        sprint: Sprint,
+        snapshot_at: datetime,
+        field_mapper: JiraFieldMapper,
+        open_blockers: int,
+    ) -> dict[str, object]:
+        sprint_issues = AnalyticsService._list_sprint_issues(session, sprint.sprint_id)
+        committed_issue_count = len(sprint_issues)
+        committed_effective_points = sum(_effective_points(issue) for issue in sprint_issues)
+        completed_effective_points = sum(
+            _effective_points(issue)
+            for issue in sprint_issues
+            if field_mapper.is_done_status(issue.status)
+        )
+        remaining_effective_points = max(committed_effective_points - completed_effective_points, 0.0)
+        completed_scope_pct = (
+            0.0
+            if committed_effective_points == 0
+            else 100.0 * completed_effective_points / committed_effective_points
+        )
+
+        time_elapsed_pct = _compute_time_elapsed_pct(sprint=sprint, snapshot_at=snapshot_at)
+        progress_alignment = _score_progress_alignment(
+            completed_scope_pct=completed_scope_pct,
+            time_elapsed_pct=time_elapsed_pct,
+        )
+
+        baseline_sprints = AnalyticsService._list_velocity_baseline_sprints(session=session, sprint=sprint)
+        baseline_velocities = [
+            AnalyticsService._compute_completed_effective_points_for_sprint(
+                session=session,
+                sprint_id=baseline.sprint_id,
+                field_mapper=field_mapper,
+            )
+            for baseline in baseline_sprints
+        ]
+        baseline_sprint_count = len(baseline_velocities)
+        historical_velocity = (
+            round(sum(baseline_velocities) / baseline_sprint_count, 2)
+            if baseline_sprint_count > 0
+            else None
+        )
+        remaining_time_ratio = 1.0 if time_elapsed_pct is None else _clamp((100.0 - time_elapsed_pct) / 100.0)
+        remaining_capacity_points = (
+            round(historical_velocity * remaining_time_ratio, 2)
+            if historical_velocity is not None
+            else None
+        )
+        velocity_fit = _score_velocity_fit(
+            remaining_effective_points=remaining_effective_points,
+            remaining_capacity_points=remaining_capacity_points,
+            baseline_sprint_count=baseline_sprint_count,
+        )
+
+        blocked_issue_ratio = 0.0 if committed_issue_count == 0 else open_blockers / committed_issue_count
+        blocker_penalty = _clamp(100.0 * (1.0 - blocked_issue_ratio), 0.0, 100.0)
+
+        scope_change_issue_keys = AnalyticsService._list_mid_sprint_scope_change_issue_keys(
+            session=session,
+            sprint=sprint,
+            snapshot_at=snapshot_at,
+            field_mapper=field_mapper,
+        )
+        scope_change_count = len(scope_change_issue_keys)
+        scope_change_ratio = 0.0 if committed_issue_count == 0 else scope_change_count / committed_issue_count
+        scope_stability = _clamp(100.0 * (1.0 - scope_change_ratio), 0.0, 100.0)
+
+        components = {
+            "progress_alignment": round(progress_alignment, 2),
+            "velocity_fit": round(velocity_fit, 2),
+            "blocker_penalty": round(blocker_penalty, 2),
+            "scope_stability": round(scope_stability, 2),
+        }
+        score = round(
+            sum(components[name] * DELIVERY_CONFIDENCE_WEIGHTS[name] for name in DELIVERY_CONFIDENCE_WEIGHTS),
+            2,
+        )
+
+        return {
+            "score": score,
+            "components": components,
+            "inputs": {
+                "committed_issue_count": committed_issue_count,
+                "committed_effective_points": round(committed_effective_points, 2),
+                "completed_effective_points": round(completed_effective_points, 2),
+                "remaining_effective_points": round(remaining_effective_points, 2),
+                "completed_scope_pct": round(completed_scope_pct, 2),
+                "time_elapsed_pct": round(time_elapsed_pct, 2) if time_elapsed_pct is not None else None,
+                "historical_velocity": historical_velocity,
+                "baseline_sprint_count": baseline_sprint_count,
+                "remaining_capacity_points": remaining_capacity_points,
+                "blocked_issue_ratio": round(blocked_issue_ratio, 4),
+                "scope_change_count": scope_change_count,
+                "scope_change_issue_keys": scope_change_issue_keys,
+            },
+        }
+
+    @staticmethod
+    def _list_sprint_issues(session: Session, sprint_id: str) -> list[Issue]:
+        return list(
+            session.scalars(
+                select(Issue)
+                .where(Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)))
+                .order_by(Issue.issue_key)
+            ).all()
+        )
+
+    @staticmethod
+    def _compute_completed_effective_points_for_sprint(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> float:
+        issues = AnalyticsService._list_sprint_issues(session=session, sprint_id=sprint_id)
+        return sum(_effective_points(issue) for issue in issues if field_mapper.is_done_status(issue.status))
+
+    @staticmethod
+    def _list_velocity_baseline_sprints(session: Session, sprint: Sprint) -> list[Sprint]:
+        target_start = _coerce_utc(sprint.start_date) or _coerce_utc(sprint.complete_date) or _coerce_utc(sprint.end_date)
+        candidates = list(
+            session.scalars(
+                select(Sprint)
+                .where(
+                    Sprint.project_key == sprint.project_key,
+                    func.lower(Sprint.state) == "closed",
+                    Sprint.sprint_id != sprint.sprint_id,
+                )
+            ).all()
+        )
+
+        dated_candidates: list[tuple[datetime, Sprint]] = []
+        for candidate in candidates:
+            candidate_date = _coerce_utc(candidate.complete_date) or _coerce_utc(candidate.end_date) or _coerce_utc(
+                candidate.start_date
+            )
+            if candidate_date is None:
+                continue
+            if target_start is not None and candidate_date > target_start:
+                continue
+            dated_candidates.append((candidate_date, candidate))
+
+        dated_candidates.sort(key=lambda item: (item[0], item[1].sprint_id), reverse=True)
+        return [candidate for _, candidate in dated_candidates[:HISTORICAL_VELOCITY_SPRINT_COUNT]]
+
+    @staticmethod
+    def _list_mid_sprint_scope_change_issue_keys(
+        session: Session,
+        sprint: Sprint,
+        snapshot_at: datetime,
+        field_mapper: JiraFieldMapper,
+    ) -> list[str]:
+        start_at = _coerce_utc(sprint.start_date)
+        if start_at is None:
+            return []
+
+        snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
+        end_at = _coerce_utc(sprint.end_date)
+        upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
+        if upper_bound <= start_at:
+            return []
+
+        entries = session.scalars(
+            select(IssueHistory)
+            .where(
+                func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
+                IssueHistory.changed_at > start_at,
+                IssueHistory.changed_at <= upper_bound,
+            )
+            .order_by(IssueHistory.issue_key)
+        ).all()
+
+        keys = {
+            entry.issue_key
+            for entry in entries
+            if _history_value_references_sprint(entry.old_value, sprint)
+            or _history_value_references_sprint(entry.new_value, sprint)
+        }
+        return sorted(keys)
+
+
+def _effective_points(issue: Issue) -> float:
+    if issue.story_points is not None and issue.story_points >= 0:
+        return float(issue.story_points)
+    return 1.0
+
+
+def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def _coerce_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _compute_time_elapsed_pct(sprint: Sprint, snapshot_at: datetime) -> float | None:
+    start_at = _coerce_utc(sprint.start_date)
+    end_at = _coerce_utc(sprint.end_date)
+    snapshot_at = _coerce_utc(snapshot_at)
+    if start_at is None or end_at is None or snapshot_at is None or end_at <= start_at:
+        return None
+    elapsed_seconds = (snapshot_at - start_at).total_seconds()
+    total_seconds = (end_at - start_at).total_seconds()
+    return _clamp(100.0 * elapsed_seconds / total_seconds, 0.0, 100.0)
+
+
+def _score_progress_alignment(completed_scope_pct: float, time_elapsed_pct: float | None) -> float:
+    if time_elapsed_pct is None or time_elapsed_pct <= 0:
+        return 100.0
+    return _clamp(100.0 * completed_scope_pct / time_elapsed_pct, 0.0, 100.0)
+
+
+def _score_velocity_fit(
+    remaining_effective_points: float,
+    remaining_capacity_points: float | None,
+    baseline_sprint_count: int,
+) -> float:
+    if remaining_effective_points <= 0:
+        return 100.0
+    if baseline_sprint_count == 0 or remaining_capacity_points is None:
+        return 50.0
+    if remaining_capacity_points <= 0:
+        return 0.0
+    return _clamp(100.0 * remaining_capacity_points / remaining_effective_points, 0.0, 100.0)
+
+
+def _history_value_references_sprint(value: str | None, sprint: Sprint) -> bool:
+    if value is None:
+        return False
+    normalized = value.casefold()
+    return sprint.sprint_id.casefold() in normalized or sprint.name.casefold() in normalized

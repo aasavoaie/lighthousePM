@@ -10,6 +10,7 @@ class IssueResponse(BaseModel):
     status: str
     priority: str | None
     assignee: str | None
+    story_points: float | None
     release_id: str | None
     is_blocker: bool
     created_at: datetime

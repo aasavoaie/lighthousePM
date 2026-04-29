@@ -38,11 +38,48 @@ class SprintMetricValues(BaseModel):
     rollover_count: int | None
     median_cycle_time_days: float | None
     reopen_rate_pct: float | None
+    delivery_confidence_score: float | None
 
 
 class SprintMetricIssueKeys(BaseModel):
     open_blockers: list[str]
     open_high_severity_bugs: list[str]
+
+
+class DeliveryConfidenceWeights(BaseModel):
+    progress_alignment: float
+    velocity_fit: float
+    blocker_penalty: float
+    scope_stability: float
+
+
+class DeliveryConfidenceComponents(BaseModel):
+    progress_alignment: float
+    velocity_fit: float
+    blocker_penalty: float
+    scope_stability: float
+
+
+class DeliveryConfidenceInputs(BaseModel):
+    committed_issue_count: int
+    committed_effective_points: float
+    completed_effective_points: float
+    remaining_effective_points: float
+    completed_scope_pct: float
+    time_elapsed_pct: float | None
+    historical_velocity: float | None
+    baseline_sprint_count: int
+    remaining_capacity_points: float | None
+    blocked_issue_ratio: float
+    scope_change_count: int
+    scope_change_issue_keys: list[str]
+
+
+class DeliveryConfidenceDetail(BaseModel):
+    score: float
+    weights: DeliveryConfidenceWeights
+    components: DeliveryConfidenceComponents
+    inputs: DeliveryConfidenceInputs
 
 
 class SprintMetricsResponse(BaseModel):
@@ -51,6 +88,7 @@ class SprintMetricsResponse(BaseModel):
     metrics: SprintMetricValues
     metric_issue_keys: SprintMetricIssueKeys
     metric_names: list[str]
+    delivery_confidence: DeliveryConfidenceDetail | None
     is_computed: bool
     snapshot_age_hours: float | None
 
