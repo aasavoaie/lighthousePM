@@ -113,6 +113,7 @@ class SyncService:
         logger.info("jira_sync_started project_key=%s", project_key)
 
         try:
+            await self._jira_service.validate_auth()
             versions = await self._jira_service.get_project_versions(project_key=project_key)
             result.releases_fetched = len(versions)
 

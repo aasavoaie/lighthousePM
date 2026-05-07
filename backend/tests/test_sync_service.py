@@ -8,11 +8,15 @@ from sqlalchemy.pool import StaticPool
 from app.config import Settings
 from app.db.base import Base
 from app.models import Issue, IssueHistory, MetricSnapshot, OperationalStatus, Release, ReleaseSignal
+from app.services.jira_errors import JiraAuthError
 from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraIssueSummary, JiraVersion
-from app.services.sync_service import SyncService
+from app.services.sync_service import SyncService, SyncServiceError
 
 
 class FakeJiraService:
+    async def validate_auth(self) -> None:
+        return None
+
     async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
         return [
             JiraVersion(
@@ -194,6 +198,27 @@ async def test_sync_from_jira_persists_failed_status(db_session: Session) -> Non
     assert status.last_sync_failed_at is not None
     assert status.last_sync_failure_summary is not None
     assert "verysecret" not in status.last_sync_failure_summary
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_validates_auth_before_fetching_versions(db_session: Session) -> None:
+    class AuthFailingJiraService(FakeJiraService):
+        async def validate_auth(self) -> None:
+            raise JiraAuthError("bad token")
+
+        async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
+            raise AssertionError("versions should not be fetched when auth fails")
+
+    service = SyncService(jira_service=AuthFailingJiraService(), settings=_test_settings())
+
+    with pytest.raises(SyncServiceError, match="Jira sync failed"):
+        await service.sync_from_jira(session=db_session)
+
+    status = db_session.scalar(select(OperationalStatus))
+    assert status is not None
+    assert status.last_sync_failed_at is not None
+    assert status.last_sync_failure_summary is not None
+    assert "bad token" in status.last_sync_failure_summary
 
 
 @pytest.mark.asyncio

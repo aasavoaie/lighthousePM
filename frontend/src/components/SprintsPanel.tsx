@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { DeliveryConfidenceDetail, Issue, Sprint, SprintMetricValues, SprintMetricsResponse } from "../api/types";
+import type {
+  DeliveryConfidenceDetail,
+  Sprint,
+  SprintIssue,
+  SprintMetricValues,
+  SprintMetricsResponse,
+} from "../api/types";
 
 type SprintOption = {
   label: string;
@@ -63,6 +69,26 @@ function formatNullableNumber(value: number | null | undefined, suffix = "") {
     return "N/A";
   }
   return `${value.toFixed(2)}${suffix}`;
+}
+
+function renderScopeIssueKeys(label: string, issueKeys: string[], onSelectIssue: (issueKey: string) => void) {
+  if (issueKeys.length === 0) {
+    return null;
+  }
+  return (
+    <div className="scope-ticket-group">
+      <span className="muted">{label}</span>
+      <ul className="metric-ticket-list" aria-label={`${label} tickets`}>
+        {issueKeys.map((issueKey) => (
+          <li key={issueKey}>
+            <button type="button" className="link-button" onClick={() => onSelectIssue(issueKey)}>
+              {issueKey}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function renderMetricIssueKeys(
@@ -141,6 +167,51 @@ function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail, onSelect
   );
 }
 
+function renderScopeStabilityIndex(confidence: DeliveryConfidenceDetail, onSelectIssue: (issueKey: string) => void) {
+  const inputs = confidence.inputs;
+  const initialCommitment = inputs.initial_commitment_count ?? inputs.committed_issue_count;
+  const addedCount = inputs.scope_added_count ?? 0;
+  const removedCount = inputs.scope_removed_count ?? 0;
+  const scopeStabilityIndex = inputs.scope_stability_index ?? null;
+  const addedIssueKeys = inputs.scope_added_issue_keys ?? [];
+  const removedIssueKeys = inputs.scope_removed_issue_keys ?? [];
+
+  return (
+    <div className="scope-stability-summary">
+      <div className="scope-stability-headline">
+        <div>
+          <span className="muted">Scope Stability Index</span>
+          <p className="metric-description">Added plus removed issues divided by initial commitment.</p>
+        </div>
+        <strong>{formatNullableNumber(scopeStabilityIndex)}</strong>
+      </div>
+      <dl className="scope-stability-inputs">
+        <dt>Added</dt>
+        <dd>{addedCount}</dd>
+        <dt>Removed</dt>
+        <dd>{removedCount}</dd>
+        <dt>Initial commitment</dt>
+        <dd>{initialCommitment}</dd>
+        <dt>Formula</dt>
+        <dd>
+          ({addedCount} + {removedCount}) / {initialCommitment}
+        </dd>
+      </dl>
+      <p className="scope-stability-insight">
+        {scopeStabilityIndex === null
+          ? "No initial commitment to compare."
+          : scopeStabilityIndex === 0
+            ? "No post-start scope movement recorded."
+            : "Higher volatility lowers delivery confidence."}
+      </p>
+      <div className="scope-ticket-lists">
+        {renderScopeIssueKeys("Added after start", addedIssueKeys, onSelectIssue)}
+        {renderScopeIssueKeys("Removed after start", removedIssueKeys, onSelectIssue)}
+      </div>
+    </div>
+  );
+}
+
 function formatDate(value: string | null) {
   if (!value) {
     return "N/A";
@@ -169,7 +240,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [closedSprints, setClosedSprints] = useState<Sprint[]>([]);
   const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<SprintMetricsResponse | null>(null);
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [issues, setIssues] = useState<SprintIssue[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isRecomputing, setIsRecomputing] = useState(false);
@@ -340,6 +411,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
         ) : null}
         {!isLoadingDetails && metrics?.is_computed ? (
           <>
+            {metrics.delivery_confidence ? renderScopeStabilityIndex(metrics.delivery_confidence, onSelectIssue) : null}
             {metrics.delivery_confidence ? renderDeliveryConfidence(metrics.delivery_confidence, onSelectIssue) : null}
             <div className="metric-grid">
               {(Object.keys(metrics.metrics) as Array<keyof SprintMetricValues>)
@@ -375,7 +447,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                   <th>Summary</th>
                   <th>Status</th>
                   <th>Priority</th>
-                  <th>Points</th>
+                  <th>Story points</th>
+                  <th>Initial scope</th>
                   <th>Assignee</th>
                 </tr>
               </thead>
@@ -391,6 +464,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                     <td>{issue.status}</td>
                     <td>{issue.priority ?? "None"}</td>
                     <td>{issue.story_points ?? "None"}</td>
+                    <td>{issue.in_initial_scope ? "Yes" : "No"}</td>
                     <td>{issue.assignee ?? "Unassigned"}</td>
                   </tr>
                 ))}

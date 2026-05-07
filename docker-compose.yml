@@ -4,6 +4,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: lighthousepm-backend
+    env_file:
+      - ./backend/.env
     environment:
       APP_ENV: dev
       APP_PORT: 8000

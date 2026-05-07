@@ -76,6 +76,7 @@ export interface DeliveryConfidenceComponents {
 
 export interface DeliveryConfidenceInputs {
   committed_issue_count: number;
+  initial_commitment_count: number | null;
   committed_effective_points: number;
   completed_effective_points: number;
   remaining_effective_points: number;
@@ -86,7 +87,12 @@ export interface DeliveryConfidenceInputs {
   remaining_capacity_points: number | null;
   blocked_issue_ratio: number;
   scope_change_count: number;
+  scope_added_count: number;
+  scope_removed_count: number;
+  scope_stability_index: number | null;
   scope_change_issue_keys: string[];
+  scope_added_issue_keys: string[];
+  scope_removed_issue_keys: string[];
 }
 
 export interface DeliveryConfidenceDetail {
@@ -229,6 +235,17 @@ export interface Issue {
 
 export interface IssueListResponse {
   items: Issue[];
+  skip: number;
+  limit: number;
+  total: number;
+}
+
+export interface SprintIssue extends Issue {
+  in_initial_scope: boolean;
+}
+
+export interface SprintIssueListResponse {
+  items: SprintIssue[];
   skip: number;
   limit: number;
   total: number;

@@ -342,6 +342,59 @@ select {
   border: 1px solid #dbe7f2;
 }
 
+.scope-stability-summary {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fffaf2;
+  border: 1px solid #ead6b6;
+}
+
+.scope-stability-headline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.scope-stability-headline strong {
+  color: #805400;
+  font-size: 2.25rem;
+}
+
+.scope-stability-inputs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.scope-stability-inputs dt {
+  color: #6d6251;
+  font-size: 0.82rem;
+}
+
+.scope-stability-inputs dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+
+.scope-stability-insight {
+  margin: 14px 0 0;
+  color: #6d6251;
+}
+
+.scope-ticket-lists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.scope-ticket-group {
+  min-width: 180px;
+}
+
 .confidence-score {
   display: flex;
   align-items: baseline;
@@ -476,6 +529,12 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .scope-stability-headline {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .scope-stability-inputs,
   .confidence-breakdown,
   .confidence-inputs {
     grid-template-columns: repeat(2, minmax(0, 1fr));

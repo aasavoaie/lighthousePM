@@ -135,6 +135,52 @@ class AnalyticsService:
         )
         return snapshot
 
+    def compute_sprint_initial_scope_flags(
+        self,
+        session: Session,
+        sprint: Sprint,
+        issue_keys: list[str],
+        snapshot_at: datetime,
+    ) -> dict[str, bool]:
+        """Return whether each current sprint issue was in scope at sprint start.
+
+        The calculation starts from current sprint membership and reverses sprint
+        changelog transitions after the sprint start.
+        """
+        flags = {issue_key: True for issue_key in issue_keys}
+        if not issue_keys:
+            return flags
+
+        field_mapper = JiraFieldMapper(get_settings())
+        start_at = _coerce_utc(sprint.start_date)
+        if start_at is None:
+            return flags
+
+        snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
+        end_at = _coerce_utc(sprint.end_date)
+        upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
+        if upper_bound <= start_at:
+            return flags
+
+        entries = session.scalars(
+            select(IssueHistory)
+            .where(
+                IssueHistory.issue_key.in_(issue_keys),
+                func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
+                IssueHistory.changed_at > start_at,
+                IssueHistory.changed_at <= upper_bound,
+            )
+            .order_by(IssueHistory.issue_key, IssueHistory.changed_at.desc(), IssueHistory.id.desc())
+        ).all()
+
+        for entry in entries:
+            old_references_sprint = _history_value_references_sprint(entry.old_value, sprint)
+            new_references_sprint = _history_value_references_sprint(entry.new_value, sprint)
+            if old_references_sprint != new_references_sprint:
+                flags[entry.issue_key] = old_references_sprint
+
+        return flags
+
     # ------------------------------------------------------------------
     # Private helpers — each computes exactly one metric
     # ------------------------------------------------------------------
@@ -601,15 +647,16 @@ class AnalyticsService:
         blocked_issue_ratio = 0.0 if committed_issue_count == 0 else open_blockers / committed_issue_count
         blocker_penalty = _clamp(100.0 * (1.0 - blocked_issue_ratio), 0.0, 100.0)
 
-        scope_change_issue_keys = AnalyticsService._list_mid_sprint_scope_change_issue_keys(
+        scope_stability_inputs = AnalyticsService._compute_sprint_scope_stability_inputs(
             session=session,
             sprint=sprint,
             snapshot_at=snapshot_at,
             field_mapper=field_mapper,
+            current_issue_count=committed_issue_count,
         )
-        scope_change_count = len(scope_change_issue_keys)
-        scope_change_ratio = 0.0 if committed_issue_count == 0 else scope_change_count / committed_issue_count
-        scope_stability = _clamp(100.0 * (1.0 - scope_change_ratio), 0.0, 100.0)
+        scope_stability_index = scope_stability_inputs["scope_stability_index"]
+        scope_stability_ratio = 0.0 if scope_stability_index is None else float(scope_stability_index)
+        scope_stability = _clamp(100.0 * (1.0 - scope_stability_ratio), 0.0, 100.0)
 
         components = {
             "progress_alignment": round(progress_alignment, 2),
@@ -636,8 +683,7 @@ class AnalyticsService:
                 "baseline_sprint_count": baseline_sprint_count,
                 "remaining_capacity_points": remaining_capacity_points,
                 "blocked_issue_ratio": round(blocked_issue_ratio, 4),
-                "scope_change_count": scope_change_count,
-                "scope_change_issue_keys": scope_change_issue_keys,
+                **scope_stability_inputs,
             },
         }
 
@@ -689,21 +735,31 @@ class AnalyticsService:
         return [candidate for _, candidate in dated_candidates[:HISTORICAL_VELOCITY_SPRINT_COUNT]]
 
     @staticmethod
-    def _list_mid_sprint_scope_change_issue_keys(
+    def _compute_sprint_scope_stability_inputs(
         session: Session,
         sprint: Sprint,
         snapshot_at: datetime,
         field_mapper: JiraFieldMapper,
-    ) -> list[str]:
+        current_issue_count: int,
+    ) -> dict[str, object]:
+        """Compute post-start scope movement as (added + removed) / initial commitment."""
         start_at = _coerce_utc(sprint.start_date)
         if start_at is None:
-            return []
+            return _build_scope_stability_inputs(
+                added_issue_keys=[],
+                removed_issue_keys=[],
+                current_issue_count=current_issue_count,
+            )
 
         snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
         end_at = _coerce_utc(sprint.end_date)
         upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
         if upper_bound <= start_at:
-            return []
+            return _build_scope_stability_inputs(
+                added_issue_keys=[],
+                removed_issue_keys=[],
+                current_issue_count=current_issue_count,
+            )
 
         entries = session.scalars(
             select(IssueHistory)
@@ -712,16 +768,24 @@ class AnalyticsService:
                 IssueHistory.changed_at > start_at,
                 IssueHistory.changed_at <= upper_bound,
             )
-            .order_by(IssueHistory.issue_key)
+            .order_by(IssueHistory.issue_key, IssueHistory.changed_at)
         ).all()
 
-        keys = {
-            entry.issue_key
-            for entry in entries
-            if _history_value_references_sprint(entry.old_value, sprint)
-            or _history_value_references_sprint(entry.new_value, sprint)
-        }
-        return sorted(keys)
+        added_issue_keys: set[str] = set()
+        removed_issue_keys: set[str] = set()
+        for entry in entries:
+            old_references_sprint = _history_value_references_sprint(entry.old_value, sprint)
+            new_references_sprint = _history_value_references_sprint(entry.new_value, sprint)
+            if not old_references_sprint and new_references_sprint:
+                added_issue_keys.add(entry.issue_key)
+            elif old_references_sprint and not new_references_sprint:
+                removed_issue_keys.add(entry.issue_key)
+
+        return _build_scope_stability_inputs(
+            added_issue_keys=sorted(added_issue_keys),
+            removed_issue_keys=sorted(removed_issue_keys),
+            current_issue_count=current_issue_count,
+        )
 
 
 def _effective_points(issue: Issue) -> float:
@@ -771,6 +835,32 @@ def _score_velocity_fit(
     if remaining_capacity_points <= 0:
         return 0.0
     return _clamp(100.0 * remaining_capacity_points / remaining_effective_points, 0.0, 100.0)
+
+
+def _build_scope_stability_inputs(
+    added_issue_keys: list[str],
+    removed_issue_keys: list[str],
+    current_issue_count: int,
+) -> dict[str, object]:
+    added_count = len(added_issue_keys)
+    removed_count = len(removed_issue_keys)
+    change_count = added_count + removed_count
+    initial_commitment_count = max(current_issue_count - added_count + removed_count, 0)
+    scope_stability_index = (
+        None
+        if initial_commitment_count == 0
+        else round(change_count / initial_commitment_count, 4)
+    )
+    return {
+        "initial_commitment_count": initial_commitment_count,
+        "scope_change_count": change_count,
+        "scope_added_count": added_count,
+        "scope_removed_count": removed_count,
+        "scope_stability_index": scope_stability_index,
+        "scope_change_issue_keys": sorted(set(added_issue_keys) | set(removed_issue_keys)),
+        "scope_added_issue_keys": added_issue_keys,
+        "scope_removed_issue_keys": removed_issue_keys,
+    }
 
 
 def _history_value_references_sprint(value: str | None, sprint: Sprint) -> bool:

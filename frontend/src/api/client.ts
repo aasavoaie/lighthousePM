@@ -13,6 +13,7 @@ import type {
   ReleaseSignalResponse,
   RecomputeSprintMetricsResponse,
   Sprint,
+  SprintIssueListResponse,
   SprintListResponse,
   SprintMetricsResponse,
   SyncJiraResponse,
@@ -52,8 +53,8 @@ export const apiClient = {
   getCurrentSprint(): Promise<CurrentSprintResponse> {
     return request<CurrentSprintResponse>("/sprints/current");
   },
-  getSprintIssues(sprintId: string, skip = 0, limit = 50): Promise<IssueListResponse> {
-    return request<IssueListResponse>(`/sprints/${sprintId}/issues?skip=${skip}&limit=${limit}`);
+  getSprintIssues(sprintId: string, skip = 0, limit = 50): Promise<SprintIssueListResponse> {
+    return request<SprintIssueListResponse>(`/sprints/${sprintId}/issues?skip=${skip}&limit=${limit}`);
   },
   getSprintMetrics(sprintId: string): Promise<SprintMetricsResponse> {
     return request<SprintMetricsResponse>(`/sprints/${sprintId}/metrics`);

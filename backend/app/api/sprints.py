@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
 from app.repositories.sprint_repository import SprintRepository
-from app.schemas.issues import IssueListResponse, IssueResponse
+from app.schemas.issues import IssueResponse, SprintIssueListResponse, SprintIssueResponse
 from app.schemas.sprints import (
     CurrentSprintResponse,
     DeliveryConfidenceComponents,
@@ -85,20 +85,32 @@ def get_sprint(sprint_id: str, session: Session = Depends(get_db_session)) -> Sp
     return SprintResponse.model_validate(sprint, from_attributes=True)
 
 
-@router.get("/{sprint_id}/issues", response_model=IssueListResponse)
+@router.get("/{sprint_id}/issues", response_model=SprintIssueListResponse)
 def get_sprint_issues(
     sprint_id: str,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     session: Session = Depends(get_db_session),
-) -> IssueListResponse:
+) -> SprintIssueListResponse:
     sprint = SprintRepository.get_sprint_by_id(session=session, sprint_id=sprint_id)
     if sprint is None:
         raise HTTPException(status_code=404, detail=f"Sprint '{sprint_id}' not found")
 
     issues, total = SprintRepository.list_sprint_issues(session=session, sprint_id=sprint_id, skip=skip, limit=limit)
-    return IssueListResponse(
-        items=[IssueResponse.model_validate(issue, from_attributes=True) for issue in issues],
+    initial_scope_by_key = AnalyticsService().compute_sprint_initial_scope_flags(
+        session=session,
+        sprint=sprint,
+        issue_keys=[issue.issue_key for issue in issues],
+        snapshot_at=datetime.now(UTC),
+    )
+    return SprintIssueListResponse(
+        items=[
+            SprintIssueResponse(
+                **IssueResponse.model_validate(issue, from_attributes=True).model_dump(),
+                in_initial_scope=initial_scope_by_key[issue.issue_key],
+            )
+            for issue in issues
+        ],
         skip=skip,
         limit=limit,
         total=total,

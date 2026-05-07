@@ -273,6 +273,22 @@ async def test_get_project_versions_success() -> None:
     assert versions[0].project_key == "PROJ"
 
 
+@pytest.mark.asyncio
+async def test_validate_auth_calls_myself_endpoint() -> None:
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        return httpx.Response(200, content=b'{"active": true}')
+
+    client = httpx.AsyncClient(base_url="https://test.atlassian.net", transport=httpx.MockTransport(handler))
+    svc = JiraService(client=client, settings=_make_settings())
+
+    await svc.validate_auth()
+
+    assert seen_paths == ["/rest/api/3/myself"]
+
+
 # ---------------------------------------------------------------------------
 # Error mapping
 # ---------------------------------------------------------------------------
