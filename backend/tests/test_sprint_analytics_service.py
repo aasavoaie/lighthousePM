@@ -221,8 +221,56 @@ def test_delivery_confidence_penalizes_blockers_and_scope_changes(db_session: Se
     assert snapshot.delivery_confidence_components is not None
     assert snapshot.delivery_confidence_inputs is not None
     assert snapshot.delivery_confidence_components["blocker_penalty"] == 50.0
-    assert snapshot.delivery_confidence_components["scope_stability"] == 50.0
+    assert snapshot.delivery_confidence_components["scope_stability"] == 0.0
+    assert snapshot.delivery_confidence_inputs["initial_commitment_count"] == 1
+    assert snapshot.delivery_confidence_inputs["scope_added_count"] == 1
+    assert snapshot.delivery_confidence_inputs["scope_removed_count"] == 0
+    assert snapshot.delivery_confidence_inputs["scope_stability_index"] == 1.0
     assert snapshot.delivery_confidence_inputs["scope_change_issue_keys"] == ["LHPM-1"]
+    assert snapshot.delivery_confidence_inputs["scope_added_issue_keys"] == ["LHPM-1"]
+    assert snapshot.delivery_confidence_inputs["scope_removed_issue_keys"] == []
+
+
+def test_scope_stability_index_counts_added_and_removed_issues(db_session: Session) -> None:
+    now = datetime.now(UTC)
+    db_session.add(_sprint(start_date=now - timedelta(days=2), end_date=now + timedelta(days=2)))
+    db_session.add(_issue("LHPM-1", "In Progress"))
+    db_session.add(_issue("LHPM-2", "To Do"))
+    db_session.add(_issue("LHPM-3", "To Do"))
+    db_session.add(_issue("LHPM-4", "To Do"))
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2"), _link("LHPM-3")])
+    db_session.flush()
+    db_session.add(
+        _history(
+            "LHPM-3",
+            old_value="Sprint 9",
+            new_value="Sprint 10",
+            changed_at=now - timedelta(days=1),
+            field_name="sprint",
+        )
+    )
+    db_session.add(
+        _history(
+            "LHPM-4",
+            old_value="Sprint 10",
+            new_value="Sprint 11",
+            changed_at=now - timedelta(hours=12),
+            field_name="sprint",
+        )
+    )
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.delivery_confidence_inputs is not None
+    assert snapshot.delivery_confidence_inputs["initial_commitment_count"] == 3
+    assert snapshot.delivery_confidence_inputs["scope_added_count"] == 1
+    assert snapshot.delivery_confidence_inputs["scope_removed_count"] == 1
+    assert snapshot.delivery_confidence_inputs["scope_change_count"] == 2
+    assert snapshot.delivery_confidence_inputs["scope_stability_index"] == 0.6667
+    assert snapshot.delivery_confidence_inputs["scope_change_issue_keys"] == ["LHPM-3", "LHPM-4"]
+    assert snapshot.delivery_confidence_inputs["scope_added_issue_keys"] == ["LHPM-3"]
+    assert snapshot.delivery_confidence_inputs["scope_removed_issue_keys"] == ["LHPM-4"]
 
 
 def test_delivery_confidence_empty_sprint_scores_full_confidence(db_session: Session) -> None:

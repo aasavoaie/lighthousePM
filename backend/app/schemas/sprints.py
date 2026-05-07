@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SprintResponse(BaseModel):
@@ -62,6 +62,7 @@ class DeliveryConfidenceComponents(BaseModel):
 
 class DeliveryConfidenceInputs(BaseModel):
     committed_issue_count: int
+    initial_commitment_count: int | None = None
     committed_effective_points: float
     completed_effective_points: float
     remaining_effective_points: float
@@ -72,7 +73,12 @@ class DeliveryConfidenceInputs(BaseModel):
     remaining_capacity_points: float | None
     blocked_issue_ratio: float
     scope_change_count: int
+    scope_added_count: int = 0
+    scope_removed_count: int = 0
+    scope_stability_index: float | None = None
     scope_change_issue_keys: list[str]
+    scope_added_issue_keys: list[str] = Field(default_factory=list)
+    scope_removed_issue_keys: list[str] = Field(default_factory=list)
 
 
 class DeliveryConfidenceDetail(BaseModel):

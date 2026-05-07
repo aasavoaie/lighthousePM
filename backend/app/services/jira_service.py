@@ -183,6 +183,10 @@ class JiraService:
     # Public API
     # ------------------------------------------------------------------
 
+    async def validate_auth(self) -> None:
+        """Verify the configured Jira credentials before running a sync."""
+        await self._request("GET", "/rest/api/3/myself")
+
     async def search_issues(
         self,
         jql: str,

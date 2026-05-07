@@ -10,6 +10,7 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
+from app.services.jira_errors import JiraAuthError
 from app.services.sync_service import SyncServiceError
 
 
@@ -84,3 +85,18 @@ def test_post_sync_jira_returns_400_for_sync_service_error(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "JIRA_PROJECT_KEY must be configured for sync"
+
+
+def test_post_sync_jira_returns_401_for_jira_auth_error(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_sync_auth_error(self, session: Session) -> dict[str, int | str]:
+        raise SyncServiceError("Jira sync failed: auth failed") from JiraAuthError("auth failed")
+
+    monkeypatch.setattr("app.services.sync_service.SyncService.sync_from_jira", fake_sync_auth_error)
+
+    response = client.post("/sync/jira")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Jira sync failed: auth failed"

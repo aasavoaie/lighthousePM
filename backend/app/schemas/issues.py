@@ -22,3 +22,14 @@ class IssueListResponse(BaseModel):
     skip: int
     limit: int
     total: int
+
+
+class SprintIssueResponse(IssueResponse):
+    in_initial_scope: bool
+
+
+class SprintIssueListResponse(BaseModel):
+    items: list[SprintIssueResponse]
+    skip: int
+    limit: int
+    total: int
