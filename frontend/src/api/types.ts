@@ -49,6 +49,7 @@ export interface SprintMetricValues {
   open_high_severity_bugs: number | null;
   in_progress_count: number | null;
   not_started_count: number | null;
+  blocked_count: number | null;
   rollover_count: number | null;
   median_cycle_time_days: number | null;
   reopen_rate_pct: number | null;
@@ -71,7 +72,7 @@ export interface DeliveryConfidenceComponents {
   progress_alignment: number;
   velocity_fit: number;
   blocker_penalty: number;
-  scope_stability: number;
+  scope_stability: number | null;
 }
 
 export interface DeliveryConfidenceInputs {

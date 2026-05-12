@@ -30,6 +30,11 @@ IN_PROGRESS_STATUSES: frozenset[str] = frozenset(
     {"in progress", "in development", "in review", "in testing"}
 )
 
+# Statuses that indicate work is blocked or on hold.
+# Assumption: blocked issues are not counted as "not started" but tracked separately.
+# Projects with different blocking state names should extend this frozenset.
+BLOCKED_STATUSES: frozenset[str] = frozenset({"blocked", "on hold"})
+
 # Priorities that qualify as "high severity" for the open-high-severity-bugs metric.
 # Assumption: only issues with issue_type == "bug" (case-insensitive) are counted.
 HIGH_SEVERITY_PRIORITIES: frozenset[str] = frozenset({"high", "highest", "critical"})

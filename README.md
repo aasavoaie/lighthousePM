@@ -439,6 +439,8 @@ Example `GET /releases/REL-1/signal` (empty state, release exists):
   - `snapshot_age_hours` exposes freshness for dashboard staleness indicators.
 - **Sprint metrics output** (`GET /sprints/{id}/metrics`):
   - Uses the same `metric_issue_keys` shape for sprint `open_blockers` and `open_high_severity_bugs`.
+  - Delivery confidence excludes unavailable components from the weighted score denominator; for example,
+    scope stability is `null` when there is no initial commitment to compare.
 - **Notable issues output**:
   - Use existing `GET /releases/{id}/issues` and issue fields (`is_blocker`, `priority`, `status`).
   - No dedicated notable-issues endpoint is introduced in MVP.

@@ -39,6 +39,7 @@ class SprintMetricSnapshot(Base):
     )
     in_progress_count: Mapped[int] = mapped_column("in_progress_count", Integer, nullable=False)
     not_started_count: Mapped[int] = mapped_column("not_started_count", Integer, nullable=False)
+    blocked_count: Mapped[int] = mapped_column("blocked_count", Integer, nullable=False)
     rollover_count: Mapped[int] = mapped_column("rollover_count", Integer, nullable=False)
     median_cycle_time_days: Mapped[float | None] = mapped_column("median_cycle_time_days", Float, nullable=True)
     reopen_rate_pct: Mapped[float] = mapped_column("reopen_rate_pct", Float, nullable=False)
@@ -47,7 +48,7 @@ class SprintMetricSnapshot(Base):
         Float,
         nullable=True,
     )
-    delivery_confidence_components: Mapped[dict[str, float] | None] = mapped_column(
+    delivery_confidence_components: Mapped[dict[str, float | None] | None] = mapped_column(
         "delivery_confidence_components",
         JSON,
         nullable=True,

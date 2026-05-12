@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.models import Issue, IssueHistory, IssueSprint, MetricSnapshot, Release, Sprint, SprintMetricSnapshot
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.services.jira_field_mapper import JiraFieldMapper
+from app.utils.constants import BLOCKED_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ class AnalyticsService:
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
             in_progress_count=self._count_sprint_in_progress(session, sprint_id, field_mapper),
             not_started_count=self._count_sprint_not_started(session, sprint_id, field_mapper),
+            blocked_count=self._count_sprint_blocked(session, sprint_id, field_mapper),
             rollover_count=self._count_sprint_rollover(session, sprint_id, sprint.state, field_mapper),
             median_cycle_time_days=self._compute_sprint_median_cycle_time_days(session, sprint_id, field_mapper),
             reopen_rate_pct=self._compute_sprint_reopen_rate_pct(session, sprint_id, field_mapper),
@@ -437,13 +439,18 @@ class AnalyticsService:
         sprint_id: str,
         field_mapper: JiraFieldMapper,
     ) -> list[str]:
+        # Include issues that are flagged as blockers OR have a blocked status
+        # Excludes issues that are already done
         return list(
             session.scalars(
                 select(Issue.issue_key)
                 .select_from(Issue)
                 .where(
                     Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
-                    Issue.is_blocker.is_(True),
+                    (
+                        (Issue.is_blocker.is_(True)) |
+                        (func.lower(Issue.status).in_(field_mapper.blocked_statuses))
+                    ),
                     func.lower(Issue.status).not_in(field_mapper.done_statuses),
                 )
                 .order_by(Issue.issue_key)
@@ -500,6 +507,7 @@ class AnalyticsService:
         sprint_id: str,
         field_mapper: JiraFieldMapper,
     ) -> int:
+        # Count issues that haven't started (not in done, in_progress, or blocked statuses)
         result = session.scalar(
             select(func.count())
             .select_from(Issue)
@@ -507,6 +515,25 @@ class AnalyticsService:
                 Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
                 func.lower(Issue.status).not_in(field_mapper.done_statuses),
                 func.lower(Issue.status).not_in(field_mapper.in_progress_statuses),
+                func.lower(Issue.status).not_in(field_mapper.blocked_statuses),
+            )
+        )
+        return int(result or 0)
+
+    @staticmethod
+    def _count_sprint_blocked(
+        session: Session,
+        sprint_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        # Count issues that are in a blocked status and not yet done
+        result = session.scalar(
+            select(func.count())
+            .select_from(Issue)
+            .where(
+                Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint_id)),
+                func.lower(Issue.status).in_(field_mapper.blocked_statuses),
+                func.lower(Issue.status).not_in(field_mapper.done_statuses),
             )
         )
         return int(result or 0)
@@ -655,17 +682,30 @@ class AnalyticsService:
             current_issue_count=committed_issue_count,
         )
         scope_stability_index = scope_stability_inputs["scope_stability_index"]
-        scope_stability_ratio = 0.0 if scope_stability_index is None else float(scope_stability_index)
-        scope_stability = _clamp(100.0 * (1.0 - scope_stability_ratio), 0.0, 100.0)
+        scope_stability = (
+            None
+            if scope_stability_index is None
+            else _clamp(100.0 * (1.0 - float(scope_stability_index)), 0.0, 100.0)
+        )
 
         components = {
             "progress_alignment": round(progress_alignment, 2),
             "velocity_fit": round(velocity_fit, 2),
             "blocker_penalty": round(blocker_penalty, 2),
-            "scope_stability": round(scope_stability, 2),
+            "scope_stability": round(scope_stability, 2) if scope_stability is not None else None,
         }
+        available_weight = sum(
+            DELIVERY_CONFIDENCE_WEIGHTS[name]
+            for name, value in components.items()
+            if value is not None
+        )
         score = round(
-            sum(components[name] * DELIVERY_CONFIDENCE_WEIGHTS[name] for name in DELIVERY_CONFIDENCE_WEIGHTS),
+            sum(
+                value * DELIVERY_CONFIDENCE_WEIGHTS[name]
+                for name, value in components.items()
+                if value is not None
+            )
+            / available_weight,
             2,
         )
 

@@ -273,15 +273,21 @@ def test_scope_stability_index_counts_added_and_removed_issues(db_session: Sessi
     assert snapshot.delivery_confidence_inputs["scope_removed_issue_keys"] == ["LHPM-4"]
 
 
-def test_delivery_confidence_empty_sprint_scores_full_confidence(db_session: Session) -> None:
+def test_delivery_confidence_empty_sprint_excludes_scope_stability(db_session: Session) -> None:
     db_session.add(_sprint())
     db_session.flush()
 
     snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
 
-    assert snapshot.delivery_confidence_score == 100.0
+    # Empty sprint has no initial commitment, so scope stability is unavailable
+    # and the score is normalized across progress, velocity, and blockers only.
+    assert snapshot.delivery_confidence_score == 55.56
+    assert snapshot.delivery_confidence_components is not None
+    assert snapshot.delivery_confidence_components["scope_stability"] is None
     assert snapshot.delivery_confidence_inputs is not None
     assert snapshot.delivery_confidence_inputs["committed_effective_points"] == 0.0
+    assert snapshot.delivery_confidence_inputs["initial_commitment_count"] == 0
+    assert snapshot.delivery_confidence_inputs["scope_stability_index"] is None
 
 
 def test_delivery_confidence_uses_issue_count_for_missing_story_points(db_session: Session) -> None:
@@ -300,3 +306,93 @@ def test_delivery_confidence_uses_issue_count_for_missing_story_points(db_sessio
     assert snapshot.delivery_confidence_components is not None
     assert snapshot.delivery_confidence_components["progress_alignment"] == 100.0
     assert snapshot.delivery_confidence_components["velocity_fit"] == 50.0
+
+
+# ---------------------------------------------------------------------------
+# blocked status handling
+# ---------------------------------------------------------------------------
+
+
+def test_recompute_sprint_metrics_counts_blocked_status_separately(db_session: Session) -> None:
+    """Test that BLOCKED status is recognized and counted separately from not_started."""
+    db_session.add(_sprint())
+    db_session.add(_issue("LHPM-1", "Done"))
+    db_session.add(_issue("LHPM-2", "In Progress"))
+    db_session.add(_issue("LHPM-3", "Blocked"))
+    db_session.add(_issue("LHPM-4", "To Do"))
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2"), _link("LHPM-3"), _link("LHPM-4")])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.committed_scope == 4
+    assert snapshot.completed_scope_pct == 25.0
+    assert snapshot.in_progress_count == 1
+    assert snapshot.blocked_count == 1
+    assert snapshot.not_started_count == 1  # Only LHPM-4 (To Do)
+    assert snapshot.rollover_count == 0
+
+
+def test_recompute_sprint_metrics_blocked_issues_are_open_blockers(db_session: Session) -> None:
+    """Test that issues with BLOCKED status are included in open_blockers list."""
+    db_session.add(_sprint())
+    db_session.add(_issue("LHPM-1", "Blocked"))  # blocked by status
+    db_session.add(_issue("LHPM-2", "In Progress", priority="Blocker"))  # blocked by flag
+    db_session.add(_issue("LHPM-3", "In Progress"))  # neither flag nor blocked status
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2"), _link("LHPM-3")])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.open_blockers == 2
+    assert set(snapshot.open_blocker_issue_keys) == {"LHPM-1", "LHPM-2"}
+    assert snapshot.blocked_count == 1
+
+
+def test_recompute_sprint_metrics_blocked_and_done_not_in_blockers(db_session: Session) -> None:
+    """Test that blocked issues that are already done are excluded from open_blockers."""
+    db_session.add(_sprint())
+    db_session.add(_issue("LHPM-1", "Blocked"))  # open blocked
+    db_session.add(_issue("LHPM-2", "Done", priority="Blocker"))  # done blocker
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2")])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.open_blockers == 1
+    assert snapshot.open_blocker_issue_keys == ["LHPM-1"]
+    assert snapshot.blocked_count == 1  # LHPM-1 is still blocked (not done)
+
+
+def test_recompute_sprint_metrics_on_hold_status_treated_as_blocked(db_session: Session) -> None:
+    """Test that ON HOLD status (also in BLOCKED_STATUSES) is counted as blocked."""
+    db_session.add(_sprint())
+    db_session.add(_issue("LHPM-1", "To Do"))
+    db_session.add(_issue("LHPM-2", "In Progress"))
+    db_session.add(_issue("LHPM-3", "On Hold"))
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2"), _link("LHPM-3")])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.not_started_count == 1  # Only LHPM-1
+    assert snapshot.in_progress_count == 1  # LHPM-2
+    assert snapshot.blocked_count == 1  # LHPM-3
+    assert snapshot.open_blockers == 1
+    assert snapshot.open_blocker_issue_keys == ["LHPM-3"]
+
+
+def test_recompute_sprint_metrics_case_insensitive_blocked_status(db_session: Session) -> None:
+    """Test that BLOCKED status matching is case-insensitive."""
+    db_session.add(_sprint())
+    db_session.add(_issue("LHPM-1", "blocked"))  # lowercase
+    db_session.add(_issue("LHPM-2", "BLOCKED"))  # uppercase
+    db_session.add(_issue("LHPM-3", "Blocked"))  # titlecase
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2"), _link("LHPM-3")])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.blocked_count == 3
+    assert snapshot.not_started_count == 0
+    assert len(snapshot.open_blocker_issue_keys) == 3

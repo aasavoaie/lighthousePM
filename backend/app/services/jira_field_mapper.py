@@ -3,7 +3,7 @@ from typing import Any
 
 from app.config import Settings
 from app.services.jira_types import JiraIssueDetail, JiraIssueSummary, JiraSprintRef
-from app.utils.constants import DONE_STATUSES, HIGH_SEVERITY_PRIORITIES, IN_PROGRESS_STATUSES
+from app.utils.constants import BLOCKED_STATUSES, DONE_STATUSES, HIGH_SEVERITY_PRIORITIES, IN_PROGRESS_STATUSES
 
 
 def _display_name(field: dict[str, Any] | None) -> str | None:
@@ -245,6 +245,9 @@ class JiraFieldMapper:
     def is_in_progress_status(self, status: str | None) -> bool:
         return (status or "").casefold() in IN_PROGRESS_STATUSES
 
+    def is_blocked_status(self, status: str | None) -> bool:
+        return (status or "").casefold() in BLOCKED_STATUSES
+
     def is_high_severity(self, severity: str | None) -> bool:
         return (severity or "").casefold() in HIGH_SEVERITY_PRIORITIES
 
@@ -271,6 +274,10 @@ class JiraFieldMapper:
     @property
     def in_progress_statuses(self) -> frozenset[str]:
         return IN_PROGRESS_STATUSES
+
+    @property
+    def blocked_statuses(self) -> frozenset[str]:
+        return BLOCKED_STATUSES
 
     @property
     def high_severity_values(self) -> frozenset[str]:

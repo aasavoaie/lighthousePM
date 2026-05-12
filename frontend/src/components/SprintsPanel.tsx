@@ -21,6 +21,7 @@ const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
   open_high_severity_bugs: "Open high-severity bugs",
   in_progress_count: "In progress",
   not_started_count: "Not started",
+  blocked_count: "Blocked",
   rollover_count: "Rollover",
   median_cycle_time_days: "Median cycle time",
   reopen_rate_pct: "Reopen rate %",
@@ -34,6 +35,7 @@ const sprintMetricDescriptions: Record<keyof SprintMetricValues, string> = {
   open_high_severity_bugs: "Open sprint bugs with high or critical priority.",
   in_progress_count: "Sprint issues in configured in-progress statuses.",
   not_started_count: "Sprint issues that are neither in progress nor done.",
+  blocked_count: "Sprint issues currently in configured blocked statuses.",
   rollover_count: "Closed-sprint issues that did not reach done.",
   median_cycle_time_days: "Median days from first in-progress to first done.",
   reopen_rate_pct: "Sprint issues that moved from done back to active work.",
@@ -57,6 +59,7 @@ function formatMetricValue(metricName: keyof SprintMetricValues, value: number |
     metricName === "open_high_severity_bugs" ||
     metricName === "in_progress_count" ||
     metricName === "not_started_count" ||
+    metricName === "blocked_count" ||
     metricName === "rollover_count"
   ) {
     return String(value);
@@ -120,17 +123,22 @@ function renderMetricIssueKeys(
 }
 
 function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail, onSelectIssue: (issueKey: string) => void) {
+  const isScopeStabilityExcluded = confidence.components.scope_stability === null;
+
   return (
     <div className="confidence-summary">
       <div className="confidence-score">
-        <span className="muted">Delivery confidence</span>
+        <span className="muted">
+          Delivery confidence
+          {isScopeStabilityExcluded ? <span className="confidence-note">Excluded: no initial commitment</span> : null}
+        </span>
         <strong>{confidence.score.toFixed(2)}</strong>
       </div>
       <div className="confidence-breakdown">
         {(Object.keys(confidence.components) as Array<keyof DeliveryConfidenceDetail["components"]>).map((key) => (
           <div className="confidence-component" key={key}>
             <span>{confidenceComponentLabels[key]}</span>
-            <strong>{confidence.components[key].toFixed(2)}</strong>
+            <strong>{formatNullableNumber(confidence.components[key])}</strong>
           </div>
         ))}
       </div>

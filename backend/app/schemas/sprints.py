@@ -35,6 +35,7 @@ class SprintMetricValues(BaseModel):
     open_high_severity_bugs: int | None
     in_progress_count: int | None
     not_started_count: int | None
+    blocked_count: int | None
     rollover_count: int | None
     median_cycle_time_days: float | None
     reopen_rate_pct: float | None
@@ -57,7 +58,7 @@ class DeliveryConfidenceComponents(BaseModel):
     progress_alignment: float
     velocity_fit: float
     blocker_penalty: float
-    scope_stability: float
+    scope_stability: float | None
 
 
 class DeliveryConfidenceInputs(BaseModel):

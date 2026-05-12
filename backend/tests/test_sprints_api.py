@@ -144,6 +144,21 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     }
 
 
+def test_sprint_metrics_returns_null_scope_stability_without_initial_commitment(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+
+    recompute_response = client.post("/sprints/12/recompute")
+    metrics_response = client.get("/sprints/12/metrics")
+
+    assert recompute_response.status_code == 200
+    assert metrics_response.status_code == 200
+    payload = metrics_response.json()
+    assert payload["delivery_confidence"]["components"]["scope_stability"] is None
+    assert payload["delivery_confidence"]["inputs"]["initial_commitment_count"] == 0
+    assert payload["delivery_confidence"]["inputs"]["scope_stability_index"] is None
+
+
 def test_sprint_metrics_returns_metric_issue_keys(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_sprint(session, "12", "active")

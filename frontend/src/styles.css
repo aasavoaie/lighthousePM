@@ -408,6 +408,12 @@ select {
   color: #123d6b;
 }
 
+.confidence-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8rem;
+}
+
 .confidence-breakdown,
 .confidence-inputs {
   display: grid;
