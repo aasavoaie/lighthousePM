@@ -194,6 +194,8 @@ def recompute_sprint_metrics(
     session: Session = Depends(get_db_session),
 ) -> RecomputeSprintMetricsResponse:
     started_at = perf_counter()
+    previous_snapshot = SprintRepository.get_latest_metric_snapshot(session=session, sprint_id=sprint_id)
+    previous_score = previous_snapshot.delivery_confidence_score if previous_snapshot is not None else None
     try:
         snapshot = AnalyticsService().recompute_sprint_metrics(session=session, sprint_id=sprint_id)
         session.commit()
@@ -201,9 +203,25 @@ def recompute_sprint_metrics(
         session.rollback()
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    delivery_confidence_delta: float | None = None
+    delivery_confidence_trend: str | None = None
+    if previous_score is None or snapshot.delivery_confidence_score is None:
+        delivery_confidence_trend = "unknown"
+    else:
+        delivery_confidence_delta = round(snapshot.delivery_confidence_score - previous_score, 4)
+        if delivery_confidence_delta > 0:
+            delivery_confidence_trend = "ascending"
+        elif delivery_confidence_delta < 0:
+            delivery_confidence_trend = "declining"
+        else:
+            delivery_confidence_trend = "unchanged"
+
     _ = perf_counter() - started_at
     return RecomputeSprintMetricsResponse(
         sprint_id=snapshot.sprint_id,
         snapshot_at=snapshot.snapshot_at,
         status="ok",
+        previous_delivery_confidence_score=previous_score,
+        delivery_confidence_delta=delivery_confidence_delta,
+        delivery_confidence_trend=delivery_confidence_trend,
     )

@@ -16,7 +16,8 @@ const metricLabels: Record<keyof MetricValues, string> = {
 };
 
 const metricDescriptions: Record<keyof MetricValues, string> = {
-  open_blockers: "Number of currently open issues flagged as blockers.",
+  open_blockers:
+    "Open, non-done issues classified as blockers by Jira type/priority or explicit blocker flag.",
   open_high_severity_bugs: "Open bugs with high or critical severity levels.",
   scope_completed_pct: "Percentage of release issues currently in done status.",
   scope_churn_7d_pct: "Scope changes affecting this release during the last 7 days.",

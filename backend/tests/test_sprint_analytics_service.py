@@ -6,9 +6,11 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.config import get_settings
 from app.db.base import Base
 from app.models import Issue, IssueHistory, IssueSprint, Sprint, SprintMetricSnapshot
 from app.services.analytics_service import AnalyticsService
+from app.services.jira_field_mapper import JiraFieldMapper
 
 
 @pytest.fixture
@@ -273,6 +275,105 @@ def test_scope_stability_index_counts_added_and_removed_issues(db_session: Sessi
     assert snapshot.delivery_confidence_inputs["scope_removed_issue_keys"] == ["LHPM-4"]
 
 
+def test_scope_stability_initial_commitment_count_uses_start_membership(db_session: Session) -> None:
+    now = datetime.now(UTC)
+    start_date = now - timedelta(days=2)
+    db_session.add(_sprint(start_date=start_date, end_date=now + timedelta(days=5)))
+    db_session.add(_issue("LHPM-1", "In Progress"))
+    db_session.add(_issue("LHPM-2", "To Do"))
+    db_session.add(_issue("LHPM-3", "In Progress"))
+    db_session.add(_issue("LHPM-4", "To Do"))
+    db_session.flush()
+
+    db_session.add(_link("LHPM-1"))
+    db_session.add(_link("LHPM-2"))
+    db_session.add(_link("LHPM-3"))
+    db_session.flush()
+
+    db_session.add(
+        _history(
+            "LHPM-2",
+            old_value="Sprint 10",
+            new_value="Sprint 11",
+            changed_at=now - timedelta(days=1),
+            field_name="sprint",
+        )
+    )
+    db_session.add(
+        _history(
+            "LHPM-3",
+            old_value="Sprint 9",
+            new_value="Sprint 10",
+            changed_at=now - timedelta(hours=12),
+            field_name="sprint",
+        )
+    )
+    db_session.add(
+        _history(
+            "LHPM-4",
+            old_value="Sprint 9",
+            new_value="Sprint 10",
+            changed_at=now - timedelta(days=1, hours=6),
+            field_name="sprint",
+        )
+    )
+    db_session.add(
+        _history(
+            "LHPM-4",
+            old_value="Sprint 10",
+            new_value="Sprint 11",
+            changed_at=now - timedelta(hours=6),
+            field_name="sprint",
+        )
+    )
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.delivery_confidence_inputs is not None
+    assert snapshot.delivery_confidence_inputs["initial_commitment_count"] == 2
+    assert snapshot.delivery_confidence_inputs["scope_added_count"] == 2
+    assert snapshot.delivery_confidence_inputs["scope_removed_count"] == 2
+    assert snapshot.delivery_confidence_inputs["scope_change_count"] == 4
+    assert snapshot.delivery_confidence_inputs["scope_stability_index"] == 2.0
+    assert snapshot.delivery_confidence_inputs["scope_added_before_start_issue_keys"] == ["LHPM-1", "LHPM-2"]
+
+
+def test_scope_stability_excludes_issue_changed_at_start_boundary(db_session: Session) -> None:
+    now = datetime.now(UTC)
+    start_date = now - timedelta(days=2)
+    db_session.add(_sprint(start_date=start_date, end_date=now + timedelta(days=5)))
+    db_session.add(_issue("LHPM-1", "In Progress"))
+    db_session.flush()
+
+    db_session.add(_link("LHPM-1"))
+    db_session.add(
+        _history(
+            "LHPM-1",
+            old_value="Sprint 9",
+            new_value="Sprint 10",
+            changed_at=start_date,
+            field_name="sprint",
+        )
+    )
+    db_session.flush()
+
+    flags = AnalyticsService().compute_sprint_initial_scope_flags(
+        session=db_session,
+        sprint=db_session.scalar(select(Sprint).where(Sprint.sprint_id == "10")),
+        issue_keys=["LHPM-1"],
+        snapshot_at=now,
+    )
+
+    assert flags["LHPM-1"] is False
+    assert AnalyticsService._compute_sprint_initial_commitment_count(
+        session=db_session,
+        sprint=db_session.scalar(select(Sprint).where(Sprint.sprint_id == "10")),
+        snapshot_at=now,
+        field_mapper=JiraFieldMapper(get_settings()),
+    ) == 0
+
+
 def test_delivery_confidence_empty_sprint_excludes_scope_stability(db_session: Session) -> None:
     db_session.add(_sprint())
     db_session.flush()
@@ -396,3 +497,34 @@ def test_recompute_sprint_metrics_case_insensitive_blocked_status(db_session: Se
     assert snapshot.blocked_count == 3
     assert snapshot.not_started_count == 0
     assert len(snapshot.open_blocker_issue_keys) == 3
+
+
+def test_scope_stability_excludes_issues_created_after_sprint_start(db_session: Session) -> None:
+    """Test that issues created after sprint start are not included in initial commitment."""
+    now = datetime.now(UTC)
+    start_date = now - timedelta(days=2)
+    end_date = now + timedelta(days=5)
+    db_session.add(_sprint(start_date=start_date, end_date=end_date))
+    
+    # Issue created before sprint start
+    issue_before = _issue("LHPM-1", "In Progress")
+    issue_before.created_at = start_date - timedelta(hours=1)
+    db_session.add(issue_before)
+    
+    # Issue created after sprint start
+    issue_after = _issue("LHPM-2", "To Do")
+    issue_after.created_at = start_date + timedelta(hours=1)
+    db_session.add(issue_after)
+    
+    db_session.flush()
+
+    # Link both to sprint
+    db_session.add(_link("LHPM-1"))
+    db_session.add(_link("LHPM-2"))
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.delivery_confidence_inputs is not None
+    # Only LHPM-1 should be in initial commitment
+    assert snapshot.delivery_confidence_inputs["scope_added_before_start_issue_keys"] == ["LHPM-1"]

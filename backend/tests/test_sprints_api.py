@@ -11,7 +11,7 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import Issue, IssueHistory, IssueSprint, Sprint
+from app.models import Issue, IssueHistory, IssueSprint, Sprint, SprintMetricSnapshot
 
 
 @pytest.fixture
@@ -130,6 +130,11 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
 
     assert recompute_response.status_code == 200
     assert metrics_response.status_code == 200
+    recompute_payload = recompute_response.json()
+    assert recompute_payload["delivery_confidence_trend"] == "unknown"
+    assert recompute_payload["delivery_confidence_delta"] is None
+    assert recompute_payload["previous_delivery_confidence_score"] is None
+
     payload = metrics_response.json()
     assert payload["is_computed"] is True
     assert payload["metrics"]["committed_scope"] == 1
@@ -142,6 +147,80 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
         "open_blockers": [],
         "open_high_severity_bugs": [],
     }
+
+
+def test_recompute_sprint_metrics_returns_unchanged_trend_for_same_snapshot(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1")
+
+    first_response = client.post("/sprints/12/recompute")
+    assert first_response.status_code == 200
+    second_response = client.post("/sprints/12/recompute")
+    assert second_response.status_code == 200
+    payload = second_response.json()
+    assert payload["delivery_confidence_trend"] == "unchanged"
+    assert payload["delivery_confidence_delta"] == 0.0
+    assert payload["previous_delivery_confidence_score"] == 100.0
+
+
+def test_recompute_sprint_metrics_returns_ascending_trend_against_previous_snapshot(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1")
+        previous_snapshot = SprintMetricSnapshot(
+            sprint_id="12",
+            snapshot_at=datetime.now(UTC) - timedelta(hours=1),
+            committed_scope=1,
+            completed_scope_pct=0.0,
+            open_blockers=0,
+            open_high_severity_bugs=0,
+            open_blocker_issue_keys=[],
+            open_high_severity_bug_issue_keys=[],
+            in_progress_count=1,
+            not_started_count=0,
+            blocked_count=0,
+            rollover_count=0,
+            median_cycle_time_days=None,
+            reopen_rate_pct=0.0,
+            delivery_confidence_score=50.0,
+            delivery_confidence_components={
+                "progress_alignment": 50.0,
+                "velocity_fit": 50.0,
+                "blocker_penalty": 50.0,
+                "scope_stability": 50.0,
+            },
+            delivery_confidence_inputs={
+                "committed_issue_count": 1,
+                "initial_commitment_count": 1,
+                "committed_effective_points": 1.0,
+                "completed_effective_points": 0.0,
+                "remaining_effective_points": 1.0,
+                "completed_scope_pct": 0.0,
+                "time_elapsed_pct": 50.0,
+                "historical_velocity": 1.0,
+                "baseline_sprint_count": 3,
+                "remaining_capacity_points": 1.0,
+                "blocked_issue_ratio": 0.0,
+                "scope_change_count": 0,
+                "scope_added_count": 0,
+                "scope_removed_count": 0,
+                "scope_stability_index": 0.0,
+                "scope_change_issue_keys": [],
+                "scope_added_issue_keys": [],
+                "scope_removed_issue_keys": [],
+                "scope_added_before_start_issue_keys": [],
+            },
+        )
+        session.add(previous_snapshot)
+        session.commit()
+
+    response = client.post("/sprints/12/recompute")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["delivery_confidence_trend"] == "ascending"
+    assert payload["delivery_confidence_delta"] == 50.0
+    assert payload["previous_delivery_confidence_score"] == 50.0
 
 
 def test_sprint_metrics_returns_null_scope_stability_without_initial_commitment(client: TestClient) -> None:

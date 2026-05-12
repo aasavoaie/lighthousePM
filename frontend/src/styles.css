@@ -503,6 +503,35 @@ select {
   height: 320px;
 }
 
+.chart-section + .chart-section {
+  margin-top: 28px;
+}
+
+.chart-section h3 {
+  margin: 0 0 12px;
+}
+
+.chart-subheading {
+  margin-bottom: 12px;
+}
+
+.chart-tooltip {
+  padding: 10px 12px;
+  border: 1px solid #c6d3e1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(18, 32, 51, 0.12);
+}
+
+.chart-tooltip p {
+  margin: 4px 0 0;
+}
+
+.chart-tooltip-note {
+  color: #2d7d46;
+  font-weight: 600;
+}
+
 .error-panel {
   color: #a63124;
   background: #fff3f1;
@@ -545,4 +574,29 @@ select {
   .confidence-inputs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+.info-icon {
+  font-size: 0.8em;
+  color: #666;
+  cursor: help;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.recompute-trend {
+  margin-top: 12px;
+}
+
+.recompute-trend-ascending {
+  color: #007a3d;
+}
+
+.recompute-trend-declining {
+  color: #b31b1b;
+}
+
+.recompute-trend-unchanged,
+.recompute-trend-unknown {
+  color: #333;
 }

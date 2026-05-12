@@ -20,6 +20,8 @@ from app.schemas.metrics import (
     RecomputeMetricsResponse,
     ReleaseChartsResponse,
     ReleaseMetricsResponse,
+    SprintVelocityPoint,
+    SprintVelocitySeries,
 )
 from app.services.analytics_service import AnalyticsService
 from app.services.signal_service import SignalService
@@ -146,6 +148,10 @@ def get_release_charts(
         from_at=from_ts,
         to_at=to_ts,
     )
+    sprint_velocity_points = AnalyticsService().compute_sprint_velocity_chart_points(
+        session=session,
+        project_key=release.project_key,
+    )
 
     return ReleaseChartsResponse(
         release_id=release_id,
@@ -177,6 +183,10 @@ def get_release_charts(
         ),
         metric_names=METRIC_NAMES,
         point_count=len(snapshots),
+        sprint_velocity=SprintVelocitySeries(
+            points=[SprintVelocityPoint(**point) for point in sprint_velocity_points],
+            point_count=len(sprint_velocity_points),
+        ),
     )
 
 

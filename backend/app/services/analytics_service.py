@@ -20,6 +20,8 @@ DELIVERY_CONFIDENCE_WEIGHTS = {
     "scope_stability": 0.1,
 }
 HISTORICAL_VELOCITY_SPRINT_COUNT = 3
+SPRINT_VELOCITY_CHART_SPRINT_COUNT = 5
+SPRINT_IN_PROGRESS_NOTE = "Sprint In Progress"
 
 
 class AnalyticsService:
@@ -161,7 +163,7 @@ class AnalyticsService:
         snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
         end_at = _coerce_utc(sprint.end_date)
         upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
-        if upper_bound <= start_at:
+        if upper_bound < start_at:
             return flags
 
         entries = session.scalars(
@@ -169,7 +171,7 @@ class AnalyticsService:
             .where(
                 IssueHistory.issue_key.in_(issue_keys),
                 func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
-                IssueHistory.changed_at > start_at,
+                IssueHistory.changed_at >= start_at,
                 IssueHistory.changed_at <= upper_bound,
             )
             .order_by(IssueHistory.issue_key, IssueHistory.changed_at.desc(), IssueHistory.id.desc())
@@ -182,6 +184,133 @@ class AnalyticsService:
                 flags[entry.issue_key] = old_references_sprint
 
         return flags
+
+    @staticmethod
+    def _compute_sprint_initial_commitment_issue_keys(
+        session: Session,
+        sprint: Sprint,
+        snapshot_at: datetime,
+        field_mapper: JiraFieldMapper,
+    ) -> list[str]:
+        start_at = _coerce_utc(sprint.start_date)
+        if start_at is None:
+            return []
+
+        snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
+        end_at = _coerce_utc(sprint.end_date)
+        upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
+        if upper_bound < start_at:
+            return []
+
+        current_issue_keys = session.scalars(
+            select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint.sprint_id)
+        ).all()
+        history_issue_keys = session.scalars(
+            select(IssueHistory.issue_key)
+            .where(
+                func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
+                IssueHistory.changed_at >= start_at,
+                IssueHistory.changed_at <= upper_bound,
+            )
+            .distinct()
+        ).all()
+
+        candidate_keys = sorted(set(current_issue_keys) | set(history_issue_keys))
+        if not candidate_keys:
+            return list(current_issue_keys)
+
+        # Filter to issues created before or at sprint start to exclude issues created after sprint began
+        valid_keys = session.scalars(
+            select(Issue.issue_key).where(
+                Issue.issue_key.in_(candidate_keys),
+                Issue.created_at <= start_at
+            )
+        ).all()
+        candidate_keys = sorted(set(valid_keys))
+        if not candidate_keys:
+            return []
+
+        start_membership = {key: key in current_issue_keys for key in candidate_keys}
+        entries = session.scalars(
+            select(IssueHistory)
+            .where(
+                IssueHistory.issue_key.in_(candidate_keys),
+                func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
+                IssueHistory.changed_at >= start_at,
+                IssueHistory.changed_at <= upper_bound,
+            )
+            .order_by(IssueHistory.issue_key, IssueHistory.changed_at.desc(), IssueHistory.id.desc())
+        ).all()
+
+        for entry in entries:
+            old_references_sprint = _history_value_references_sprint(entry.old_value, sprint)
+            new_references_sprint = _history_value_references_sprint(entry.new_value, sprint)
+            if old_references_sprint != new_references_sprint:
+                start_membership[entry.issue_key] = old_references_sprint
+
+        result = [key for key, value in start_membership.items() if value]
+        logger.debug(
+            "Sprint %s initial commitment: %d issues (candidates: %d, valid: %d)",
+            sprint.sprint_id, len(result), len(set(current_issue_keys) | set(history_issue_keys)), len(candidate_keys)
+        )
+        return result
+
+    @staticmethod
+    def _compute_sprint_initial_commitment_count(
+        session: Session,
+        sprint: Sprint,
+        snapshot_at: datetime,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        return len(
+            AnalyticsService._compute_sprint_initial_commitment_issue_keys(
+                session=session,
+                sprint=sprint,
+                snapshot_at=snapshot_at,
+                field_mapper=field_mapper,
+            )
+        )
+
+    def compute_sprint_velocity_chart_points(self, session: Session, project_key: str) -> list[dict[str, object]]:
+        """Return up to five sprint velocity chart points for a project.
+
+        Velocity is completed effective points: story points for done issues,
+        with missing or negative story points counted as one point.
+        """
+        field_mapper = JiraFieldMapper(get_settings())
+        active_sprint = self._get_latest_active_sprint(session=session, project_key=project_key)
+        closed_limit = (
+            SPRINT_VELOCITY_CHART_SPRINT_COUNT - 1
+            if active_sprint is not None
+            else SPRINT_VELOCITY_CHART_SPRINT_COUNT
+        )
+        closed_sprints = self._list_recent_closed_sprints_for_velocity_chart(
+            session=session,
+            project_key=project_key,
+            limit=closed_limit,
+        )
+
+        points: list[dict[str, object]] = [
+            self._build_sprint_velocity_chart_point(
+                session=session,
+                sprint=sprint,
+                field_mapper=field_mapper,
+                completed_at=self._sprint_velocity_date(sprint),
+                note=None,
+            )
+            for sprint in reversed(closed_sprints)
+        ]
+        if active_sprint is not None:
+            points.append(
+                self._build_sprint_velocity_chart_point(
+                    session=session,
+                    sprint=active_sprint,
+                    field_mapper=field_mapper,
+                    completed_at=None,
+                    note=SPRINT_IN_PROGRESS_NOTE,
+                )
+            )
+        return points
 
     # ------------------------------------------------------------------
     # Private helpers — each computes exactly one metric
@@ -747,6 +876,68 @@ class AnalyticsService:
         return sum(_effective_points(issue) for issue in issues if field_mapper.is_done_status(issue.status))
 
     @staticmethod
+    def _get_latest_active_sprint(session: Session, project_key: str) -> Sprint | None:
+        return session.scalar(
+            select(Sprint)
+            .where(
+                Sprint.project_key == project_key,
+                func.lower(Sprint.state) == "active",
+            )
+            .order_by(Sprint.start_date.desc().nullslast(), Sprint.sprint_id)
+            .limit(1)
+        )
+
+    @staticmethod
+    def _list_recent_closed_sprints_for_velocity_chart(session: Session, project_key: str, limit: int) -> list[Sprint]:
+        if limit <= 0:
+            return []
+
+        candidates = list(
+            session.scalars(
+                select(Sprint).where(
+                    Sprint.project_key == project_key,
+                    func.lower(Sprint.state) == "closed",
+                )
+            ).all()
+        )
+
+        dated_candidates: list[tuple[datetime, Sprint]] = []
+        for sprint in candidates:
+            sprint_date = AnalyticsService._sprint_velocity_date(sprint)
+            if sprint_date is None:
+                continue
+            dated_candidates.append((sprint_date, sprint))
+
+        dated_candidates.sort(key=lambda item: (item[0], item[1].sprint_id), reverse=True)
+        return [sprint for _, sprint in dated_candidates[:limit]]
+
+    @staticmethod
+    def _sprint_velocity_date(sprint: Sprint) -> datetime | None:
+        return _coerce_utc(sprint.complete_date) or _coerce_utc(sprint.end_date) or _coerce_utc(sprint.start_date)
+
+    @staticmethod
+    def _build_sprint_velocity_chart_point(
+        session: Session,
+        sprint: Sprint,
+        field_mapper: JiraFieldMapper,
+        completed_at: datetime | None,
+        note: str | None,
+    ) -> dict[str, object]:
+        velocity = AnalyticsService._compute_completed_effective_points_for_sprint(
+            session=session,
+            sprint_id=sprint.sprint_id,
+            field_mapper=field_mapper,
+        )
+        return {
+            "sprint_id": sprint.sprint_id,
+            "sprint_name": sprint.name,
+            "completed_at": completed_at,
+            "velocity": round(velocity, 2),
+            "state": sprint.state.casefold(),
+            "note": note,
+        }
+
+    @staticmethod
     def _list_velocity_baseline_sprints(session: Session, sprint: Sprint) -> list[Sprint]:
         target_start = _coerce_utc(sprint.start_date) or _coerce_utc(sprint.complete_date) or _coerce_utc(sprint.end_date)
         candidates = list(
@@ -788,31 +979,52 @@ class AnalyticsService:
             return _build_scope_stability_inputs(
                 added_issue_keys=[],
                 removed_issue_keys=[],
-                current_issue_count=current_issue_count,
+                initial_commitment_count=0,
             )
 
         snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
         end_at = _coerce_utc(sprint.end_date)
         upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
-        if upper_bound <= start_at:
+        if upper_bound < start_at:
+            initial_commitment_issue_keys = AnalyticsService._compute_sprint_initial_commitment_issue_keys(
+                session=session,
+                sprint=sprint,
+                snapshot_at=snapshot_at,
+                field_mapper=field_mapper,
+            )
             return _build_scope_stability_inputs(
                 added_issue_keys=[],
                 removed_issue_keys=[],
-                current_issue_count=current_issue_count,
+                initial_commitment_count=len(initial_commitment_issue_keys),
+                added_before_start_issue_keys=initial_commitment_issue_keys,
             )
 
+        initial_commitment_issue_keys = AnalyticsService._compute_sprint_initial_commitment_issue_keys(
+            session=session,
+            sprint=sprint,
+            snapshot_at=snapshot_at,
+            field_mapper=field_mapper,
+        )
+
+        # Get current issue keys
+        current_issue_keys = session.scalars(
+            select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint.sprint_id)
+        ).all()
+
+        added_issue_keys: set[str] = set(key for key in current_issue_keys if key not in initial_commitment_issue_keys)
+        removed_issue_keys: set[str] = set(key for key in initial_commitment_issue_keys if key not in current_issue_keys)
+
+        # Also include changes from history for robustness
         entries = session.scalars(
             select(IssueHistory)
             .where(
                 func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
-                IssueHistory.changed_at > start_at,
+                IssueHistory.changed_at >= start_at,
                 IssueHistory.changed_at <= upper_bound,
             )
             .order_by(IssueHistory.issue_key, IssueHistory.changed_at)
         ).all()
 
-        added_issue_keys: set[str] = set()
-        removed_issue_keys: set[str] = set()
         for entry in entries:
             old_references_sprint = _history_value_references_sprint(entry.old_value, sprint)
             new_references_sprint = _history_value_references_sprint(entry.new_value, sprint)
@@ -824,7 +1036,8 @@ class AnalyticsService:
         return _build_scope_stability_inputs(
             added_issue_keys=sorted(added_issue_keys),
             removed_issue_keys=sorted(removed_issue_keys),
-            current_issue_count=current_issue_count,
+            initial_commitment_count=len(initial_commitment_issue_keys),
+            added_before_start_issue_keys=sorted(initial_commitment_issue_keys),
         )
 
 
@@ -880,12 +1093,12 @@ def _score_velocity_fit(
 def _build_scope_stability_inputs(
     added_issue_keys: list[str],
     removed_issue_keys: list[str],
-    current_issue_count: int,
+    initial_commitment_count: int,
+    added_before_start_issue_keys: list[str] = [],
 ) -> dict[str, object]:
     added_count = len(added_issue_keys)
     removed_count = len(removed_issue_keys)
     change_count = added_count + removed_count
-    initial_commitment_count = max(current_issue_count - added_count + removed_count, 0)
     scope_stability_index = (
         None
         if initial_commitment_count == 0
@@ -900,6 +1113,7 @@ def _build_scope_stability_inputs(
         "scope_change_issue_keys": sorted(set(added_issue_keys) | set(removed_issue_keys)),
         "scope_added_issue_keys": added_issue_keys,
         "scope_removed_issue_keys": removed_issue_keys,
+        "scope_added_before_start_issue_keys": added_before_start_issue_keys,
     }
 
 

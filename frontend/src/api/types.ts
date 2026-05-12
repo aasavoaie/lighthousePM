@@ -94,6 +94,7 @@ export interface DeliveryConfidenceInputs {
   scope_change_issue_keys: string[];
   scope_added_issue_keys: string[];
   scope_removed_issue_keys: string[];
+  scope_added_before_start_issue_keys: string[];
 }
 
 export interface DeliveryConfidenceDetail {
@@ -118,6 +119,9 @@ export interface RecomputeSprintMetricsResponse {
   sprint_id: string;
   snapshot_at: string;
   status: string;
+  previous_delivery_confidence_score: number | null;
+  delivery_confidence_delta: number | null;
+  delivery_confidence_trend: "ascending" | "declining" | "unchanged" | "unknown" | null;
 }
 
 export interface MetricValues {
@@ -165,11 +169,26 @@ export interface MetricSeries {
   reopen_rate_pct: ChartPoint[];
 }
 
+export interface SprintVelocityPoint {
+  sprint_id: string;
+  sprint_name: string;
+  completed_at: string | null;
+  velocity: number;
+  state: string;
+  note: string | null;
+}
+
+export interface SprintVelocitySeries {
+  points: SprintVelocityPoint[];
+  point_count: number;
+}
+
 export interface ReleaseChartsResponse {
   release_id: string;
   series: MetricSeries;
   metric_names: string[];
   point_count: number;
+  sprint_velocity: SprintVelocitySeries;
 }
 
 export interface SignalReasonDetail {

@@ -53,11 +53,26 @@ class MetricSeries(BaseModel):
     reopen_rate_pct: list[ChartPoint]
 
 
+class SprintVelocityPoint(BaseModel):
+    sprint_id: str
+    sprint_name: str
+    completed_at: datetime | None
+    velocity: float
+    state: str
+    note: str | None
+
+
+class SprintVelocitySeries(BaseModel):
+    points: list[SprintVelocityPoint]
+    point_count: int
+
+
 class ReleaseChartsResponse(BaseModel):
     release_id: str
     series: MetricSeries
     metric_names: list[str]
     point_count: int
+    sprint_velocity: SprintVelocitySeries
 
 
 class RecomputeMetricsResponse(BaseModel):

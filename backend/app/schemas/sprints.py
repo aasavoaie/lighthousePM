@@ -80,6 +80,7 @@ class DeliveryConfidenceInputs(BaseModel):
     scope_change_issue_keys: list[str]
     scope_added_issue_keys: list[str] = Field(default_factory=list)
     scope_removed_issue_keys: list[str] = Field(default_factory=list)
+    scope_added_before_start_issue_keys: list[str] = Field(default_factory=list)
 
 
 class DeliveryConfidenceDetail(BaseModel):
@@ -104,3 +105,6 @@ class RecomputeSprintMetricsResponse(BaseModel):
     sprint_id: str
     snapshot_at: datetime
     status: str
+    previous_delivery_confidence_score: float | None = None
+    delivery_confidence_delta: float | None = None
+    delivery_confidence_trend: str | None = None

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiClient } from "../api/client";
 import type {
   DeliveryConfidenceDetail,
+  RecomputeSprintMetricsResponse,
   Sprint,
   SprintIssue,
   SprintMetricValues,
@@ -21,7 +22,7 @@ const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
   open_high_severity_bugs: "Open high-severity bugs",
   in_progress_count: "In progress",
   not_started_count: "Not started",
-  blocked_count: "Blocked",
+  blocked_count: "Tickets in Blocked Column",
   rollover_count: "Rollover",
   median_cycle_time_days: "Median cycle time",
   reopen_rate_pct: "Reopen rate %",
@@ -31,7 +32,8 @@ const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
 const sprintMetricDescriptions: Record<keyof SprintMetricValues, string> = {
   committed_scope: "Issues explicitly linked to this sprint.",
   completed_scope_pct: "Done issues divided by total sprint issues.",
-  open_blockers: "Open sprint issues currently flagged as blockers.",
+  open_blockers:
+    "Open sprint issues classified as blockers by Jira type/priority or explicit blocker flag, excluding done statuses.",
   open_high_severity_bugs: "Open sprint bugs with high or critical priority.",
   in_progress_count: "Sprint issues in configured in-progress statuses.",
   not_started_count: "Sprint issues that are neither in progress nor done.",
@@ -48,6 +50,30 @@ const confidenceComponentLabels: Record<keyof DeliveryConfidenceDetail["componen
   blocker_penalty: "Blocker penalty",
   scope_stability: "Scope stability",
 };
+
+const deliveryConfidenceExplanations: Record<string, string> = {
+  "Points in sprint": "Sum of story points (or 1 point if no estimate) for all issues currently assigned to the sprint. Represents the total committed work.",
+  "Completed pts": "Sum of story points for issues that have reached done status. Measures actual completed work.",
+  "Remaining pts": "Committed pts minus Completed pts. Shows remaining work to be done.",
+  "Elapsed": "Percentage of sprint time that has passed, calculated as (current time - sprint start) / (sprint end - sprint start) × 100. Null if sprint hasn't started or dates are missing.",
+  "Velocity": "Points completed per day in the current sprint, calculated as Completed pts ÷ days since sprint start. Null if sprint hasn't started.",
+  "Baseline": "Number of historical sprints used to calculate the baseline velocity for comparison. Uses the most recent completed sprints (up to 3).",
+  "Blocked ratio": "Ratio of currently blocked issues to total sprint issues. Calculated as blocked_count ÷ total_issue_count.",
+  "Scope changes": "Total number of issues added to or removed from the sprint after it started. Calculated as scope_added_count + scope_removed_count.",
+};
+
+function InfoIcon({ explanation }: { explanation: string }) {
+  return (
+    <span
+      className="info-icon"
+      title={explanation}
+      aria-label="Information"
+      role="tooltip"
+    >
+      ℹ️
+    </span>
+  );
+}
 
 function formatMetricValue(metricName: keyof SprintMetricValues, value: number | null) {
   if (value === null) {
@@ -143,34 +169,23 @@ function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail, onSelect
         ))}
       </div>
       <dl className="confidence-inputs">
-        <dt>Committed pts</dt>
-        <dd>{confidence.inputs.committed_effective_points.toFixed(2)}</dd>
-        <dt>Completed pts</dt>
-        <dd>{confidence.inputs.completed_effective_points.toFixed(2)}</dd>
-        <dt>Remaining pts</dt>
-        <dd>{confidence.inputs.remaining_effective_points.toFixed(2)}</dd>
-        <dt>Elapsed</dt>
+        <dt>Points in sprint <InfoIcon explanation={deliveryConfidenceExplanations["Points in sprint"]} /></dt>
+        <dd>{Math.round(confidence.inputs.committed_effective_points)}</dd>
+        <dt>Completed pts <InfoIcon explanation={deliveryConfidenceExplanations["Completed pts"]} /></dt>
+        <dd>{Math.round(confidence.inputs.completed_effective_points)}</dd>
+        <dt>Remaining pts <InfoIcon explanation={deliveryConfidenceExplanations["Remaining pts"]} /></dt>
+        <dd>{Math.round(confidence.inputs.remaining_effective_points)}</dd>
+        <dt>Elapsed <InfoIcon explanation={deliveryConfidenceExplanations["Elapsed"]} /></dt>
         <dd>{formatNullableNumber(confidence.inputs.time_elapsed_pct, "%")}</dd>
-        <dt>Velocity</dt>
+        <dt>Velocity <InfoIcon explanation={deliveryConfidenceExplanations["Velocity"]} /></dt>
         <dd>{formatNullableNumber(confidence.inputs.historical_velocity)}</dd>
-        <dt>Baseline</dt>
+        <dt>Baseline <InfoIcon explanation={deliveryConfidenceExplanations["Baseline"]} /></dt>
         <dd>{confidence.inputs.baseline_sprint_count}</dd>
-        <dt>Blocked ratio</dt>
+        <dt>Blocked ratio <InfoIcon explanation={deliveryConfidenceExplanations["Blocked ratio"]} /></dt>
         <dd>{confidence.inputs.blocked_issue_ratio.toFixed(4)}</dd>
-        <dt>Scope changes</dt>
+        <dt>Scope changes <InfoIcon explanation={deliveryConfidenceExplanations["Scope changes"]} /></dt>
         <dd>{confidence.inputs.scope_change_count}</dd>
       </dl>
-      {confidence.inputs.scope_change_issue_keys.length > 0 ? (
-        <ul className="metric-ticket-list" aria-label="Scope change tickets">
-          {confidence.inputs.scope_change_issue_keys.map((issueKey) => (
-            <li key={issueKey}>
-              <button type="button" className="link-button" onClick={() => onSelectIssue(issueKey)}>
-                {issueKey}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </div>
   );
 }
@@ -183,6 +198,7 @@ function renderScopeStabilityIndex(confidence: DeliveryConfidenceDetail, onSelec
   const scopeStabilityIndex = inputs.scope_stability_index ?? null;
   const addedIssueKeys = inputs.scope_added_issue_keys ?? [];
   const removedIssueKeys = inputs.scope_removed_issue_keys ?? [];
+  const addedBeforeStartIssueKeys = inputs.scope_added_before_start_issue_keys ?? [];
 
   return (
     <div className="scope-stability-summary">
@@ -207,12 +223,13 @@ function renderScopeStabilityIndex(confidence: DeliveryConfidenceDetail, onSelec
       </dl>
       <p className="scope-stability-insight">
         {scopeStabilityIndex === null
-          ? "No initial commitment to compare."
+          ? "No ticket added before sprint start."
           : scopeStabilityIndex === 0
             ? "No post-start scope movement recorded."
             : "Higher volatility lowers delivery confidence."}
       </p>
       <div className="scope-ticket-lists">
+        {renderScopeIssueKeys("Added before start", addedBeforeStartIssueKeys, onSelectIssue)}
         {renderScopeIssueKeys("Added after start", addedIssueKeys, onSelectIssue)}
         {renderScopeIssueKeys("Removed after start", removedIssueKeys, onSelectIssue)}
       </div>
@@ -249,6 +266,11 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<SprintMetricsResponse | null>(null);
   const [issues, setIssues] = useState<SprintIssue[]>([]);
+  const [recomputeTrend, setRecomputeTrend] = useState<{
+    trend: "ascending" | "declining" | "unchanged" | "unknown" | null;
+    delta: number | null;
+    previousScore: number | null;
+  } | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isRecomputing, setIsRecomputing] = useState(false);
@@ -305,6 +327,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
 
     async function loadSprintDetails() {
       setIsLoadingDetails(true);
+      setRecomputeTrend(null);
       setErrorMessage(null);
       try {
         const [metricsResponse, issueResponse] = await Promise.all([
@@ -341,7 +364,12 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
     setIsRecomputing(true);
     setErrorMessage(null);
     try {
-      await apiClient.recomputeSprint(selectedSprintId);
+      const response = await apiClient.recomputeSprint(selectedSprintId);
+      setRecomputeTrend({
+        trend: response.delivery_confidence_trend,
+        delta: response.delivery_confidence_delta,
+        previousScore: response.previous_delivery_confidence_score,
+      });
       const [metricsResponse, issueResponse] = await Promise.all([
         apiClient.getSprintMetrics(selectedSprintId),
         apiClient.getSprintIssues(selectedSprintId, 0, 100),
@@ -407,6 +435,17 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
         </button>
         {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
           <p className="muted action-status">Age {metrics.snapshot_age_hours.toFixed(1)}h</p>
+        ) : null}
+        {recomputeTrend ? (
+          <p className={`muted recompute-trend recompute-trend-${recomputeTrend.trend}`}>
+            {recomputeTrend.trend === "ascending" && recomputeTrend.delta !== null
+              ? `Delivery confidence is ascending by ${recomputeTrend.delta.toFixed(2)} points.`
+              : recomputeTrend.trend === "declining" && recomputeTrend.delta !== null
+              ? `Delivery confidence is declining by ${Math.abs(recomputeTrend.delta).toFixed(2)} points.`
+              : recomputeTrend.trend === "unchanged"
+              ? "Delivery confidence is unchanged from the previous snapshot."
+              : "No previous delivery confidence snapshot available for comparison."}
+          </p>
         ) : null}
       </section>
 

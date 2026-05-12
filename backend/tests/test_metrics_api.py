@@ -11,7 +11,7 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import Issue, IssueHistory, MetricSnapshot, Release
+from app.models import Issue, IssueHistory, IssueSprint, MetricSnapshot, Release, Sprint
 from app.services.analytics_service import AnalyticsService
 
 
@@ -46,13 +46,18 @@ def client() -> Generator[TestClient, None, None]:
         app.dependency_overrides.clear()
 
 
-def _seed_release(session: Session, release_id: str = "REL-1", name: str = "Release 1") -> None:
+def _seed_release(
+    session: Session,
+    release_id: str = "REL-1",
+    name: str = "Release 1",
+    project_key: str = "LHPM",
+) -> None:
     now = datetime.now(UTC)
     session.add(
         Release(
             release_id=release_id,
             name=name,
-            project_key="LHPM",
+            project_key=project_key,
             description="Seed release",
             status="active",
             start_date=now,
@@ -72,6 +77,7 @@ def _seed_issue(
     is_blocker: bool = False,
     issue_type: str = "Bug",
     priority: str | None = "High",
+    story_points: float | None = None,
 ) -> None:
     now = datetime.now(UTC)
     session.add(
@@ -82,12 +88,44 @@ def _seed_issue(
             status=status,
             priority=priority,
             assignee="alice",
+            story_points=story_points,
             release_id=release_id,
             is_blocker=is_blocker,
             created_at=now,
             updated_at=now,
         )
     )
+
+
+def _seed_sprint(
+    session: Session,
+    sprint_id: str,
+    state: str,
+    project_key: str = "LHPM",
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    complete_date: datetime | None = None,
+) -> None:
+    now = datetime.now(UTC)
+    session.add(
+        Sprint(
+            sprint_id=sprint_id,
+            name=f"Sprint {sprint_id}",
+            state=state,
+            project_key=project_key,
+            board_id="1",
+            start_date=start_date,
+            end_date=end_date,
+            complete_date=complete_date if complete_date is not None else (now if state == "closed" else None),
+            goal=None,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+
+
+def _link_issue_to_sprint(session: Session, issue_key: str, sprint_id: str) -> None:
+    session.add(IssueSprint(issue_key=issue_key, sprint_id=sprint_id))
 
 
 def _seed_history(
@@ -197,6 +235,157 @@ def test_get_release_charts_returns_empty_series_when_snapshot_missing(client: T
         "median_cycle_time_days": [],
         "reopen_rate_pct": [],
     }
+    assert payload["sprint_velocity"] == {"points": [], "point_count": 0}
+
+
+def test_get_release_charts_returns_four_closed_sprints_plus_active_velocity(client: TestClient) -> None:
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        for index in range(1, 6):
+            sprint_id = str(index)
+            complete_date = base + timedelta(days=index)
+            _seed_sprint(
+                session,
+                sprint_id=sprint_id,
+                state="closed",
+                start_date=complete_date - timedelta(days=14),
+                end_date=complete_date,
+                complete_date=complete_date,
+            )
+            issue_key = f"LHPM-C{index}"
+            _seed_issue(session, issue_key, "REL-1", "Done", story_points=float(index))
+            _link_issue_to_sprint(session, issue_key, sprint_id)
+
+        _seed_sprint(
+            session,
+            sprint_id="99",
+            state="active",
+            start_date=base + timedelta(days=10),
+            end_date=base + timedelta(days=24),
+            complete_date=None,
+        )
+        _seed_issue(session, "LHPM-A1", "REL-1", "Done", story_points=8)
+        _seed_issue(session, "LHPM-A2", "REL-1", "To Do", story_points=13)
+        _link_issue_to_sprint(session, "LHPM-A1", "99")
+        _link_issue_to_sprint(session, "LHPM-A2", "99")
+        session.commit()
+
+    response = client.get("/releases/REL-1/charts")
+
+    assert response.status_code == 200
+    velocity = response.json()["sprint_velocity"]
+    assert velocity["point_count"] == 5
+    assert [point["sprint_id"] for point in velocity["points"]] == ["2", "3", "4", "5", "99"]
+    assert [point["velocity"] for point in velocity["points"]] == [2.0, 3.0, 4.0, 5.0, 8.0]
+    active_point = velocity["points"][-1]
+    assert active_point["completed_at"] is None
+    assert active_point["state"] == "active"
+    assert active_point["note"] == "Sprint In Progress"
+
+
+def test_get_release_charts_returns_five_closed_sprints_without_active_velocity(client: TestClient) -> None:
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        for index in range(1, 7):
+            sprint_id = str(index)
+            complete_date = base + timedelta(days=index)
+            _seed_sprint(
+                session,
+                sprint_id=sprint_id,
+                state="closed",
+                start_date=complete_date - timedelta(days=14),
+                end_date=complete_date,
+                complete_date=complete_date,
+            )
+            issue_key = f"LHPM-C{index}"
+            _seed_issue(session, issue_key, "REL-1", "Done", story_points=float(index))
+            _link_issue_to_sprint(session, issue_key, sprint_id)
+        session.commit()
+
+    response = client.get("/releases/REL-1/charts")
+
+    assert response.status_code == 200
+    points = response.json()["sprint_velocity"]["points"]
+    assert [point["sprint_id"] for point in points] == ["2", "3", "4", "5", "6"]
+    assert all(point["note"] is None for point in points)
+
+
+def test_get_release_charts_returns_available_sprint_velocity_when_fewer_than_five(client: TestClient) -> None:
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        for index in range(1, 3):
+            sprint_id = str(index)
+            complete_date = base + timedelta(days=index)
+            _seed_sprint(
+                session,
+                sprint_id=sprint_id,
+                state="closed",
+                start_date=complete_date - timedelta(days=14),
+                end_date=complete_date,
+                complete_date=complete_date,
+            )
+        session.commit()
+
+    response = client.get("/releases/REL-1/charts")
+
+    assert response.status_code == 200
+    velocity = response.json()["sprint_velocity"]
+    assert velocity["point_count"] == 2
+    assert [point["sprint_id"] for point in velocity["points"]] == ["1", "2"]
+
+
+def test_get_release_charts_filters_sprint_velocity_by_release_project_and_state(client: TestClient) -> None:
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        now = datetime.now(UTC)
+        _seed_release(session, release_id="REL-1", project_key="LHPM")
+        _seed_sprint(session, "1", "closed", project_key="LHPM", complete_date=base + timedelta(days=1))
+        _seed_sprint(session, "2", "future", project_key="LHPM", start_date=base + timedelta(days=2))
+        _seed_sprint(session, "3", "closed", project_key="OTHER", complete_date=base + timedelta(days=3))
+        session.add(
+            Sprint(
+                sprint_id="4",
+                name="Sprint 4",
+                state="closed",
+                project_key="LHPM",
+                board_id="1",
+                start_date=None,
+                end_date=None,
+                complete_date=None,
+                goal=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    response = client.get("/releases/REL-1/charts")
+
+    assert response.status_code == 200
+    points = response.json()["sprint_velocity"]["points"]
+    assert [point["sprint_id"] for point in points] == ["1"]
+
+
+def test_get_release_charts_sprint_velocity_uses_completed_effective_points(client: TestClient) -> None:
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_sprint(session, "1", "closed", complete_date=base + timedelta(days=1))
+        _seed_issue(session, "LHPM-1", "REL-1", "Done", story_points=5)
+        _seed_issue(session, "LHPM-2", "REL-1", "Done", story_points=None)
+        _seed_issue(session, "LHPM-3", "REL-1", "Done", story_points=-3)
+        _seed_issue(session, "LHPM-4", "REL-1", "To Do", story_points=100)
+        for issue_key in ["LHPM-1", "LHPM-2", "LHPM-3", "LHPM-4"]:
+            _link_issue_to_sprint(session, issue_key, "1")
+        session.commit()
+
+    response = client.get("/releases/REL-1/charts")
+
+    assert response.status_code == 200
+    assert response.json()["sprint_velocity"]["points"][0]["velocity"] == 7.0
 
 
 def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
