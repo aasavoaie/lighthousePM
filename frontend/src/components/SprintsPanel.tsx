@@ -74,6 +74,59 @@ function formatNullableNumber(value: number | null | undefined, suffix = "") {
   return `${value.toFixed(2)}${suffix}`;
 }
 
+function getProgressAlignmentClass(value: number) {
+  if (value === 100) {
+    return "confidence-value-perfect";
+  }
+  if (value >= 76) {
+    return "confidence-value-good";
+  }
+  if (value >= 36) {
+    return "confidence-value-warning";
+  }
+  return "confidence-value-danger";
+}
+
+function getVelocityFitClass(value: number) {
+  if (value === 50) {
+    return "confidence-value-neutral";
+  }
+  if (value > 50) {
+    return "confidence-value-success";
+  }
+  return "confidence-value-danger";
+}
+
+function getBlockerPenaltyClass(value: number) {
+  if (value >= 80) {
+    return "confidence-value-success";
+  }
+  if (value >= 60) {
+    return "confidence-value-warning";
+  }
+  return "confidence-value-danger";
+}
+
+function getDeliveryConfidenceClass(value: number) {
+  if (value > 80) {
+    return "confidence-value-success";
+  }
+  if (value >= 55) {
+    return "confidence-value-warning";
+  }
+  return "confidence-value-danger";
+}
+
+function getScopeStabilityClass(value: number) {
+  if (value >= 80) {
+    return "confidence-value-success";
+  }
+  if (value >= 50) {
+    return "confidence-value-warning";
+  }
+  return "confidence-value-danger";
+}
+
 function getIssueStatusClass(issueKey: string, issuesByKey: Record<string, SprintIssue>) {
   const status = issuesByKey[issueKey]?.status?.trim().toLowerCase() ?? "";
   if (status === "blocked") {
@@ -154,16 +207,85 @@ function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail, onSelect
   return (
     <div className="confidence-summary">
       <div className="confidence-score">
-        <span className="muted">Delivery confidence</span>
-        <strong>{confidence.score.toFixed(2)}</strong>
+        <span className="confidence-label">
+          <span className="muted">Delivery confidence</span>
+          <button
+            type="button"
+            className="info-button"
+            title="Delivery confidence is a weighted sprint health score. It combines progress alignment, velocity fit, blocker penalty, and scope stability to produce a single confidence value."
+            aria-label="Delivery confidence info"
+          >
+            i
+          </button>
+        </span>
+        <strong className={getDeliveryConfidenceClass(confidence.score)}>{confidence.score.toFixed(2)}</strong>
       </div>
       <div className="confidence-breakdown">
-        {(Object.keys(confidence.components) as Array<keyof DeliveryConfidenceDetail["components"]>).map((key) => (
-          <div className="confidence-component" key={key}>
-            <span>{confidenceComponentLabels[key]}</span>
-            <strong>{confidence.components[key].toFixed(2)}</strong>
-          </div>
-        ))}
+        {(Object.keys(confidence.components) as Array<keyof DeliveryConfidenceDetail["components"]>).map((key) => {
+          const value = confidence.components[key];
+          return (
+            <div className="confidence-component" key={key}>
+              <span className="confidence-component-label">
+                {confidenceComponentLabels[key]}
+                {key === "progress_alignment" ? (
+                  <button
+                    type="button"
+                    className="info-button"
+                    title="Progress alignment compares percent completed versus percent of sprint time elapsed. Closer to 100 means the sprint is on pace."
+                    aria-label="Progress alignment info"
+                  >
+                    i
+                  </button>
+                ) : null}
+                {key === "velocity_fit" ? (
+                  <button
+                    type="button"
+                    className="info-button"
+                    title="Velocity fit compares remaining work to estimated remaining capacity.\n\nUnder 50 means capacity is weak and lowers the overall score. Over 50 means capacity is stronger and raises the score. Exactly 50 is the fallback/neutral baseline contribution in the formula."
+                    aria-label="Velocity fit info"
+                  >
+                    i
+                  </button>
+                ) : null}
+                {key === "blocker_penalty" ? (
+                  <button
+                    type="button"
+                    className="info-button"
+                    title="Blocker penalty rewards sprints with fewer blocked issues. 80-100 is good (few or no blockers), 60-79 is moderate, and 0-59 is poor.\n\nA lower blocker penalty reduces the overall delivery confidence score."
+                    aria-label="Blocker penalty info"
+                  >
+                    i
+                  </button>
+                ) : null}
+                {key === "scope_stability" ? (
+                  <button
+                    type="button"
+                    className="info-button"
+                    title="Scope stability measures post-start scope churn. 80-100 is good, 50-79 is moderate, and 0-49 is poor.\n\nMore scope changes after sprint start reduce the overall delivery confidence score."
+                    aria-label="Scope stability info"
+                  >
+                    i
+                  </button>
+                ) : null}
+              </span>
+              <strong
+                className={
+                  key === "progress_alignment"
+                    ? getProgressAlignmentClass(value)
+                    : key === "velocity_fit"
+                    ? getVelocityFitClass(value)
+                    : key === "blocker_penalty"
+                    ? getBlockerPenaltyClass(value)
+                    : key === "scope_stability"
+                    ? getScopeStabilityClass(value)
+                    : undefined
+                }
+              >
+                {value.toFixed(2)}
+              </strong>
+            </div>
+          );
+        })}
       </div>
       <dl className="confidence-inputs">
         <dt>Committed pts</dt>
@@ -397,13 +519,13 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
             {metrics.delivery_confidence ? renderDeliveryConfidence(metrics.delivery_confidence, onSelectIssue) : null}
             <div className="metric-grid">
               {metrics.delivery_confidence ? (
-                <article className="metric-card" key="added_after_start">
+                <article className="metric-card" key="scope_changes">
                   <h3>Scope change tickets</h3>
-                  <p className="metric-description">Issues added to the sprint after it started.</p>
-                  <strong>{metrics.delivery_confidence.inputs.scope_added_issue_keys.length}</strong>
+                  <p className="metric-description">Issues added or removed from the sprint after it started.</p>
+                  <strong>{metrics.delivery_confidence.inputs.scope_change_count}</strong>
                   {renderScopeIssueKeys(
                     "Scope change tickets",
-                    metrics.delivery_confidence.inputs.scope_added_issue_keys ?? [],
+                    metrics.delivery_confidence.inputs.scope_change_issue_keys ?? [],
                     issuesByKey,
                     onSelectIssue
                   )}
