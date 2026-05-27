@@ -16,7 +16,7 @@ type SprintOption = {
 
 const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
   committed_scope: "Committed scope",
-  completed_scope_pct: "Completed scope %",
+  completed_scope_pct: "Completed scope",
   open_blockers: "Open blockers",
   open_high_severity_bugs: "Open high-severity bugs",
   in_progress_count: "In progress",
@@ -30,9 +30,9 @@ const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
 const sprintMetricDescriptions: Record<keyof SprintMetricValues, string> = {
   committed_scope: "Issues explicitly linked to this sprint.",
   completed_scope_pct: "Done issues divided by total sprint issues.",
-  open_blockers: "Open sprint issues currently flagged as blockers.",
+  open_blockers: "Sprint issues excluded from done status and classified as blockers by issue type (Blocker/Incident), priority (Blocker/Highest/Critical), status (Blocked), or the configured blocker field.",
   open_high_severity_bugs: "Open sprint bugs with high or critical priority.",
-  in_progress_count: "Sprint issues in configured in-progress statuses.",
+  in_progress_count: "Sprint issues currently in active work status: In Progress, In Development, In Review, or In Testing.",
   not_started_count: "Sprint issues that are neither in progress nor done.",
   rollover_count: "Closed-sprint issues that did not reach done.",
   median_cycle_time_days: "Median days from first in-progress to first done.",
@@ -61,6 +61,9 @@ function formatMetricValue(metricName: keyof SprintMetricValues, value: number |
   ) {
     return String(value);
   }
+  if (metricName === "completed_scope_pct" || metricName === "reopen_rate_pct") {
+    return `${value.toFixed(2)}%`;
+  }
   return value.toFixed(2);
 }
 
@@ -71,7 +74,26 @@ function formatNullableNumber(value: number | null | undefined, suffix = "") {
   return `${value.toFixed(2)}${suffix}`;
 }
 
-function renderScopeIssueKeys(label: string, issueKeys: string[], onSelectIssue: (issueKey: string) => void) {
+function getIssueStatusClass(issueKey: string, issuesByKey: Record<string, SprintIssue>) {
+  const status = issuesByKey[issueKey]?.status?.trim().toLowerCase() ?? "";
+  if (status === "blocked") {
+    return "blocked";
+  }
+  if (status === "done" || status === "closed" || status === "resolved") {
+    return "done";
+  }
+  if (status === "in progress" || status === "in development" || status === "in review" || status === "in testing") {
+    return "in-progress";
+  }
+  return "todo";
+}
+
+function renderScopeIssueKeys(
+  label: string,
+  issueKeys: string[],
+  issuesByKey: Record<string, SprintIssue>,
+  onSelectIssue: (issueKey: string) => void
+) {
   if (issueKeys.length === 0) {
     return null;
   }
@@ -81,7 +103,11 @@ function renderScopeIssueKeys(label: string, issueKeys: string[], onSelectIssue:
       <ul className="metric-ticket-list" aria-label={`${label} tickets`}>
         {issueKeys.map((issueKey) => (
           <li key={issueKey}>
-            <button type="button" className="link-button" onClick={() => onSelectIssue(issueKey)}>
+            <button
+              type="button"
+              className={`link-button status-badge ${getIssueStatusClass(issueKey, issuesByKey)}`}
+              onClick={() => onSelectIssue(issueKey)}
+            >
               {issueKey}
             </button>
           </li>
@@ -95,6 +121,7 @@ function renderMetricIssueKeys(
   metricName: keyof SprintMetricValues,
   value: number | null,
   metrics: SprintMetricsResponse,
+  issuesByKey: Record<string, SprintIssue>,
   onSelectIssue: (issueKey: string) => void
 ) {
   if (metricName !== "open_blockers" && metricName !== "open_high_severity_bugs") {
@@ -110,7 +137,11 @@ function renderMetricIssueKeys(
     <ul className="metric-ticket-list" aria-label={`${sprintMetricLabels[metricName]} tickets`}>
       {issueKeys.map((issueKey) => (
         <li key={issueKey}>
-          <button type="button" className="link-button" onClick={() => onSelectIssue(issueKey)}>
+          <button
+            type="button"
+            className={`link-button status-badge ${getIssueStatusClass(issueKey, issuesByKey)}`}
+            onClick={() => onSelectIssue(issueKey)}
+          >
             {issueKey}
           </button>
         </li>
@@ -187,6 +218,14 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [issues, setIssues] = useState<SprintIssue[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+
+  const issuesByKey = useMemo(() => {
+    const map: Record<string, SprintIssue> = {};
+    for (const issue of issues) {
+      map[issue.issue_key] = issue;
+    }
+    return map;
+  }, [issues]);
   const [isRecomputing, setIsRecomputing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -365,6 +404,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                   {renderScopeIssueKeys(
                     "Scope change tickets",
                     metrics.delivery_confidence.inputs.scope_added_issue_keys ?? [],
+                    issuesByKey,
                     onSelectIssue
                   )}
                 </article>
@@ -376,7 +416,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                     <h3>{sprintMetricLabels[metricName]}</h3>
                     <p className="metric-description">{sprintMetricDescriptions[metricName]}</p>
                     <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
-                    {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, onSelectIssue)}
+                    {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, issuesByKey, onSelectIssue)}
                   </article>
                 ))}
             </div>

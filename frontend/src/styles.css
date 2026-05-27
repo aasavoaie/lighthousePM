@@ -495,6 +495,30 @@ select {
   font-weight: 600;
 }
 
+.metric-ticket-list .status-badge.todo {
+  background: #e8f4ff;
+  border-color: #8bb9ff;
+  color: #0d3b73;
+}
+
+.metric-ticket-list .status-badge.in-progress {
+  background: #fff5e5;
+  border-color: #ffb34d;
+  color: #9a5700;
+}
+
+.metric-ticket-list .status-badge.blocked {
+  background: #ffe6e6;
+  border-color: #d64545;
+  color: #8b1d1d;
+}
+
+.metric-ticket-list .status-badge.done {
+  background: #e6f5ea;
+  border-color: #5d9b5d;
+  color: #1f6032;
+}
+
 .metric-ticket-empty {
   margin: 10px 0 0;
   color: #58677c;
