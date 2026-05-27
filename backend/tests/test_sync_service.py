@@ -261,6 +261,35 @@ async def test_sync_from_jira_uses_blocker_flag_when_present(db_session: Session
 
 
 @pytest.mark.asyncio
+async def test_sync_from_jira_classifies_blocked_status_as_blocker(db_session: Session) -> None:
+    class BlockedStatusJiraService(FakeJiraService):
+        async def get_issue_details(self, issue_key: str, fields: list[str] | None = None) -> JiraIssueDetail:
+            return JiraIssueDetail(
+                key=issue_key,
+                summary="Blocked work",
+                status="Blocked",
+                issue_type="Story",
+                priority="Medium",
+                assignee="alice",
+                updated=datetime.now(UTC),
+                description="details",
+                labels=["backend"],
+                components=["api"],
+                fix_versions=["Release 1"],
+                reporter="bob",
+                story_points=3.0,
+            )
+
+    service = SyncService(jira_service=BlockedStatusJiraService(), settings=_test_settings())
+
+    await service.sync_from_jira(session=db_session)
+
+    stored_issue = db_session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
+    assert stored_issue is not None
+    assert stored_issue.is_blocker is True
+
+
+@pytest.mark.asyncio
 async def test_sync_from_jira_updates_story_points(db_session: Session) -> None:
     class MutableStoryPointJiraService(FakeJiraService):
         def __init__(self) -> None:

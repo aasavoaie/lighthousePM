@@ -259,9 +259,11 @@ class JiraFieldMapper:
             return blocker_flag and not self.is_done_status(status)
         issue_type_value = issue_type.casefold()
         severity_value = (severity or "").casefold()
+        status_value = status.casefold()
         return (
             issue_type_value in {"blocker", "incident"}
             or severity_value in {"blocker", "highest", "critical"}
+            or status_value == "blocked"
         ) and not self.is_done_status(status)
 
     @property
