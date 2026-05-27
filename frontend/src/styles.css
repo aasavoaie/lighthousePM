@@ -419,7 +419,19 @@ select {
 
 .confidence-score strong {
   font-size: 2.25rem;
-  color: #123d6b;
+  color: inherit;
+}
+
+.confidence-score strong.confidence-value-success {
+  color: #237445;
+}
+
+.confidence-score strong.confidence-value-warning {
+  color: #9f6a00;
+}
+
+.confidence-score strong.confidence-value-danger {
+  color: #a63124;
 }
 
 .confidence-breakdown,
@@ -436,6 +448,7 @@ select {
   border: 1px solid #dbe7f2;
 }
 
+.confidence-component-label,
 .confidence-component span,
 .confidence-inputs dt {
   display: block;
@@ -443,10 +456,62 @@ select {
   font-size: 0.82rem;
 }
 
+.confidence-component-label,
+.confidence-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-button {
+  border: 1px solid #b9c9da;
+  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  background: #ffffff;
+  color: #0b6bcb;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.info-button:hover,
+.info-button:focus-visible {
+  background: #f2f7ff;
+}
+
 .confidence-component strong {
   display: block;
   margin-top: 4px;
   font-size: 1.1rem;
+}
+
+.confidence-value-danger {
+  color: #a63124;
+}
+
+.confidence-value-warning {
+  color: #9f6a00;
+}
+
+.confidence-value-neutral {
+  color: #6d6d72;
+}
+
+.confidence-value-success {
+  color: #237445;
+}
+
+.confidence-value-good {
+  color: #4f8b26;
+}
+
+.confidence-value-perfect {
+  color: #237445;
 }
 
 .confidence-inputs {

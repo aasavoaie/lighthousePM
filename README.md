@@ -52,6 +52,11 @@ Jira → Ingestion → Database → Metrics → Signals → API
 - % of release scope completed
 - Scope churn (last 7 days)
 
+### Sprint Confidence
+- Delivery confidence: a deterministic sprint-level score
+- Components: progress alignment, velocity fit, blocker penalty, scope stability
+- Weighted 40/30/20/10 and stored on sprint snapshots
+
 ### Flow
 - Median cycle time
 - Aging work
