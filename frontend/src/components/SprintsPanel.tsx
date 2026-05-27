@@ -152,62 +152,6 @@ function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail, onSelect
         <dt>Scope changes</dt>
         <dd>{confidence.inputs.scope_change_count}</dd>
       </dl>
-      {confidence.inputs.scope_change_issue_keys.length > 0 ? (
-        <ul className="metric-ticket-list" aria-label="Scope change tickets">
-          {confidence.inputs.scope_change_issue_keys.map((issueKey) => (
-            <li key={issueKey}>
-              <button type="button" className="link-button" onClick={() => onSelectIssue(issueKey)}>
-                {issueKey}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-function renderScopeStabilityIndex(confidence: DeliveryConfidenceDetail, onSelectIssue: (issueKey: string) => void) {
-  const inputs = confidence.inputs;
-  const initialCommitment = inputs.initial_commitment_count ?? inputs.committed_issue_count;
-  const addedCount = inputs.scope_added_count ?? 0;
-  const removedCount = inputs.scope_removed_count ?? 0;
-  const scopeStabilityIndex = inputs.scope_stability_index ?? null;
-  const addedIssueKeys = inputs.scope_added_issue_keys ?? [];
-  const removedIssueKeys = inputs.scope_removed_issue_keys ?? [];
-
-  return (
-    <div className="scope-stability-summary">
-      <div className="scope-stability-headline">
-        <div>
-          <span className="muted">Scope Stability Index</span>
-          <p className="metric-description">Added plus removed issues divided by initial commitment.</p>
-        </div>
-        <strong>{formatNullableNumber(scopeStabilityIndex)}</strong>
-      </div>
-      <dl className="scope-stability-inputs">
-        <dt>Added</dt>
-        <dd>{addedCount}</dd>
-        <dt>Removed</dt>
-        <dd>{removedCount}</dd>
-        <dt>Initial commitment</dt>
-        <dd>{initialCommitment}</dd>
-        <dt>Formula</dt>
-        <dd>
-          ({addedCount} + {removedCount}) / {initialCommitment}
-        </dd>
-      </dl>
-      <p className="scope-stability-insight">
-        {scopeStabilityIndex === null
-          ? "No initial commitment to compare."
-          : scopeStabilityIndex === 0
-            ? "No post-start scope movement recorded."
-            : "Higher volatility lowers delivery confidence."}
-      </p>
-      <div className="scope-ticket-lists">
-        {renderScopeIssueKeys("Added after start", addedIssueKeys, onSelectIssue)}
-        {renderScopeIssueKeys("Removed after start", removedIssueKeys, onSelectIssue)}
-      </div>
     </div>
   );
 }
@@ -348,7 +292,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   }
 
   return (
-    <>
+    <div className="sprints-panel">
       <section className="panel selector-panel">
         <label className="field-label" htmlFor="sprint-selector">
           Select sprint
@@ -411,9 +355,20 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
         ) : null}
         {!isLoadingDetails && metrics?.is_computed ? (
           <>
-            {metrics.delivery_confidence ? renderScopeStabilityIndex(metrics.delivery_confidence, onSelectIssue) : null}
             {metrics.delivery_confidence ? renderDeliveryConfidence(metrics.delivery_confidence, onSelectIssue) : null}
             <div className="metric-grid">
+              {metrics.delivery_confidence ? (
+                <article className="metric-card" key="added_after_start">
+                  <h3>Scope change tickets</h3>
+                  <p className="metric-description">Issues added to the sprint after it started.</p>
+                  <strong>{metrics.delivery_confidence.inputs.scope_added_issue_keys.length}</strong>
+                  {renderScopeIssueKeys(
+                    "Scope change tickets",
+                    metrics.delivery_confidence.inputs.scope_added_issue_keys ?? [],
+                    onSelectIssue
+                  )}
+                </article>
+              ) : null}
               {(Object.keys(metrics.metrics) as Array<keyof SprintMetricValues>)
                 .filter((metricName) => metricName !== "delivery_confidence_score")
                 .map((metricName) => (
@@ -473,6 +428,6 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           </div>
         ) : null}
       </section>
-    </>
+    </div>
   );
 }
