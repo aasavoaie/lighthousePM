@@ -91,6 +91,20 @@ select {
   box-shadow: 0 10px 28px rgba(18, 32, 51, 0.06);
 }
 
+.sprints-panel {
+  display: contents;
+}
+
+.sprints-panel .selector-panel,
+.sprints-panel .action-panel {
+  grid-column: span 6;
+}
+
+.sprints-panel .metrics-panel,
+.sprints-panel .issues-panel {
+  grid-column: 1 / -1;
+}
+
 .selector-panel,
 .signal-panel {
   grid-column: span 4;
