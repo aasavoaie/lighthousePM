@@ -451,15 +451,75 @@ select {
 
 .confidence-score {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 14px;
 }
 
+.confidence-score-value {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  text-align: right;
+}
+
 .confidence-score strong {
   font-size: 2.25rem;
+  line-height: 1;
   color: inherit;
+}
+
+.confidence-trend-icon {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: #6d6d72;
+  transform-origin: center;
+}
+
+.confidence-trend-icon::before,
+.confidence-trend-icon::after {
+  content: "";
+  position: absolute;
+  display: block;
+}
+
+.confidence-trend-icon::before {
+  left: 0.32rem;
+  top: 1.05rem;
+  width: 1.45rem;
+  height: 0.22rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.confidence-trend-icon::after {
+  right: 0.32rem;
+  top: 0.68rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-top: 0.22rem solid currentColor;
+  border-right: 0.22rem solid currentColor;
+  transform: rotate(45deg);
+}
+
+.confidence-trend-icon.increasing {
+  color: #237445;
+  transform: rotate(-35deg);
+}
+
+.confidence-trend-icon.decreasing {
+  color: #a63124;
+  transform: rotate(35deg);
+}
+
+.confidence-trend-icon.similar {
+  color: #6d6d72;
 }
 
 .confidence-score strong.confidence-value-success {
@@ -501,6 +561,18 @@ select {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.inline-anchor-link {
+  color: #0b6bcb;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.inline-anchor-link:hover,
+.inline-anchor-link:focus-visible {
+  text-decoration: underline;
 }
 
 .info-button {
@@ -638,6 +710,46 @@ select {
 .chart-wrapper {
   width: 100%;
   height: 320px;
+}
+
+.chart-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 24px 0 12px;
+}
+
+.chart-section-heading h3 {
+  margin: 0;
+}
+
+.chart-section-heading.first {
+  margin-top: 0;
+}
+
+.chart-legend-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #58677c;
+  font-size: 0.9rem;
+}
+
+.chart-legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.chart-legend-swatch.unreleased {
+  background: #e48f00;
+}
+
+.chart-legend-swatch.not-closed {
+  background: #e48f00;
 }
 
 .error-panel {

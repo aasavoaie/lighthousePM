@@ -231,7 +231,12 @@ export default function App() {
               refreshNonce={dashboardRefreshNonce}
               onSelectIssue={setSelectedIssueKey}
             />
-            <ChartsPanel charts={charts} isLoading={isLoadingDetails} />
+            <ChartsPanel
+              charts={charts}
+              releases={releases}
+              refreshNonce={dashboardRefreshNonce}
+              isLoading={isLoadingDetails}
+            />
           </>
         ) : null}
 
