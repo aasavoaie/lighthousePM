@@ -23,6 +23,7 @@ export function IssuesPanel({ releaseId, refreshNonce, onSelectIssue }: IssuesPa
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<TicketFilterMode>("not_done");
+  const [isTicketsExpanded, setIsTicketsExpanded] = useState(false);
 
   useEffect(() => {
     if (!releaseId) {
@@ -91,8 +92,8 @@ export function IssuesPanel({ releaseId, refreshNonce, onSelectIssue }: IssuesPa
   if (!releaseId) {
     return (
       <section className="panel">
-        <h2>Issues</h2>
-        <p className="muted">Select a release to view issues.</p>
+        <h2>Tickets</h2>
+        <p className="muted">Select a release to view tickets.</p>
       </section>
     );
   }
@@ -100,72 +101,86 @@ export function IssuesPanel({ releaseId, refreshNonce, onSelectIssue }: IssuesPa
   return (
     <section className="panel issues-panel">
       <div className="panel-heading">
-        <h2>Issues</h2>
-        <span className="muted">{issueList ? `Total ${issueList.total}` : ""}</span>
-      </div>
-
-      <div className="issues-filter-row" role="radiogroup" aria-label="Issue status filter">
-        <button
-          type="button"
-          className={`filter-chip ${filterMode === "not_done" ? "active" : ""}`}
-          onClick={() => setFilterMode("not_done")}
-        >
-          Not Done
-        </button>
-        <button
-          type="button"
-          className={`filter-chip ${filterMode === "done_only" ? "active" : ""}`}
-          onClick={() => setFilterMode("done_only")}
-        >
-          Done Only
-        </button>
-      </div>
-
-      {isLoading ? <p className="muted">Loading issues...</p> : null}
-      {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
-      {!isLoading && !errorMessage && visibleIssues.length === 0 ? (
-        <p className="muted">
-          {filterMode === "done_only"
-            ? "No done tickets for this release."
-            : "No not-done tickets for this release."}
-        </p>
-      ) : null}
-
-      {!isLoading && !errorMessage && visibleIssues.length > 0 ? (
-        <div className="table-wrapper">
-          <table className="issues-table">
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Summary</th>
-                <th>Status</th>
-                <th>Type</th>
-                <th>Priority</th>
-                <th>Assignee</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleIssues.map((issue) => (
-                <tr key={issue.issue_key}>
-                  <td>
-                    <button
-                      type="button"
-                      className="link-button"
-                      onClick={() => onSelectIssue(issue.issue_key)}
-                    >
-                      {issue.issue_key}
-                    </button>
-                  </td>
-                  <td>{issue.summary}</td>
-                  <td>{issue.status}</td>
-                  <td>{issue.issue_type}</td>
-                  <td>{issue.priority ?? "N/A"}</td>
-                  <td>{issue.assignee ?? "Unassigned"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <h2>Tickets</h2>
+        <div className="panel-heading-actions">
+          <span className="muted">{issueList ? `${issueList.total} total` : ""}</span>
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            aria-expanded={isTicketsExpanded}
+            onClick={() => setIsTicketsExpanded((current) => !current)}
+          >
+            {isTicketsExpanded ? "Minimize" : "Expand"}
+          </button>
         </div>
+      </div>
+
+      {isTicketsExpanded ? (
+        <>
+          <div className="issues-filter-row" role="radiogroup" aria-label="Ticket status filter">
+            <button
+              type="button"
+              className={`filter-chip ${filterMode === "not_done" ? "active" : ""}`}
+              onClick={() => setFilterMode("not_done")}
+            >
+              Not Done
+            </button>
+            <button
+              type="button"
+              className={`filter-chip ${filterMode === "done_only" ? "active" : ""}`}
+              onClick={() => setFilterMode("done_only")}
+            >
+              Done Only
+            </button>
+          </div>
+
+          {isLoading ? <p className="muted">Loading tickets...</p> : null}
+          {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+          {!isLoading && !errorMessage && visibleIssues.length === 0 ? (
+            <p className="muted">
+              {filterMode === "done_only"
+                ? "No done tickets for this release."
+                : "No not-done tickets for this release."}
+            </p>
+          ) : null}
+
+          {!isLoading && !errorMessage && visibleIssues.length > 0 ? (
+            <div className="table-wrapper">
+              <table className="issues-table">
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Summary</th>
+                    <th>Status</th>
+                    <th>Type</th>
+                    <th>Priority</th>
+                    <th>Assignee</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleIssues.map((issue) => (
+                    <tr key={issue.issue_key}>
+                      <td>
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => onSelectIssue(issue.issue_key)}
+                        >
+                          {issue.issue_key}
+                        </button>
+                      </td>
+                      <td>{issue.summary}</td>
+                      <td>{issue.status}</td>
+                      <td>{issue.issue_type}</td>
+                      <td>{issue.priority ?? "N/A"}</td>
+                      <td>{issue.assignee ?? "Unassigned"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

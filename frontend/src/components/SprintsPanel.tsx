@@ -23,7 +23,7 @@ const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
   not_started_count: "Not started",
   rollover_count: "Rollover",
   median_cycle_time_days: "Median cycle time",
-  reopen_rate_pct: "Reopen rate %",
+  reopen_rate_pct: "Reopen rate",
   delivery_confidence_score: "Delivery confidence",
 };
 
@@ -340,6 +340,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [issues, setIssues] = useState<SprintIssue[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [isTicketSituationExpanded, setIsTicketSituationExpanded] = useState(false);
 
   const issuesByKey = useMemo(() => {
     const map: Record<string, SprintIssue> = {};
@@ -454,57 +455,60 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
 
   return (
     <div className="sprints-panel">
-      <section className="panel selector-panel">
-        <label className="field-label" htmlFor="sprint-selector">
-          Select sprint
-        </label>
-        <select
-          id="sprint-selector"
-          className="select-input"
-          value={selectedSprintId ?? ""}
-          disabled={isLoadingList || options.length === 0}
-          onChange={(event) => setSelectedSprintId(event.target.value || null)}
-        >
-          {options.length === 0 ? <option value="">No sprints available</option> : null}
-          {options.map((option) => (
-            <option key={option.sprint.sprint_id} value={option.sprint.sprint_id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        {selectedSprint ? (
-          <div className="sprint-meta">
-            <p>
-              <strong>State:</strong> {selectedSprint.state}
-            </p>
-            <p>
-              <strong>Start:</strong> {formatDate(selectedSprint.start_date)}
-            </p>
-            <p>
-              <strong>End:</strong> {formatDate(selectedSprint.end_date)}
-            </p>
-            <p>
-              <strong>Completed:</strong> {formatDate(selectedSprint.complete_date)}
-            </p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="panel action-panel">
+      <section className="panel sprint-controls-panel">
         <div className="panel-heading">
           <h2>Sprint Metrics</h2>
         </div>
-        <button
-          type="button"
-          className="primary-button"
-          disabled={!selectedSprintId || isRecomputing}
-          onClick={handleRecomputeSprint}
-        >
-          {isRecomputing ? "Recomputing..." : "Recompute Sprint"}
-        </button>
-        {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
-          <p className="muted action-status">Age {metrics.snapshot_age_hours.toFixed(1)}h</p>
-        ) : null}
+        <div className="sprint-controls-layout">
+          <div className="sprint-control-block">
+            <label className="field-label" htmlFor="sprint-selector">
+              Select sprint
+            </label>
+            <select
+              id="sprint-selector"
+              className="select-input"
+              value={selectedSprintId ?? ""}
+              disabled={isLoadingList || options.length === 0}
+              onChange={(event) => setSelectedSprintId(event.target.value || null)}
+            >
+              {options.length === 0 ? <option value="">No sprints available</option> : null}
+              {options.map((option) => (
+                <option key={option.sprint.sprint_id} value={option.sprint.sprint_id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {selectedSprint ? (
+              <div className="sprint-meta">
+                <p>
+                  <strong>State:</strong> {selectedSprint.state}
+                </p>
+                <p>
+                  <strong>Start:</strong> {formatDate(selectedSprint.start_date)}
+                </p>
+                <p>
+                  <strong>End:</strong> {formatDate(selectedSprint.end_date)}
+                </p>
+                <p>
+                  <strong>Completed:</strong> {formatDate(selectedSprint.complete_date)}
+                </p>
+              </div>
+            ) : null}
+          </div>
+          <div className="sprint-control-block sprint-recompute-block">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={!selectedSprintId || isRecomputing}
+              onClick={handleRecomputeSprint}
+            >
+              {isRecomputing ? "Recomputing..." : "Recompute Sprint"}
+            </button>
+            {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
+              <p className="muted action-status">Age {metrics.snapshot_age_hours.toFixed(1)}h</p>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
@@ -548,46 +552,60 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
 
       <section className="panel issues-panel">
         <div className="panel-heading">
-          <h2>Sprint Issues</h2>
-          <span className="muted">{issues.length} shown</span>
-        </div>
-        {!selectedSprintId ? <p className="muted">Select a sprint to view issues.</p> : null}
-        {selectedSprintId && !isLoadingDetails && issues.length === 0 ? (
-          <p className="muted">No issues linked to this sprint.</p>
-        ) : null}
-        {issues.length > 0 ? (
-          <div className="table-wrapper">
-            <table className="issues-table">
-              <thead>
-                <tr>
-                  <th>Key</th>
-                  <th>Summary</th>
-                  <th>Status</th>
-                  <th>Priority</th>
-                  <th>Story points</th>
-                  <th>Initial scope</th>
-                  <th>Assignee</th>
-                </tr>
-              </thead>
-              <tbody>
-                {issues.map((issue) => (
-                  <tr key={issue.issue_key}>
-                    <td>
-                      <button type="button" className="link-button" onClick={() => onSelectIssue(issue.issue_key)}>
-                        {issue.issue_key}
-                      </button>
-                    </td>
-                    <td>{issue.summary}</td>
-                    <td>{issue.status}</td>
-                    <td>{issue.priority ?? "None"}</td>
-                    <td>{issue.story_points ?? "None"}</td>
-                    <td>{issue.in_initial_scope ? "Yes" : "No"}</td>
-                    <td>{issue.assignee ?? "Unassigned"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <h2>Ticket Situation</h2>
+          <div className="panel-heading-actions">
+            <span className="muted">{issues.length} shown</span>
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              aria-expanded={isTicketSituationExpanded}
+              onClick={() => setIsTicketSituationExpanded((current) => !current)}
+            >
+              {isTicketSituationExpanded ? "Minimize" : "Expand"}
+            </button>
           </div>
+        </div>
+        {isTicketSituationExpanded ? (
+          <>
+            {!selectedSprintId ? <p className="muted">Select a sprint to view issues.</p> : null}
+            {selectedSprintId && !isLoadingDetails && issues.length === 0 ? (
+              <p className="muted">No issues linked to this sprint.</p>
+            ) : null}
+            {issues.length > 0 ? (
+              <div className="table-wrapper">
+                <table className="issues-table">
+                  <thead>
+                    <tr>
+                      <th>Key</th>
+                      <th>Summary</th>
+                      <th>Status</th>
+                      <th>Priority</th>
+                      <th>Story points</th>
+                      <th>Initial scope</th>
+                      <th>Assignee</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {issues.map((issue) => (
+                      <tr key={issue.issue_key}>
+                        <td>
+                          <button type="button" className="link-button" onClick={() => onSelectIssue(issue.issue_key)}>
+                            {issue.issue_key}
+                          </button>
+                        </td>
+                        <td>{issue.summary}</td>
+                        <td>{issue.status}</td>
+                        <td>{issue.priority ?? "None"}</td>
+                        <td>{issue.story_points ?? "None"}</td>
+                        <td>{issue.in_initial_scope ? "Yes" : "No"}</td>
+                        <td>{issue.assignee ?? "Unassigned"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </>
         ) : null}
       </section>
     </div>

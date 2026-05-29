@@ -95,18 +95,14 @@ select {
   display: contents;
 }
 
-.sprints-panel .selector-panel,
-.sprints-panel .action-panel {
-  grid-column: span 6;
-}
-
+.release-controls-panel,
+.sprints-panel .sprint-controls-panel,
 .sprints-panel .metrics-panel,
 .sprints-panel .issues-panel {
   grid-column: 1 / -1;
 }
 
-.selector-panel,
-.signal-panel {
+.selector-panel {
   grid-column: span 4;
 }
 
@@ -114,13 +110,17 @@ select {
   grid-column: span 4;
 }
 
-.issues-panel,
 .admin-panel {
   grid-column: span 8;
 }
 
+.signal-panel,
+.issues-panel,
 .metrics-panel,
-.charts-panel,
+.charts-panel {
+  grid-column: 1 / -1;
+}
+
 .error-panel,
 .empty-panel {
   grid-column: span 8;
@@ -137,6 +137,46 @@ select {
 .panel-heading h2,
 .metric-card h3 {
   margin: 0;
+}
+
+.panel-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.compact-button {
+  padding: 7px 10px;
+}
+
+.sprint-controls-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  gap: 16px;
+  align-items: start;
+}
+
+.release-controls-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  gap: 16px;
+  align-items: start;
+}
+
+.release-control-block,
+.sprint-control-block {
+  min-width: 0;
+}
+
+.release-recompute-block,
+.sprint-recompute-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-self: end;
+  padding-top: calc(0.9rem * 1.4 + 8px);
 }
 
 .muted,
@@ -306,11 +346,11 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 72px;
-  padding: 8px 12px;
-  border-radius: 999px;
+  min-width: 128px;
+  padding: 12px 14px;
+  border-radius: 12px;
   font-weight: 700;
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .signal-red {
@@ -608,6 +648,8 @@ select {
 @media (max-width: 980px) {
   .selector-panel,
   .action-panel,
+  .release-controls-panel,
+  .sprint-controls-panel,
   .signal-panel,
   .issues-panel,
   .admin-panel,
@@ -642,4 +684,10 @@ select {
   .confidence-inputs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .release-controls-layout,
+  .sprint-controls-layout {
+    grid-template-columns: 1fr;
+  }
+
 }
