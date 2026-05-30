@@ -53,6 +53,7 @@ def _issue(
     issue_type: str = "Story",
     priority: str | None = "Medium",
     story_points: float | None = None,
+    created_at: datetime | None = None,
 ) -> Issue:
     return Issue(
         issue_key=issue_key,
@@ -64,6 +65,7 @@ def _issue(
         story_points=story_points,
         release_id=None,
         is_blocker=priority == "Blocker",
+        created_at=created_at or datetime.now(UTC),
     )
 
 
@@ -101,8 +103,10 @@ def test_recompute_sprint_metrics_counts_status_buckets(db_session: Session) -> 
     assert snapshot.completed_scope_pct == 33.33
     assert snapshot.open_blockers == 1
     assert snapshot.open_high_severity_bugs == 1
+    assert snapshot.bugs_created_during_sprint == 1
     assert snapshot.open_blocker_issue_keys == ["LHPM-3"]
     assert snapshot.open_high_severity_bug_issue_keys == ["LHPM-2"]
+    assert snapshot.bugs_created_during_sprint_issue_keys == ["LHPM-2"]
     assert snapshot.in_progress_count == 1
     assert snapshot.not_started_count == 1
     assert snapshot.rollover_count == 0
@@ -120,6 +124,23 @@ def test_recompute_sprint_metrics_counts_closed_sprint_rollover(db_session: Sess
     snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
 
     assert snapshot.rollover_count == 2
+
+
+def test_recompute_sprint_metrics_counts_bugs_created_during_sprint(db_session: Session) -> None:
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+    db_session.add(_sprint(start_date=base, end_date=base + timedelta(days=14)))
+    db_session.add(_issue("LHPM-1", "To Do", issue_type="Bug", created_at=base))
+    db_session.add(_issue("LHPM-2", "Done", issue_type="Bug", created_at=base + timedelta(days=3)))
+    db_session.add(_issue("LHPM-3", "To Do", issue_type="Bug", created_at=base - timedelta(seconds=1)))
+    db_session.add(_issue("LHPM-4", "To Do", issue_type="Bug", created_at=base + timedelta(days=15)))
+    db_session.add(_issue("LHPM-5", "To Do", issue_type="Story", created_at=base + timedelta(days=2)))
+    db_session.add_all([_link(f"LHPM-{index}") for index in range(1, 6)])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.bugs_created_during_sprint == 2
+    assert snapshot.bugs_created_during_sprint_issue_keys == ["LHPM-1", "LHPM-2"]
 
 
 def test_recompute_sprint_metrics_cycle_time_and_reopen_rate(db_session: Session) -> None:

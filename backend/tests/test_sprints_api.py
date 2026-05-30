@@ -78,6 +78,7 @@ def _seed_issue(
     priority: str | None = "Medium",
     is_blocker: bool = False,
     story_points: float | None = None,
+    created_at: datetime | None = None,
 ) -> None:
     session.add(
         Issue(
@@ -90,6 +91,7 @@ def _seed_issue(
             story_points=story_points,
             release_id=None,
             is_blocker=is_blocker,
+            created_at=created_at or datetime.now(UTC),
         )
     )
     session.add(IssueSprint(issue_key=issue_key, sprint_id=sprint_id))
@@ -141,15 +143,34 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     assert payload["metric_issue_keys"] == {
         "open_blockers": [],
         "open_high_severity_bugs": [],
+        "bugs_created_during_sprint": [],
     }
 
 
 def test_sprint_metrics_returns_metric_issue_keys(client: TestClient) -> None:
+    now = datetime.now(UTC)
     with app.state.testing_session_local() as session:
-        _seed_sprint(session, "12", "active")
+        _seed_sprint(session, "12", "active", start_date=now - timedelta(days=1), end_date=now + timedelta(days=1))
         _seed_issue(session, "12", "LHPM-1", status="In Progress", is_blocker=True)
-        _seed_issue(session, "12", "LHPM-2", issue_type="Bug", status="To Do", priority="Critical")
-        _seed_issue(session, "12", "LHPM-3", issue_type="Bug", status="Done", priority="High", is_blocker=True)
+        _seed_issue(
+            session,
+            "12",
+            "LHPM-2",
+            issue_type="Bug",
+            status="To Do",
+            priority="Critical",
+            created_at=now,
+        )
+        _seed_issue(
+            session,
+            "12",
+            "LHPM-3",
+            issue_type="Bug",
+            status="Done",
+            priority="High",
+            is_blocker=True,
+            created_at=now,
+        )
         _seed_issue(session, "12", "LHPM-4", issue_type="Story", status="To Do", priority="High")
 
     recompute_response = client.post("/sprints/12/recompute")
@@ -160,9 +181,11 @@ def test_sprint_metrics_returns_metric_issue_keys(client: TestClient) -> None:
     payload = metrics_response.json()
     assert payload["metrics"]["open_blockers"] == 1
     assert payload["metrics"]["open_high_severity_bugs"] == 1
+    assert payload["metrics"]["bugs_created_during_sprint"] == 2
     assert payload["metric_issue_keys"] == {
         "open_blockers": ["LHPM-1"],
         "open_high_severity_bugs": ["LHPM-2"],
+        "bugs_created_during_sprint": ["LHPM-2", "LHPM-3"],
     }
 
 

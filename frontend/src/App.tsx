@@ -224,7 +224,12 @@ export default function App() {
 
         {selectedReleaseId && selectedTab === "dashboard" ? (
           <>
-            <SignalSummaryPanel signal={signal} isLoading={isLoadingDetails} />
+            <SignalSummaryPanel
+              signal={signal}
+              isLoading={isLoadingDetails}
+              releases={releases}
+              refreshNonce={dashboardRefreshNonce}
+            />
             <MetricsPanel metrics={metrics} isLoading={isLoadingDetails} onSelectIssue={setSelectedIssueKey} />
             <IssuesPanel
               releaseId={selectedReleaseId}

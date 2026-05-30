@@ -353,6 +353,29 @@ select {
   font-size: 1rem;
 }
 
+.signal-value-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.signal-trend-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.signal-trend-icon::before {
+  left: 0.36rem;
+  top: 1.16rem;
+  width: 1.62rem;
+}
+
+.signal-trend-icon::after {
+  right: 0.36rem;
+  top: 0.76rem;
+}
+
 .signal-red {
   background: #fde7e4;
   color: #a63124;

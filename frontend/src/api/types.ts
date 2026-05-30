@@ -47,6 +47,7 @@ export interface SprintMetricValues {
   completed_scope_pct: number | null;
   open_blockers: number | null;
   open_high_severity_bugs: number | null;
+  bugs_created_during_sprint: number | null;
   in_progress_count: number | null;
   not_started_count: number | null;
   rollover_count: number | null;
@@ -58,6 +59,7 @@ export interface SprintMetricValues {
 export interface MetricIssueKeys {
   open_blockers: string[];
   open_high_severity_bugs: string[];
+  bugs_created_during_sprint?: string[];
 }
 
 export interface DeliveryConfidenceWeights {

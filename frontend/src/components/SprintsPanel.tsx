@@ -41,18 +41,33 @@ type SprintConfidenceRow = {
   is_not_closed: boolean;
 };
 
+type SprintCommitmentReliabilityRow = {
+  sprint_id: string;
+  name: string;
+  committed_story_points: number;
+  completed_story_points: number;
+};
+
+type SprintMetricHistoryRow = {
+  confidence: SprintConfidenceRow;
+  commitmentReliability: SprintCommitmentReliabilityRow;
+};
+
 type ConfidenceTrend = "increasing" | "decreasing" | "similar";
 
 const sprintIssuePageSize = 100;
 const closedSprintStoryPointColor = "#0b6bcb";
 const notClosedSprintStoryPointColor = "#e48f00";
 const sprintConfidenceColor = "#237445";
+const committedStoryPointColor = "#0b6bcb";
+const completedStoryPointColor = "#237445";
 
 const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
   committed_scope: "Committed scope",
   completed_scope_pct: "Completed scope",
   open_blockers: "Open blockers",
   open_high_severity_bugs: "Open high-severity bugs",
+  bugs_created_during_sprint: "Bugs created during sprint",
   in_progress_count: "In progress",
   not_started_count: "Not started",
   rollover_count: "Rollover",
@@ -66,6 +81,7 @@ const sprintMetricDescriptions: Record<keyof SprintMetricValues, string> = {
   completed_scope_pct: "Done issues divided by total sprint issues.",
   open_blockers: "Sprint issues excluded from done status and classified as blockers by issue type (Blocker/Incident), priority (Blocker/Highest/Critical), status (Blocked), or the configured blocker field.",
   open_high_severity_bugs: "Open sprint bugs with high or critical priority.",
+  bugs_created_during_sprint: "Sprint bugs created between the sprint start and the current sprint window end.",
   in_progress_count: "Sprint issues currently in active work status: In Progress, In Development, In Review, or In Testing.",
   not_started_count: "Sprint issues that are neither in progress nor done.",
   rollover_count: "Closed-sprint issues that did not reach done.",
@@ -89,6 +105,7 @@ function formatMetricValue(metricName: keyof SprintMetricValues, value: number |
     metricName === "committed_scope" ||
     metricName === "open_blockers" ||
     metricName === "open_high_severity_bugs" ||
+    metricName === "bugs_created_during_sprint" ||
     metricName === "in_progress_count" ||
     metricName === "not_started_count" ||
     metricName === "rollover_count"
@@ -211,11 +228,15 @@ function renderMetricIssueKeys(
   issuesByKey: Record<string, SprintIssue>,
   onSelectIssue: (issueKey: string) => void
 ) {
-  if (metricName !== "open_blockers" && metricName !== "open_high_severity_bugs") {
+  if (
+    metricName !== "open_blockers" &&
+    metricName !== "open_high_severity_bugs" &&
+    metricName !== "bugs_created_during_sprint"
+  ) {
     return null;
   }
 
-  const issueKeys = metrics.metric_issue_keys[metricName];
+  const issueKeys = metrics.metric_issue_keys[metricName] ?? [];
   if (issueKeys.length === 0) {
     return value !== null && value > 0 ? <p className="metric-ticket-empty">Recompute to populate ticket list.</p> : null;
   }
@@ -436,6 +457,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [isLoadingSprintStoryPoints, setIsLoadingSprintStoryPoints] = useState(false);
   const [sprintStoryPointError, setSprintStoryPointError] = useState<string | null>(null);
   const [sprintConfidenceRows, setSprintConfidenceRows] = useState<SprintConfidenceRow[]>([]);
+  const [sprintCommitmentReliabilityRows, setSprintCommitmentReliabilityRows] = useState<
+    SprintCommitmentReliabilityRow[]
+  >([]);
   const [isLoadingSprintConfidence, setIsLoadingSprintConfidence] = useState(false);
   const [sprintConfidenceError, setSprintConfidenceError] = useState<string | null>(null);
 
@@ -604,6 +628,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   useEffect(() => {
     if (recentSprints.length === 0) {
       setSprintConfidenceRows([]);
+      setSprintCommitmentReliabilityRows([]);
       return;
     }
 
@@ -619,17 +644,28 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
             if (!response.is_computed || !response.delivery_confidence) {
               return null;
             }
+            const deliveryConfidence = response.delivery_confidence;
             return {
-              sprint_id: sprint.sprint_id,
-              name: sprint.name,
-              delivery_confidence: Number(response.delivery_confidence.score.toFixed(2)),
-              is_not_closed: isNotClosedSprint(sprint),
+              confidence: {
+                sprint_id: sprint.sprint_id,
+                name: sprint.name,
+                delivery_confidence: Number(deliveryConfidence.score.toFixed(2)),
+                is_not_closed: isNotClosedSprint(sprint),
+              },
+              commitmentReliability: {
+                sprint_id: sprint.sprint_id,
+                name: sprint.name,
+                committed_story_points: Number(deliveryConfidence.inputs.committed_effective_points.toFixed(2)),
+                completed_story_points: Number(deliveryConfidence.inputs.completed_effective_points.toFixed(2)),
+              },
             };
           })
         );
 
         if (isActive) {
-          setSprintConfidenceRows(results.filter((row): row is SprintConfidenceRow => row !== null));
+          const metricHistoryRows = results.filter((row): row is SprintMetricHistoryRow => row !== null);
+          setSprintConfidenceRows(metricHistoryRows.map((row) => row.confidence));
+          setSprintCommitmentReliabilityRows(metricHistoryRows.map((row) => row.commitmentReliability));
         }
       } catch (error) {
         if (isActive) {
@@ -669,6 +705,17 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           currentRows.map((row) =>
             row.sprint_id === selectedSprintId
               ? { ...row, delivery_confidence: Number(recomputedConfidence.score.toFixed(2)) }
+              : row
+          )
+        );
+        setSprintCommitmentReliabilityRows((currentRows) =>
+          currentRows.map((row) =>
+            row.sprint_id === selectedSprintId
+              ? {
+                  ...row,
+                  committed_story_points: Number(recomputedConfidence.inputs.committed_effective_points.toFixed(2)),
+                  completed_story_points: Number(recomputedConfidence.inputs.completed_effective_points.toFixed(2)),
+                }
               : row
           )
         );
@@ -867,6 +914,43 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                   activeDot={{ r: 6 }}
                 />
               </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : null}
+
+        <div className="chart-section-heading">
+          <h3>Sprint Commitment Reliability</h3>
+          {sprintCommitmentReliabilityRows.length > 0 ? (
+            <span className="muted">Last {sprintCommitmentReliabilityRows.length}</span>
+          ) : null}
+        </div>
+        {isLoadingSprintConfidence ? <p className="muted">Loading sprint commitment reliability...</p> : null}
+        {sprintConfidenceError ? <p className="error-text">{sprintConfidenceError}</p> : null}
+        {!isLoadingSprintConfidence && !sprintConfidenceError && sprintCommitmentReliabilityRows.length === 0 ? (
+          <p className="muted">No sprint commitment reliability data available yet.</p>
+        ) : null}
+        {!isLoadingSprintConfidence && !sprintConfidenceError && sprintCommitmentReliabilityRows.length > 0 ? (
+          <div className="chart-wrapper">
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={sprintCommitmentReliabilityRows}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar
+                  dataKey="committed_story_points"
+                  name="Committed story points"
+                  fill={committedStoryPointColor}
+                  radius={[6, 6, 0, 0]}
+                />
+                <Bar
+                  dataKey="completed_story_points"
+                  name="Completed story points"
+                  fill={completedStoryPointColor}
+                  radius={[6, 6, 0, 0]}
+                />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         ) : null}
