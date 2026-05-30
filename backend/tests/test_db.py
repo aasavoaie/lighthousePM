@@ -20,6 +20,6 @@ def test_init_db_calls_create_all(monkeypatch) -> None:
         called["value"] = True
 
     monkeypatch.setattr(Base.metadata, "create_all", _fake_create_all)
-    init_db()
+    init_db(ensure_compat_columns=False)
 
     assert called["value"] is True

@@ -16,8 +16,9 @@ import { MetricsPanel } from "./components/MetricsPanel";
 import { ReleaseSelector } from "./components/ReleaseSelector";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
+import { getCurrentReleaseId } from "./releaseSelection";
 
-type AppTab = "dashboard" | "sprints" | "charts" | "issues" | "admin";
+type AppTab = "dashboard" | "sprints" | "admin";
 
 export default function App() {
   const [releases, setReleases] = useState<Release[]>([]);
@@ -28,6 +29,7 @@ export default function App() {
   const [signal, setSignal] = useState<ReleaseSignalResponse | null>(null);
   const [isLoadingReleases, setIsLoadingReleases] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [isRecomputingRelease, setIsRecomputingRelease] = useState(false);
   const [isRecomputingAll, setIsRecomputingAll] = useState(false);
   const [recomputeMessage, setRecomputeMessage] = useState<string | null>(null);
   const [dashboardRefreshNonce, setDashboardRefreshNonce] = useState(0);
@@ -47,7 +49,7 @@ export default function App() {
           return;
         }
         setReleases(response.items);
-        setSelectedReleaseId((current) => current ?? response.items[0]?.release_id ?? null);
+        setSelectedReleaseId((current) => current ?? getCurrentReleaseId(response.items));
       } catch (error) {
         if (!isActive) {
           return;
@@ -91,6 +93,23 @@ export default function App() {
       setErrorMessage(error instanceof Error ? error.message : "Failed to recompute snapshots.");
     } finally {
       setIsRecomputingAll(false);
+    }
+  }
+
+  async function handleRecomputeRelease() {
+    if (!selectedReleaseId || isRecomputingRelease) {
+      return;
+    }
+
+    setIsRecomputingRelease(true);
+    setErrorMessage(null);
+    try {
+      await apiClient.recomputeRelease(selectedReleaseId);
+      setDashboardRefreshNonce((current) => current + 1);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to recompute release metrics.");
+    } finally {
+      setIsRecomputingRelease(false);
     }
   }
 
@@ -163,14 +182,7 @@ export default function App() {
           className={`tab-button ${selectedTab === "dashboard" ? "active" : ""}`}
           onClick={() => setSelectedTab("dashboard")}
         >
-          Dashboard
-        </button>
-        <button
-          type="button"
-          className={`tab-button ${selectedTab === "issues" ? "active" : ""}`}
-          onClick={() => setSelectedTab("issues")}
-        >
-          Issues
+          Releases
         </button>
         <button
           type="button"
@@ -178,13 +190,6 @@ export default function App() {
           onClick={() => setSelectedTab("sprints")}
         >
           Sprints
-        </button>
-        <button
-          type="button"
-          className={`tab-button ${selectedTab === "charts" ? "active" : ""}`}
-          onClick={() => setSelectedTab("charts")}
-        >
-          Charts
         </button>
         <button
           type="button"
@@ -196,12 +201,15 @@ export default function App() {
       </nav>
 
       <main className="dashboard-grid">
-        {selectedTab !== "sprints" ? (
+        {selectedTab === "dashboard" ? (
           <ReleaseSelector
             releases={releases}
             selectedReleaseId={selectedReleaseId}
+            selectedRelease={selectedRelease}
             isLoading={isLoadingReleases}
+            isRecomputing={isRecomputingRelease}
             onChange={setSelectedReleaseId}
+            onRecompute={handleRecomputeRelease}
           />
         ) : null}
 
@@ -216,21 +224,25 @@ export default function App() {
 
         {selectedReleaseId && selectedTab === "dashboard" ? (
           <>
-            <SignalSummaryPanel signal={signal} isLoading={isLoadingDetails} />
+            <SignalSummaryPanel
+              signal={signal}
+              isLoading={isLoadingDetails}
+              releases={releases}
+              refreshNonce={dashboardRefreshNonce}
+            />
             <MetricsPanel metrics={metrics} isLoading={isLoadingDetails} onSelectIssue={setSelectedIssueKey} />
+            <IssuesPanel
+              releaseId={selectedReleaseId}
+              refreshNonce={dashboardRefreshNonce}
+              onSelectIssue={setSelectedIssueKey}
+            />
+            <ChartsPanel
+              charts={charts}
+              releases={releases}
+              refreshNonce={dashboardRefreshNonce}
+              isLoading={isLoadingDetails}
+            />
           </>
-        ) : null}
-
-        {selectedReleaseId && selectedTab === "charts" ? (
-          <ChartsPanel charts={charts} isLoading={isLoadingDetails} />
-        ) : null}
-
-        {selectedTab === "issues" ? (
-          <IssuesPanel
-            releaseId={selectedReleaseId}
-            refreshNonce={dashboardRefreshNonce}
-            onSelectIssue={setSelectedIssueKey}
-          />
         ) : null}
 
         {selectedTab === "sprints" ? (

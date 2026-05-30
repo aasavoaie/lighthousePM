@@ -25,6 +25,12 @@ class SprintMetricSnapshot(Base):
     completed_scope_pct: Mapped[float] = mapped_column("completed_scope_pct", Float, nullable=False)
     open_blockers: Mapped[int] = mapped_column("open_blockers", Integer, nullable=False)
     open_high_severity_bugs: Mapped[int] = mapped_column("open_high_severity_bugs", Integer, nullable=False)
+    bugs_created_during_sprint: Mapped[int] = mapped_column(
+        "bugs_created_during_sprint",
+        Integer,
+        nullable=False,
+        default=0,
+    )
     open_blocker_issue_keys: Mapped[list[str]] = mapped_column(
         "open_blocker_issue_keys",
         JSON,
@@ -33,6 +39,12 @@ class SprintMetricSnapshot(Base):
     )
     open_high_severity_bug_issue_keys: Mapped[list[str]] = mapped_column(
         "open_high_severity_bug_issue_keys",
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    bugs_created_during_sprint_issue_keys: Mapped[list[str]] = mapped_column(
+        "bugs_created_during_sprint_issue_keys",
         JSON,
         default=list,
         nullable=False,

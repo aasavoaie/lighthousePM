@@ -33,6 +33,7 @@ class SprintMetricValues(BaseModel):
     completed_scope_pct: float | None
     open_blockers: int | None
     open_high_severity_bugs: int | None
+    bugs_created_during_sprint: int | None
     in_progress_count: int | None
     not_started_count: int | None
     rollover_count: int | None
@@ -44,6 +45,7 @@ class SprintMetricValues(BaseModel):
 class SprintMetricIssueKeys(BaseModel):
     open_blockers: list[str]
     open_high_severity_bugs: list[str]
+    bugs_created_during_sprint: list[str]
 
 
 class DeliveryConfidenceWeights(BaseModel):

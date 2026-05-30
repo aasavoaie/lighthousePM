@@ -5,11 +5,12 @@ from app.db.session import engine
 from app.models import Issue, IssueHistory, MetricSnapshot, OperationalStatus, Release, ReleaseSignal
 
 
-def init_db() -> None:
+def init_db(*, ensure_compat_columns: bool = True) -> None:
     """Create tables for local development when they do not exist."""
     _ = (Issue, IssueHistory, MetricSnapshot, OperationalStatus, Release, ReleaseSignal)
     Base.metadata.create_all(bind=engine)
-    _ensure_metric_issue_key_columns()
+    if ensure_compat_columns:
+        _ensure_metric_issue_key_columns()
 
 
 def _ensure_metric_issue_key_columns() -> None:
@@ -26,6 +27,14 @@ def _ensure_metric_issue_key_columns() -> None:
         (
             "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
             "open_high_severity_bug_issue_keys JSON NOT NULL DEFAULT '[]'"
+        ),
+        (
+            "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "bugs_created_during_sprint INTEGER NOT NULL DEFAULT 0"
+        ),
+        (
+            "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "bugs_created_during_sprint_issue_keys JSON NOT NULL DEFAULT '[]'"
         ),
     ]
     with engine.begin() as connection:

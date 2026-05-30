@@ -99,6 +99,11 @@ class AnalyticsService:
             field_mapper,
         )
         snapshot_at = datetime.now(UTC)
+        bugs_created_during_sprint_issue_keys = self._list_bugs_created_during_sprint_issue_keys(
+            session=session,
+            sprint=sprint,
+            snapshot_at=snapshot_at,
+        )
         delivery_confidence = self._compute_delivery_confidence(
             session=session,
             sprint=sprint,
@@ -114,8 +119,10 @@ class AnalyticsService:
             completed_scope_pct=self._compute_sprint_completed_scope_pct(session, sprint_id, field_mapper),
             open_blockers=len(open_blocker_issue_keys),
             open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
+            bugs_created_during_sprint=len(bugs_created_during_sprint_issue_keys),
             open_blocker_issue_keys=open_blocker_issue_keys,
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
+            bugs_created_during_sprint_issue_keys=bugs_created_during_sprint_issue_keys,
             in_progress_count=self._count_sprint_in_progress(session, sprint_id, field_mapper),
             not_started_count=self._count_sprint_not_started(session, sprint_id, field_mapper),
             rollover_count=self._count_sprint_rollover(session, sprint_id, sprint.state, field_mapper),
@@ -479,6 +486,42 @@ class AnalyticsService:
         )
 
     @staticmethod
+    def _list_bugs_created_during_sprint_issue_keys(
+        session: Session,
+        sprint: Sprint,
+        snapshot_at: datetime,
+    ) -> list[str]:
+        """Sorted sprint bug keys where issue creation falls inside the sprint window.
+
+        The window starts at sprint.start_date. It ends at complete_date for closed
+        sprints when present, otherwise end_date, capped at snapshot_at for active
+        sprints whose configured end date is in the future.
+        """
+        start_at = _coerce_utc(sprint.start_date)
+        snapshot_at = _coerce_utc(snapshot_at)
+        if start_at is None or snapshot_at is None:
+            return []
+
+        configured_end_at = _coerce_utc(sprint.complete_date) or _coerce_utc(sprint.end_date)
+        upper_bound = min(configured_end_at, snapshot_at) if configured_end_at is not None else snapshot_at
+        if upper_bound < start_at:
+            return []
+
+        return list(
+            session.scalars(
+                select(Issue.issue_key)
+                .select_from(Issue)
+                .where(
+                    Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint.sprint_id)),
+                    func.lower(Issue.issue_type) == "bug",
+                    Issue.created_at >= start_at,
+                    Issue.created_at <= upper_bound,
+                )
+                .order_by(Issue.issue_key)
+            ).all()
+        )
+
+    @staticmethod
     def _count_sprint_in_progress(
         session: Session,
         sprint_id: str,
@@ -605,8 +648,9 @@ class AnalyticsService:
             if field_mapper.is_done_status(issue.status)
         )
         remaining_effective_points = max(committed_effective_points - completed_effective_points, 0.0)
+        # For confidence scoring, no committed work means there is no incomplete work.
         completed_scope_pct = (
-            0.0
+            100.0
             if committed_effective_points == 0
             else 100.0 * completed_effective_points / committed_effective_points
         )

@@ -56,6 +56,7 @@ Jira → Ingestion → Database → Metrics → Signals → API
 - Delivery confidence: a deterministic sprint-level score
 - Components: progress alignment, velocity fit, blocker penalty, scope stability
 - Weighted 40/30/20/10 and stored on sprint snapshots
+- Bugs created during sprint: linked sprint bug issues whose Jira creation time falls inside the sprint window
 
 ### Flow
 - Median cycle time
