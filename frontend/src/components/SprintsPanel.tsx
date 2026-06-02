@@ -1,18 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-
 import { apiClient } from "../api/client";
 import type {
   DeliveryConfidenceDetail,
@@ -21,6 +7,13 @@ import type {
   SprintMetricValues,
   SprintMetricsResponse,
 } from "../api/types";
+import {
+  MetricColors,
+  MetricLineChart,
+  MetricBarChart,
+  MetricMultiBarChart,
+  formatDecimal,
+} from "./ChartComponents";
 
 type SprintOption = {
   label: string;
@@ -56,11 +49,8 @@ type SprintMetricHistoryRow = {
 type ConfidenceTrend = "increasing" | "decreasing" | "similar";
 
 const sprintIssuePageSize = 100;
-const closedSprintStoryPointColor = "#0b6bcb";
-const notClosedSprintStoryPointColor = "#e48f00";
-const sprintConfidenceColor = "#237445";
-const committedStoryPointColor = "#0b6bcb";
-const completedStoryPointColor = "#237445";
+const committedStoryPointColor = MetricColors.committedScope;
+const completedStoryPointColor = MetricColors.completedScope;
 
 const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
   committed_scope: "Committed scope",
@@ -896,26 +886,18 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           <p className="muted">No sprint confidence data available yet.</p>
         ) : null}
         {!isLoadingSprintConfidence && !sprintConfidenceError && sprintConfidenceRows.length > 0 ? (
-          <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={sprintConfidenceRows}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis domain={[0, 100]} />
-                <Tooltip />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="delivery_confidence"
-                  name="Delivery confidence"
-                  stroke={sprintConfidenceColor}
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <MetricLineChart
+            data={sprintConfidenceRows}
+            lines={[
+              {
+                key: "delivery_confidence",
+                label: "Delivery confidence",
+                color: MetricColors.sprintConfidence,
+              },
+            ]}
+            dataKey="name"
+            formatter={formatDecimal}
+          />
         ) : null}
 
         <div className="chart-section-heading">
@@ -930,29 +912,23 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           <p className="muted">No sprint commitment reliability data available yet.</p>
         ) : null}
         {!isLoadingSprintConfidence && !sprintConfidenceError && sprintCommitmentReliabilityRows.length > 0 ? (
-          <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={sprintCommitmentReliabilityRows}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar
-                  dataKey="committed_story_points"
-                  name="Committed story points"
-                  fill={committedStoryPointColor}
-                  radius={[6, 6, 0, 0]}
-                />
-                <Bar
-                  dataKey="completed_story_points"
-                  name="Completed story points"
-                  fill={completedStoryPointColor}
-                  radius={[6, 6, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <MetricMultiBarChart
+            data={sprintCommitmentReliabilityRows}
+            bars={[
+              {
+                key: "committed_story_points",
+                label: "Committed story points",
+                color: committedStoryPointColor,
+              },
+              {
+                key: "completed_story_points",
+                label: "Completed story points",
+                color: completedStoryPointColor,
+              },
+            ]}
+            dataKey="name"
+            formatter={(value) => String(value)}
+          />
         ) : null}
 
         <div className="chart-section-heading">
@@ -963,36 +939,23 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           <span className="chart-legend-swatch not-closed" aria-hidden="true" />
           <span>All sprints in this color are not closed yet.</span>
         </div>
-        {isLoadingSprintStoryPoints ? <p className="muted">Loading story points...</p> : null}
         {sprintStoryPointError ? <p className="error-text">{sprintStoryPointError}</p> : null}
-        {!isLoadingSprintStoryPoints && !sprintStoryPointError && sprintStoryPointRows.length === 0 ? (
-          <p className="muted">No sprint story point data available yet.</p>
-        ) : null}
-        {!isLoadingSprintStoryPoints && !sprintStoryPointError && sprintStoryPointRows.length > 0 ? (
-          <div className="chart-wrapper">
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={sprintStoryPointRows}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar
-                  dataKey="story_points"
-                  name="Story points"
-                  fill={closedSprintStoryPointColor}
-                  radius={[6, 6, 0, 0]}
-                >
-                  {sprintStoryPointRows.map((row) => (
-                    <Cell
-                      key={row.sprint_id}
-                      fill={row.is_not_closed ? notClosedSprintStoryPointColor : closedSprintStoryPointColor}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        {!isLoadingSprintStoryPoints && !sprintStoryPointError ? (
+          <MetricBarChart
+            data={sprintStoryPointRows}
+            barKey="story_points"
+            barLabel="Story points"
+            barColor={MetricColors.closedSprintStoryPoints}
+            cellColors={(row) => {
+              const sprintRow = row as SprintStoryPointRow;
+              return sprintRow.is_not_closed
+                ? MetricColors.notClosedSprintStoryPoints
+                : MetricColors.closedSprintStoryPoints;
+            }}
+            loading={isLoadingSprintStoryPoints}
+            empty={sprintStoryPointRows.length === 0}
+            emptyMessage="No sprint story point data available yet."
+          />
         ) : null}
       </section>
     </div>
