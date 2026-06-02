@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
 import type { Release, ReleaseSignalResponse } from "../api/types";
+import { MetricColors } from "./ChartComponents";
 
 interface SignalSummaryPanelProps {
   signal: ReleaseSignalResponse | null;
@@ -14,6 +15,12 @@ type SignalTrend = "increasing" | "decreasing" | "similar";
 
 type ReleaseSignalTrendRow = {
   release_id: string;
+  signal: string;
+};
+
+type SignalChartRow = {
+  name: string;
+  signal_score: number;
   signal: string;
 };
 
@@ -127,7 +134,8 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
         );
 
         if (isActive) {
-          setSignalTrendRows(results.filter((row): row is ReleaseSignalTrendRow => row !== null));
+          const validRows = results.filter((row): row is ReleaseSignalTrendRow => row !== null);
+          setSignalTrendRows(validRows);
         }
       } catch {
         if (isActive) {
@@ -175,6 +183,7 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
       {!isLoading && signal?.updated_at ? (
         <p className="timestamp">Updated {new Date(signal.updated_at).toLocaleString()}</p>
       ) : null}
+
     </section>
   );
 }

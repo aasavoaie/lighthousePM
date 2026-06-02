@@ -230,7 +230,12 @@ export default function App() {
               releases={releases}
               refreshNonce={dashboardRefreshNonce}
             />
-            <MetricsPanel metrics={metrics} isLoading={isLoadingDetails} onSelectIssue={setSelectedIssueKey} />
+            <MetricsPanel
+              metrics={metrics}
+              charts={charts}
+              isLoading={isLoadingDetails}
+              onSelectIssue={setSelectedIssueKey}
+            />
             <IssuesPanel
               releaseId={selectedReleaseId}
               refreshNonce={dashboardRefreshNonce}

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { Issue, MetricValues, ReleaseMetricsResponse } from "../api/types";
+import type { Issue, MetricValues, ReleaseChartsResponse, ReleaseMetricsResponse } from "../api/types";
+import { MetricSparkline, MetricColors } from "./ChartComponents";
 
 interface MetricsPanelProps {
   metrics: ReleaseMetricsResponse | null;
+  charts: ReleaseChartsResponse | null;
   isLoading: boolean;
   onSelectIssue: (issueKey: string) => void;
 }
@@ -38,6 +40,29 @@ function formatMetricValue(metricName: keyof MetricValues, value: number | null)
     return `${value.toFixed(2)}%`;
   }
   return value.toFixed(2);
+}
+
+const sparklineColorMap: Record<keyof MetricValues, string> = {
+  open_blockers: MetricColors.blockers,
+  open_high_severity_bugs: MetricColors.bugs,
+  scope_completed_pct: MetricColors.scopeCompleted,
+  scope_churn_7d_pct: MetricColors.scopeChurn,
+  median_cycle_time_days: MetricColors.cycleTime,
+  reopen_rate_pct: MetricColors.reopenRate,
+};
+
+function buildSparklineData(charts: ReleaseChartsResponse | null, metricName: keyof MetricValues) {
+  if (!charts) {
+    return [];
+  }
+
+  const series = charts.series[metricName as keyof typeof charts.series] ?? [];
+  return series
+    .filter((point) => point.value !== null)
+    .map((point) => ({
+      snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
+      value: point.value as number,
+    }));
 }
 
 function getIssueStatusClass(issueKey: string, issuesByKey: Record<string, Issue>) {
@@ -87,7 +112,7 @@ function renderMetricIssueKeys(
   );
 }
 
-export function MetricsPanel({ metrics, isLoading, onSelectIssue }: MetricsPanelProps) {
+export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue }: MetricsPanelProps) {
   const metricIssueKeys = useMemo(() => {
     if (!metrics) {
       return [];
@@ -141,20 +166,31 @@ export function MetricsPanel({ metrics, isLoading, onSelectIssue }: MetricsPanel
       ) : null}
       {!isLoading && metrics && metrics.is_computed ? (
         <div className="metric-grid">
-          {(Object.keys(metrics.metrics) as Array<keyof MetricValues>).map((metricName) => (
-            <article className="metric-card" key={metricName}>
-              <h3>{metricLabels[metricName]}</h3>
-              <p className="metric-description">{metricDescriptions[metricName]}</p>
-              <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
-              {renderMetricIssueKeys(
-                metricName,
-                metrics.metrics[metricName],
-                metrics,
-                metricIssuesByKey,
-                onSelectIssue
-              )}
-            </article>
-          ))}
+          {(Object.keys(metrics.metrics) as Array<keyof MetricValues>).map((metricName) => {
+            const sparklineData = buildSparklineData(charts, metricName);
+            return (
+              <article className="metric-card" key={metricName}>
+                <h3>{metricLabels[metricName]}</h3>
+                <p className="metric-description">{metricDescriptions[metricName]}</p>
+                <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
+                <MetricSparkline
+                  data={sparklineData}
+                  valueKey="value"
+                  lineColor={sparklineColorMap[metricName]}
+                  empty={sparklineData.length === 0}
+                  emptyMessage="Trend data unavailable"
+                  formatter={(value, name) => formatMetricValue(metricName, value)}
+                />
+                {renderMetricIssueKeys(
+                  metricName,
+                  metrics.metrics[metricName],
+                  metrics,
+                  metricIssuesByKey,
+                  onSelectIssue
+                )}
+              </article>
+            );
+          })}
         </div>
       ) : null}
     </section>
