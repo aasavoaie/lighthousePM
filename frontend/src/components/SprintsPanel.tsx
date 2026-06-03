@@ -776,6 +776,34 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
 
       {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
 
+      <section className="panel delivery-confidence-panel">
+        <div className="panel-heading">
+          <h2>Delivery Confidence</h2>
+          <div className="panel-heading-actions">
+            {metrics?.delivery_confidence ? (
+              <>
+                <span className="muted">Score {metrics.delivery_confidence.score.toFixed(2)}</span>
+                <button
+                  type="button"
+                  className="secondary-button compact-button"
+                  aria-expanded={isDeliveryConfidenceExpanded}
+                  onClick={() => setIsDeliveryConfidenceExpanded((c) => !c)}
+                >
+                  {isDeliveryConfidenceExpanded ? "Minimize" : "Expand"}
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {isLoadingDetails ? <p className="muted">Loading delivery confidence...</p> : null}
+        {!isLoadingDetails && metrics && !metrics.is_computed ? (
+          <p className="muted">Sprint metrics have not been computed yet.</p>
+        ) : null}
+        {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
+          ? renderDeliveryConfidence(metrics.delivery_confidence, confidenceTrend, onSelectIssue)
+          : null}
+      </section>
+
       <section className="panel metrics-panel">
         <div className="panel-heading">
           <h2>Metrics</h2>
@@ -797,55 +825,34 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
               <p className="muted">Sprint metrics have not been computed yet.</p>
             ) : null}
             {!isLoadingDetails && metrics?.is_computed ? (
-          <>
-            {metrics.delivery_confidence ? (
-              <div className="panel-heading delivery-confidence-heading">
-                <h3>Delivery Confidence</h3>
-                <div className="panel-heading-actions">
-                  <span className="muted">Score {metrics.delivery_confidence.score.toFixed(2)}</span>
-                  <button
-                    type="button"
-                    className="secondary-button compact-button"
-                    aria-expanded={isDeliveryConfidenceExpanded}
-                    onClick={() => setIsDeliveryConfidenceExpanded((c) => !c)}
-                  >
-                    {isDeliveryConfidenceExpanded ? "Minimize" : "Expand"}
-                  </button>
-                </div>
+              <div className="metric-grid">
+                {metrics.delivery_confidence ? (
+                  <article className="metric-card" key="scope_changes">
+                    <h3>Scope change tickets</h3>
+                    <p className="metric-description">Issues added or removed from the sprint after it started.</p>
+                    <strong>{metrics.delivery_confidence.inputs.scope_change_count}</strong>
+                    {renderScopeIssueKeys(
+                      "Scope change tickets",
+                      metrics.delivery_confidence.inputs.scope_change_issue_keys ?? [],
+                      issuesByKey,
+                      onSelectIssue
+                    )}
+                  </article>
+                ) : null}
+                {(Object.keys(metrics.metrics) as Array<keyof SprintMetricValues>)
+                  .filter((metricName) => metricName !== "delivery_confidence_score")
+                  .map((metricName) => (
+                    <article className="metric-card" key={metricName}>
+                      <h3>{sprintMetricLabels[metricName]}</h3>
+                      <p className="metric-description">{sprintMetricDescriptions[metricName]}</p>
+                      <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
+                      {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, issuesByKey, onSelectIssue)}
+                    </article>
+                  ))}
               </div>
             ) : null}
-            {metrics.delivery_confidence && isDeliveryConfidenceExpanded
-              ? renderDeliveryConfidence(metrics.delivery_confidence, confidenceTrend, onSelectIssue)
-              : null}
-            <div className="metric-grid">
-              {metrics.delivery_confidence ? (
-                <article className="metric-card" key="scope_changes">
-                  <h3>Scope change tickets</h3>
-                  <p className="metric-description">Issues added or removed from the sprint after it started.</p>
-                  <strong>{metrics.delivery_confidence.inputs.scope_change_count}</strong>
-                  {renderScopeIssueKeys(
-                    "Scope change tickets",
-                    metrics.delivery_confidence.inputs.scope_change_issue_keys ?? [],
-                    issuesByKey,
-                    onSelectIssue
-                  )}
-                </article>
-              ) : null}
-              {(Object.keys(metrics.metrics) as Array<keyof SprintMetricValues>)
-                .filter((metricName) => metricName !== "delivery_confidence_score")
-                .map((metricName) => (
-                  <article className="metric-card" key={metricName}>
-                    <h3>{sprintMetricLabels[metricName]}</h3>
-                    <p className="metric-description">{sprintMetricDescriptions[metricName]}</p>
-                    <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
-                    {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, issuesByKey, onSelectIssue)}
-                  </article>
-                ))}
-            </div>
           </>
         ) : null}
-      </>
-    ) : null}
       </section>
 
       <section className="panel issues-panel">
