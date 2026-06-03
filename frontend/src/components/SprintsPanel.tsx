@@ -288,9 +288,6 @@ function renderDeliveryConfidence(
           >
             i
           </button>
-          <a className="inline-anchor-link" href="#delivery-confidence-history">
-            View graph comparison to recent 5 sprints
-          </a>
         </span>
         <div className="confidence-score-value">
           <strong className={getDeliveryConfidenceClass(confidence.score)}>{confidence.score.toFixed(2)}</strong>
@@ -443,6 +440,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isTicketSituationExpanded, setIsTicketSituationExpanded] = useState(false);
+  const [isDeliveryConfidenceExpanded, setIsDeliveryConfidenceExpanded] = useState(true);
   const [sprintStoryPointRows, setSprintStoryPointRows] = useState<SprintStoryPointRow[]>([]);
   const [isLoadingSprintStoryPoints, setIsLoadingSprintStoryPoints] = useState(false);
   const [sprintStoryPointError, setSprintStoryPointError] = useState<string | null>(null);
@@ -784,7 +782,23 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
         ) : null}
         {!isLoadingDetails && metrics?.is_computed ? (
           <>
-            {metrics.delivery_confidence
+            {metrics.delivery_confidence ? (
+              <div className="panel-heading delivery-confidence-heading">
+                <h3>Delivery Confidence</h3>
+                <div className="panel-heading-actions">
+                  <span className="muted">Score {metrics.delivery_confidence.score.toFixed(2)}</span>
+                  <button
+                    type="button"
+                    className="secondary-button compact-button"
+                    aria-expanded={isDeliveryConfidenceExpanded}
+                    onClick={() => setIsDeliveryConfidenceExpanded((c) => !c)}
+                  >
+                    {isDeliveryConfidenceExpanded ? "Minimize" : "Expand"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {metrics.delivery_confidence && isDeliveryConfidenceExpanded
               ? renderDeliveryConfidence(metrics.delivery_confidence, confidenceTrend, onSelectIssue)
               : null}
             <div className="metric-grid">

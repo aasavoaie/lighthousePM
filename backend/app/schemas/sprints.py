@@ -65,15 +65,15 @@ class DeliveryConfidenceComponents(BaseModel):
 class DeliveryConfidenceInputs(BaseModel):
     committed_issue_count: int
     initial_commitment_count: int | None = None
-    committed_effective_points: float
-    completed_effective_points: float
-    remaining_effective_points: float
+    committed_effective_points: float = Field(..., description="Total committed story points for the sprint (uses story points or 1 per issue when points are unavailable).")
+    completed_effective_points: float = Field(..., description="Sum of effective points for issues marked done in the sprint.")
+    remaining_effective_points: float = Field(..., description="Remaining points computed as max(committed_effective_points - completed_effective_points, 0.0).")
     completed_scope_pct: float
     time_elapsed_pct: float | None
     historical_velocity: float | None
-    baseline_sprint_count: int
+    baseline_sprint_count: int = Field(..., description="Number of historical closed sprints used to compute the historical velocity (Baseline). Defaults to last N closed sprints.")
     remaining_capacity_points: float | None
-    blocked_issue_ratio: float
+    blocked_issue_ratio: float = Field(..., description="Fraction of currently open blocker issues divided by the total number of committed issues. If there are no committed issues, this is 0.0.")
     scope_change_count: int
     scope_added_count: int = 0
     scope_removed_count: int = 0
