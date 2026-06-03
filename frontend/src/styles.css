@@ -97,6 +97,7 @@ select {
 
 .release-controls-panel,
 .sprints-panel .sprint-controls-panel,
+.sprints-panel .delivery-confidence-panel,
 .sprints-panel .metrics-panel,
 .sprints-panel .issues-panel {
   grid-column: 1 / -1;
@@ -411,14 +412,6 @@ select {
   gap: 12px;
 }
 
-.confidence-summary {
-  margin-bottom: 16px;
-  padding: 16px;
-  border-radius: 14px;
-  background: #f8fbfe;
-  border: 1px solid #dbe7f2;
-}
-
 .scope-stability-summary {
   margin-bottom: 16px;
   padding: 16px;
@@ -472,24 +465,19 @@ select {
   min-width: 180px;
 }
 
-.confidence-score {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+.confidence-grid {
+  align-items: stretch;
 }
 
 .confidence-score-value {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 10px;
-  text-align: right;
+  margin-top: 10px;
 }
 
-.confidence-score strong {
+.confidence-score-value strong {
   font-size: 2.25rem;
   line-height: 1;
   color: inherit;
@@ -545,42 +533,36 @@ select {
   color: #6d6d72;
 }
 
-.confidence-score strong.confidence-value-success {
+.confidence-score-value strong.confidence-value-success {
   color: #237445;
 }
 
-.confidence-score strong.confidence-value-warning {
+.confidence-score-value strong.confidence-value-warning {
   color: #9f6a00;
 }
 
-.confidence-score strong.confidence-value-danger {
+.confidence-score-value strong.confidence-value-danger {
   color: #a63124;
 }
 
-.confidence-breakdown,
+.confidence-breakdown {
+  display: contents;
+}
+
 .confidence-inputs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
-.confidence-component {
-  padding: 10px;
-  border-radius: 10px;
-  background: #ffffff;
-  border: 1px solid #dbe7f2;
-}
-
-.confidence-component-label,
-.confidence-component span,
 .confidence-inputs dt {
   display: block;
   color: #58677c;
   font-size: 0.82rem;
 }
 
-.confidence-component-label,
-.confidence-label {
+.confidence-score-card h3,
+.confidence-component h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -621,8 +603,8 @@ select {
 
 .confidence-component strong {
   display: block;
-  margin-top: 4px;
-  font-size: 1.1rem;
+  margin-top: 10px;
+  font-size: 1.45rem;
 }
 
 .confidence-value-danger {
@@ -649,8 +631,12 @@ select {
   color: #237445;
 }
 
+.confidence-input-card {
+  grid-column: 1 / -1;
+}
+
 .confidence-inputs {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
 }
 
 .confidence-inputs dd {

@@ -270,16 +270,15 @@ function getConfidenceTrendTooltip(trend: ConfidenceTrend) {
 
 function renderDeliveryConfidence(
   confidence: DeliveryConfidenceDetail,
-  confidenceTrend: ConfidenceTrend | null,
-  onSelectIssue: (issueKey: string) => void
+  confidenceTrend: ConfidenceTrend | null
 ) {
   const confidenceTrendTooltip = confidenceTrend ? getConfidenceTrendTooltip(confidenceTrend) : null;
 
   return (
-    <div className="confidence-summary">
-      <div className="confidence-score">
-        <span className="confidence-label">
-          <span className="muted">Delivery confidence</span>
+    <div className="metric-grid confidence-grid">
+      <article className="metric-card confidence-score-card">
+        <h3>
+          Delivery confidence
           <button
             type="button"
             className="info-button"
@@ -288,7 +287,8 @@ function renderDeliveryConfidence(
           >
             i
           </button>
-        </span>
+        </h3>
+        <p className="metric-description">{sprintMetricDescriptions.delivery_confidence_score}</p>
         <div className="confidence-score-value">
           <strong className={getDeliveryConfidenceClass(confidence.score)}>{confidence.score.toFixed(2)}</strong>
           {confidenceTrend && confidenceTrendTooltip ? (
@@ -301,13 +301,13 @@ function renderDeliveryConfidence(
             />
           ) : null}
         </div>
-      </div>
+      </article>
       <div className="confidence-breakdown">
         {(Object.keys(confidence.components) as Array<keyof DeliveryConfidenceDetail["components"]>).map((key) => {
           const value = confidence.components[key];
           return (
-            <div className="confidence-component" key={key}>
-              <span className="confidence-component-label">
+            <article className="metric-card confidence-component" key={key}>
+              <h3>
                 {confidenceComponentLabels[key]}
                 {key === "progress_alignment" ? (
                   <button
@@ -349,7 +349,7 @@ function renderDeliveryConfidence(
                     i
                   </button>
                 ) : null}
-              </span>
+              </h3>
               <strong
                 className={
                   key === "progress_alignment"
@@ -365,28 +365,31 @@ function renderDeliveryConfidence(
               >
                 {value.toFixed(2)}
               </strong>
-            </div>
+            </article>
           );
         })}
       </div>
-      <dl className="confidence-inputs">
-        <dt>Committed pts</dt>
-        <dd>{confidence.inputs.committed_effective_points.toFixed(2)}</dd>
-        <dt>Completed pts</dt>
-        <dd>{confidence.inputs.completed_effective_points.toFixed(2)}</dd>
-        <dt>Remaining pts</dt>
-        <dd>{confidence.inputs.remaining_effective_points.toFixed(2)}</dd>
-        <dt>Elapsed</dt>
-        <dd>{formatNullableNumber(confidence.inputs.time_elapsed_pct, "%")}</dd>
-        <dt>Velocity</dt>
-        <dd>{formatNullableNumber(confidence.inputs.historical_velocity)}</dd>
-        <dt>Baseline</dt>
-        <dd>{confidence.inputs.baseline_sprint_count}</dd>
-        <dt>Blocked ratio</dt>
-        <dd>{confidence.inputs.blocked_issue_ratio.toFixed(4)}</dd>
-        <dt>Scope changes</dt>
-        <dd>{confidence.inputs.scope_change_count}</dd>
-      </dl>
+      <article className="metric-card confidence-input-card">
+        <h3>Calculation inputs</h3>
+        <dl className="confidence-inputs">
+          <dt>Committed pts</dt>
+          <dd>{confidence.inputs.committed_effective_points.toFixed(2)}</dd>
+          <dt>Completed pts</dt>
+          <dd>{confidence.inputs.completed_effective_points.toFixed(2)}</dd>
+          <dt>Remaining pts</dt>
+          <dd>{confidence.inputs.remaining_effective_points.toFixed(2)}</dd>
+          <dt>Elapsed</dt>
+          <dd>{formatNullableNumber(confidence.inputs.time_elapsed_pct, "%")}</dd>
+          <dt>Velocity</dt>
+          <dd>{formatNullableNumber(confidence.inputs.historical_velocity)}</dd>
+          <dt>Baseline</dt>
+          <dd>{confidence.inputs.baseline_sprint_count}</dd>
+          <dt>Blocked ratio</dt>
+          <dd>{confidence.inputs.blocked_issue_ratio.toFixed(4)}</dd>
+          <dt>Scope changes</dt>
+          <dd>{confidence.inputs.scope_change_count}</dd>
+        </dl>
+      </article>
     </div>
   );
 }
@@ -800,7 +803,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           <p className="muted">Sprint metrics have not been computed yet.</p>
         ) : null}
         {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
-          ? renderDeliveryConfidence(metrics.delivery_confidence, confidenceTrend, onSelectIssue)
+          ? renderDeliveryConfidence(metrics.delivery_confidence, confidenceTrend)
           : null}
       </section>
 
