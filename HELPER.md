@@ -134,12 +134,14 @@ Returns the latest computed release risk signal for a release.
 What it does:
 - validates the release exists
 - reads the current stored signal row for the release
-- returns the signal level, human-readable reasons, structured reason details, and explicit thresholds
+- returns the signal level, human-readable reasons, structured reason details, risk aging, and explicit thresholds
 
 Important behavior:
 - if the release exists but signal has not been computed yet, this still returns `200`
-- in that empty state, `signal` is `null`, `reasons` is empty, `reason_details` is empty, and `updated_at` is `null`
+- in that empty state, `signal` is `null`, `reasons` is empty, `reason_details` is empty, `risk_aging` has zero counts, and `updated_at` is `null`
 - thresholds are always returned so clients do not need to hardcode rule boundaries
+- `risk_aging` reports open blocker and high-severity bug age summaries from the latest metric snapshot
+- risk ages are computed from issue `created_at` timestamps to the snapshot `snapshot_at`, so values are reproducible for the same stored data
 
 Typical use:
 - release readiness indicators

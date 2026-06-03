@@ -217,6 +217,18 @@ export interface SignalPrimaryRisk {
   contribution_pct: number;
 }
 
+export interface SignalRiskAgingGroup {
+  count: number;
+  oldest_age_days: number | null;
+  average_age_days: number | null;
+}
+
+export interface SignalRiskAging {
+  blockers: SignalRiskAgingGroup;
+  high_severity_bugs: SignalRiskAgingGroup;
+  as_of: string | null;
+}
+
 export interface ReleaseSignalResponse {
   release_id: string;
   signal: string | null;
@@ -229,6 +241,7 @@ export interface ReleaseSignalResponse {
   critical_risks: SignalRiskItem[];
   warnings: SignalRiskItem[];
   primary_risk: SignalPrimaryRisk | null;
+  risk_aging: SignalRiskAging;
   thresholds: SignalThresholds;
   updated_at: string | null;
 }

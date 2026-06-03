@@ -47,6 +47,26 @@ class SignalPrimaryRisk(BaseModel):
     contribution_pct: float
 
 
+class SignalRiskAgingGroup(BaseModel):
+    count: int
+    oldest_age_days: float | None
+    average_age_days: float | None
+
+
+class SignalRiskAging(BaseModel):
+    blockers: SignalRiskAgingGroup
+    high_severity_bugs: SignalRiskAgingGroup
+    as_of: datetime | None = None
+
+
+def _empty_risk_aging() -> SignalRiskAging:
+    return SignalRiskAging(
+        blockers=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None),
+        high_severity_bugs=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None),
+        as_of=None,
+    )
+
+
 class ReleaseSignalResponse(BaseModel):
     release_id: str
     signal: str | None
@@ -59,5 +79,6 @@ class ReleaseSignalResponse(BaseModel):
     critical_risks: list[SignalRiskItem] = Field(default_factory=list)
     warnings: list[SignalRiskItem] = Field(default_factory=list)
     primary_risk: SignalPrimaryRisk | None = None
+    risk_aging: SignalRiskAging = Field(default_factory=_empty_risk_aging)
     thresholds: SignalThresholds
     updated_at: datetime | None

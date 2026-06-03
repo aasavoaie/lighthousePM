@@ -1,11 +1,16 @@
 import logging
+from datetime import UTC, datetime
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
+from app.models import Issue
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
+from app.services.jira_field_mapper import JiraFieldMapper
 from app.utils.constants import (
     CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
     HIGH_SEVERITY_BUGS_RED_THRESHOLD,
@@ -18,6 +23,12 @@ from app.utils.constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 class SignalService:
@@ -449,6 +460,106 @@ class SignalService:
             "warnings": warnings,
             "primary_risk": primary_risk,
         }
+
+    @staticmethod
+    def _build_release_risk_aging(
+        session: Session,
+        release_id: str,
+        as_of: datetime,
+        open_blocker_issue_keys: list[str] | None = None,
+        open_high_severity_bug_issue_keys: list[str] | None = None,
+    ) -> dict[str, object]:
+        """Build deterministic risk aging from current issue rows as of a snapshot timestamp."""
+        field_mapper = JiraFieldMapper(get_settings())
+        as_of_utc = _coerce_utc(as_of)
+
+        blocker_issues = SignalService._list_risk_aging_issues(
+            session=session,
+            release_id=release_id,
+            field_mapper=field_mapper,
+            risk_type="blockers",
+            issue_keys=open_blocker_issue_keys,
+        )
+        high_severity_bug_issues = SignalService._list_risk_aging_issues(
+            session=session,
+            release_id=release_id,
+            field_mapper=field_mapper,
+            risk_type="high_severity_bugs",
+            issue_keys=open_high_severity_bug_issue_keys,
+        )
+
+        return {
+            "blockers": SignalService._summarize_issue_ages(blocker_issues, as_of_utc),
+            "high_severity_bugs": SignalService._summarize_issue_ages(high_severity_bug_issues, as_of_utc),
+            "as_of": as_of_utc,
+        }
+
+    @staticmethod
+    def _list_risk_aging_issues(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+        risk_type: str,
+        issue_keys: list[str] | None,
+    ) -> list[Issue]:
+        if issue_keys is not None:
+            if not issue_keys:
+                return []
+
+            return list(
+                session.scalars(
+                    select(Issue)
+                    .where(Issue.release_id == release_id, Issue.issue_key.in_(issue_keys))
+                    .order_by(Issue.issue_key)
+                ).all()
+            )
+
+        if risk_type == "blockers":
+            return list(
+                session.scalars(
+                    select(Issue)
+                    .where(
+                        Issue.release_id == release_id,
+                        Issue.is_blocker.is_(True),
+                        func.lower(Issue.status).not_in(field_mapper.done_statuses),
+                    )
+                    .order_by(Issue.issue_key)
+                ).all()
+            )
+
+        if risk_type == "high_severity_bugs":
+            return list(
+                session.scalars(
+                    select(Issue)
+                    .where(
+                        Issue.release_id == release_id,
+                        func.lower(Issue.issue_type) == "bug",
+                        func.lower(Issue.priority).in_(field_mapper.high_severity_values),
+                        func.lower(Issue.status).not_in(field_mapper.done_statuses),
+                    )
+                    .order_by(Issue.issue_key)
+                ).all()
+            )
+
+        raise ValueError(f"Unknown risk aging type: {risk_type!r}")
+
+    @staticmethod
+    def _summarize_issue_ages(issues: list[Issue], as_of: datetime) -> dict[str, int | float | None]:
+        if not issues:
+            return {"count": 0, "oldest_age_days": None, "average_age_days": None}
+
+        ages = [SignalService._issue_age_days(issue=issue, as_of=as_of) for issue in issues]
+        return {
+            "count": len(issues),
+            "oldest_age_days": round(max(ages), 1),
+            "average_age_days": round(sum(ages) / len(ages), 1),
+        }
+
+    @staticmethod
+    def _issue_age_days(issue: Issue, as_of: datetime) -> float:
+        created_at = _coerce_utc(issue.created_at)
+        elapsed_seconds = max(0.0, (as_of - created_at).total_seconds())
+        return elapsed_seconds / 86400.0
 
     @staticmethod
     def _evaluate_signal(

@@ -21,6 +21,11 @@ from app.utils.constants import (
 router = APIRouter(prefix="/releases", tags=["signals"])
 
 
+def _empty_risk_aging() -> dict[str, object]:
+    empty_group = {"count": 0, "oldest_age_days": None, "average_age_days": None}
+    return {"blockers": empty_group, "high_severity_bugs": empty_group, "as_of": None}
+
+
 def _build_thresholds() -> SignalThresholds:
     return SignalThresholds(
         open_blockers_red=OPEN_BLOCKERS_RED_THRESHOLD,
@@ -53,12 +58,14 @@ def get_release_signal(
             summary="Signal has not been computed yet for this release snapshot.",
             reasons=[],
             reason_details=[],
+            risk_aging=_empty_risk_aging(),
             thresholds=_build_thresholds(),
             updated_at=None,
         )
 
     reason_details: list[SignalReasonDetail] = []
     readiness_details: dict[str, object] = {}
+    risk_aging: dict[str, object] = _empty_risk_aging()
     latest_snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
     if latest_snapshot is not None:
         _, _, details = SignalService._evaluate_signal_with_details(
@@ -77,6 +84,21 @@ def get_release_signal(
             reopen_rate_pct=latest_snapshot.reopen_rate_pct,
             median_cycle_time_days=latest_snapshot.median_cycle_time_days,
         )
+        risk_aging = SignalService._build_release_risk_aging(
+            session=session,
+            release_id=release_id,
+            as_of=latest_snapshot.snapshot_at,
+            open_blocker_issue_keys=(
+                latest_snapshot.open_blocker_issue_keys
+                if latest_snapshot.open_blocker_issue_keys or latest_snapshot.open_blockers == 0
+                else None
+            ),
+            open_high_severity_bug_issue_keys=(
+                latest_snapshot.open_high_severity_bug_issue_keys
+                if latest_snapshot.open_high_severity_bug_issue_keys or latest_snapshot.open_high_severity_bugs == 0
+                else None
+            ),
+        )
 
     return ReleaseSignalResponse(
         release_id=signal_row.release_id,
@@ -90,6 +112,7 @@ def get_release_signal(
         critical_risks=readiness_details.get("critical_risks", []),
         warnings=readiness_details.get("warnings", []),
         primary_risk=readiness_details.get("primary_risk"),
+        risk_aging=risk_aging,
         thresholds=_build_thresholds(),
         updated_at=signal_row.updated_at,
     )

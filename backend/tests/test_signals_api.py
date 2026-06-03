@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 import pytest
@@ -11,7 +11,7 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import Issue, MetricSnapshot, Release
+from app.models import Issue, MetricSnapshot, Release, ReleaseSignal
 
 
 @pytest.fixture
@@ -71,13 +71,18 @@ def _seed_snapshot(
     scope_churn_7d_pct: float,
     reopen_rate_pct: float,
     median_cycle_time_days: float | None,
+    snapshot_at: datetime | None = None,
+    open_blocker_issue_keys: list[str] | None = None,
+    open_high_severity_bug_issue_keys: list[str] | None = None,
 ) -> None:
     session.add(
         MetricSnapshot(
             release_id=release_id,
-            snapshot_at=datetime.now(UTC),
+            snapshot_at=snapshot_at or datetime.now(UTC),
             open_blockers=open_blockers,
             open_high_severity_bugs=open_high_severity_bugs,
+            open_blocker_issue_keys=open_blocker_issue_keys or [],
+            open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys or [],
             scope_completed_pct=50.0,
             scope_churn_7d_pct=scope_churn_7d_pct,
             median_cycle_time_days=median_cycle_time_days,
@@ -87,18 +92,41 @@ def _seed_snapshot(
     session.commit()
 
 
-def _seed_issue(session: Session, issue_key: str, release_id: str, status: str, is_blocker: bool) -> None:
-    now = datetime.now(UTC)
+def _seed_issue(
+    session: Session,
+    issue_key: str,
+    release_id: str,
+    status: str,
+    is_blocker: bool,
+    created_at: datetime | None = None,
+    issue_type: str = "Bug",
+    priority: str = "High",
+) -> None:
+    now = created_at or datetime.now(UTC)
     session.add(
         Issue(
             issue_key=issue_key,
             summary="Issue",
-            issue_type="Bug",
+            issue_type=issue_type,
             status=status,
-            priority="High",
+            priority=priority,
             assignee="alice",
             release_id=release_id,
             is_blocker=is_blocker,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    session.commit()
+
+
+def _seed_signal(session: Session, release_id: str, signal: str) -> None:
+    now = datetime.now(UTC)
+    session.add(
+        ReleaseSignal(
+            release_id=release_id,
+            signal=signal,
+            reasons=["Seeded signal"],
             created_at=now,
             updated_at=now,
         )
@@ -133,6 +161,11 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
         "critical_risks": [],
         "warnings": [],
         "primary_risk": None,
+        "risk_aging": {
+            "blockers": {"count": 0, "oldest_age_days": None, "average_age_days": None},
+            "high_severity_bugs": {"count": 0, "oldest_age_days": None, "average_age_days": None},
+            "as_of": None,
+        },
         "thresholds": {
             "open_blockers_red": 0,
             "open_high_severity_bugs_red": 1,
@@ -164,6 +197,7 @@ def test_get_release_signal_after_metrics_recompute_returns_red(client: TestClie
     assert payload["confidence_score"] is not None
     assert any(gate["metric_name"] == "open_blockers" and not gate["passed"] for gate in payload["release_gates"])
     assert any(risk["metric_name"] == "open_blockers" for risk in payload["critical_risks"])
+    assert payload["risk_aging"]["blockers"]["count"] == 1
     assert any("blocker" in reason.lower() for reason in payload["reasons"])
     assert payload["thresholds"]["open_blockers_red"] == 0
     assert any(detail["metric_name"] == "open_blockers" for detail in payload["reason_details"])
@@ -196,6 +230,139 @@ def test_get_release_signal_after_metrics_recompute_returns_green(client: TestCl
     assert payload["critical_risks"] == []
     assert payload["warnings"] == []
     assert payload["primary_risk"] is None
+    assert payload["risk_aging"]["blockers"]["count"] == 0
+    assert payload["risk_aging"]["high_severity_bugs"]["count"] == 0
     assert payload["reasons"] == ["No major risk indicators"]
     assert payload["reason_details"] == []
     assert payload["thresholds"]["median_cycle_time_days_yellow"] == 7.0
+
+
+def test_get_release_signal_returns_risk_aging_from_latest_snapshot(client: TestClient) -> None:
+    snapshot_at = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(
+            session,
+            issue_key="LHPM-1",
+            release_id="REL-1",
+            status="In Progress",
+            is_blocker=True,
+            created_at=snapshot_at - timedelta(days=14),
+            issue_type="Story",
+            priority="Medium",
+        )
+        _seed_issue(
+            session,
+            issue_key="LHPM-2",
+            release_id="REL-1",
+            status="To Do",
+            is_blocker=True,
+            created_at=snapshot_at - timedelta(days=7),
+            issue_type="Story",
+            priority="Medium",
+        )
+        _seed_issue(
+            session,
+            issue_key="LHPM-3",
+            release_id="REL-1",
+            status="In Progress",
+            is_blocker=False,
+            created_at=snapshot_at - timedelta(days=8),
+            issue_type="Bug",
+            priority="High",
+        )
+        _seed_issue(
+            session,
+            issue_key="LHPM-4",
+            release_id="REL-1",
+            status="In Progress",
+            is_blocker=False,
+            created_at=snapshot_at - timedelta(days=9),
+            issue_type="Bug",
+            priority="Critical",
+        )
+        _seed_issue(
+            session,
+            issue_key="LHPM-5",
+            release_id="REL-1",
+            status="To Do",
+            is_blocker=False,
+            created_at=snapshot_at - timedelta(days=10),
+            issue_type="Bug",
+            priority="Highest",
+        )
+        _seed_issue(
+            session,
+            issue_key="LHPM-6",
+            release_id="REL-1",
+            status="Done",
+            is_blocker=True,
+            created_at=snapshot_at - timedelta(days=30),
+            issue_type="Bug",
+            priority="High",
+        )
+        _seed_snapshot(
+            session,
+            release_id="REL-1",
+            snapshot_at=snapshot_at,
+            open_blockers=2,
+            open_high_severity_bugs=3,
+            open_blocker_issue_keys=["LHPM-1", "LHPM-2"],
+            open_high_severity_bug_issue_keys=["LHPM-3", "LHPM-4", "LHPM-5"],
+            scope_churn_7d_pct=0.0,
+            reopen_rate_pct=0.0,
+            median_cycle_time_days=2.0,
+        )
+        _seed_signal(session, release_id="REL-1", signal="RED")
+
+    response = client.get("/releases/REL-1/signal")
+    assert response.status_code == 200
+    risk_aging = response.json()["risk_aging"]
+    assert risk_aging["as_of"] == "2026-01-20T12:00:00Z"
+    assert risk_aging["blockers"] == {
+        "count": 2,
+        "oldest_age_days": 14.0,
+        "average_age_days": 10.5,
+    }
+    assert risk_aging["high_severity_bugs"] == {
+        "count": 3,
+        "oldest_age_days": 10.0,
+        "average_age_days": 9.0,
+    }
+
+
+def test_get_release_signal_risk_aging_honors_zero_count_snapshot(client: TestClient) -> None:
+    snapshot_at = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(
+            session,
+            issue_key="LHPM-1",
+            release_id="REL-1",
+            status="In Progress",
+            is_blocker=True,
+            created_at=snapshot_at - timedelta(days=14),
+        )
+        _seed_snapshot(
+            session,
+            release_id="REL-1",
+            snapshot_at=snapshot_at,
+            open_blockers=0,
+            open_high_severity_bugs=0,
+            open_blocker_issue_keys=[],
+            open_high_severity_bug_issue_keys=[],
+            scope_churn_7d_pct=0.0,
+            reopen_rate_pct=0.0,
+            median_cycle_time_days=2.0,
+        )
+        _seed_signal(session, release_id="REL-1", signal="GREEN")
+
+    response = client.get("/releases/REL-1/signal")
+    assert response.status_code == 200
+    risk_aging = response.json()["risk_aging"]
+    assert risk_aging["blockers"] == {"count": 0, "oldest_age_days": None, "average_age_days": None}
+    assert risk_aging["high_severity_bugs"] == {
+        "count": 0,
+        "oldest_age_days": None,
+        "average_age_days": None,
+    }

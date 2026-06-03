@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { Release, ReleaseSignalResponse, SignalGate, SignalRiskItem } from "../api/types";
+import type { Release, ReleaseSignalResponse, SignalGate, SignalRiskAgingGroup, SignalRiskItem } from "../api/types";
 
 interface SignalSummaryPanelProps {
   signal: ReleaseSignalResponse | null;
@@ -74,6 +74,34 @@ function renderRiskItem(item: SignalRiskItem) {
       <span className="signal-risk-dot" aria-hidden="true" />
       <span>{item.message}</span>
     </li>
+  );
+}
+
+function formatAgeDays(value: number | null) {
+  if (value === null) {
+    return "N/A";
+  }
+  const formatted = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+  return `${formatted} ${value === 1 ? "day" : "days"}`;
+}
+
+function renderRiskAgingCard(
+  title: string,
+  group: SignalRiskAgingGroup,
+  primaryLabel: "Oldest" | "Average",
+  metricKey: "oldest_age_days" | "average_age_days"
+) {
+  if (group.count === 0) {
+    return null;
+  }
+
+  return (
+    <article className="signal-aging-card">
+      <strong>{title}</strong>
+      <span>
+        {primaryLabel}: {formatAgeDays(group[metricKey])}
+      </span>
+    </article>
   );
 }
 
@@ -230,6 +258,28 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
               ) : (
                 <p className="muted">No critical risks.</p>
               )}
+            </div>
+          ) : null}
+          {!isLoading && signal ? (
+            <div className="signal-readiness-section">
+              <h3>Risk Aging</h3>
+              <div className="signal-aging-grid">
+                {renderRiskAgingCard(
+                  `${signal.risk_aging.blockers.count} blockers remain open`,
+                  signal.risk_aging.blockers,
+                  "Oldest",
+                  "oldest_age_days"
+                )}
+                {renderRiskAgingCard(
+                  `${signal.risk_aging.high_severity_bugs.count} high severity bugs remain unresolved`,
+                  signal.risk_aging.high_severity_bugs,
+                  "Average",
+                  "average_age_days"
+                )}
+              </div>
+              {signal.risk_aging.blockers.count === 0 && signal.risk_aging.high_severity_bugs.count === 0 ? (
+                <p className="muted">No open blocker or high severity bug aging to report.</p>
+              ) : null}
             </div>
           ) : null}
           {!isLoading && signal ? (
