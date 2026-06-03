@@ -124,8 +124,15 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
     assert payload == {
         "release_id": "REL-1",
         "signal": None,
+        "status_label": "NOT COMPUTED",
+        "confidence_score": None,
+        "summary": "Signal has not been computed yet for this release snapshot.",
         "reasons": [],
         "reason_details": [],
+        "release_gates": [],
+        "critical_risks": [],
+        "warnings": [],
+        "primary_risk": None,
         "thresholds": {
             "open_blockers_red": 0,
             "open_high_severity_bugs_red": 1,
@@ -153,6 +160,10 @@ def test_get_release_signal_after_metrics_recompute_returns_red(client: TestClie
     payload = response.json()
     assert payload["release_id"] == "REL-1"
     assert payload["signal"] == "RED"
+    assert payload["status_label"] == "NOT READY FOR RELEASE"
+    assert payload["confidence_score"] is not None
+    assert any(gate["metric_name"] == "open_blockers" and not gate["passed"] for gate in payload["release_gates"])
+    assert any(risk["metric_name"] == "open_blockers" for risk in payload["critical_risks"])
     assert any("blocker" in reason.lower() for reason in payload["reasons"])
     assert payload["thresholds"]["open_blockers_red"] == 0
     assert any(detail["metric_name"] == "open_blockers" for detail in payload["reason_details"])
@@ -179,6 +190,12 @@ def test_get_release_signal_after_metrics_recompute_returns_green(client: TestCl
     assert response.status_code == 200
     payload = response.json()
     assert payload["signal"] == "GREEN"
+    assert payload["status_label"] == "READY FOR RELEASE"
+    assert payload["confidence_score"] == 100.0
+    assert all(gate["passed"] for gate in payload["release_gates"])
+    assert payload["critical_risks"] == []
+    assert payload["warnings"] == []
+    assert payload["primary_risk"] is None
     assert payload["reasons"] == ["No major risk indicators"]
     assert payload["reason_details"] == []
     assert payload["thresholds"]["median_cycle_time_days_yellow"] == 7.0

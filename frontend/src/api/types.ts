@@ -193,11 +193,42 @@ export interface SignalThresholds {
   median_cycle_time_days_yellow: number;
 }
 
+export interface SignalGate {
+  metric_name: string;
+  label: string;
+  passed: boolean;
+  value: number | null;
+  comparison: string;
+  threshold: number;
+}
+
+export interface SignalRiskItem {
+  metric_name: string;
+  level: string;
+  message: string;
+  value: number | null;
+  contribution_pct: number;
+}
+
+export interface SignalPrimaryRisk {
+  metric_name: string;
+  label: string;
+  message: string;
+  contribution_pct: number;
+}
+
 export interface ReleaseSignalResponse {
   release_id: string;
   signal: string | null;
+  status_label: string | null;
+  confidence_score: number | null;
+  summary: string | null;
   reasons: string[];
   reason_details: SignalReasonDetail[];
+  release_gates: SignalGate[];
+  critical_risks: SignalRiskItem[];
+  warnings: SignalRiskItem[];
+  primary_risk: SignalPrimaryRisk | null;
   thresholds: SignalThresholds;
   updated_at: string | null;
 }

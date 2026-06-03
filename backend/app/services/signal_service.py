@@ -40,6 +40,17 @@ class SignalService:
     Each signal includes explicit reasons (list of strings) explaining what triggered it.
     """
 
+    RISK_WEIGHTS = {
+        "open_blockers": 28.0,
+        "open_high_severity_bugs_red": 18.0,
+        "open_high_severity_bugs_yellow": 9.0,
+        "scope_churn_7d_pct_red": 8.0,
+        "scope_churn_7d_pct_yellow": 4.0,
+        "reopen_rate_pct_red": 6.0,
+        "reopen_rate_pct_yellow": 3.0,
+        "median_cycle_time_days_yellow": 4.0,
+    }
+
     def recompute_release_signal(self, session: Session, release_id: str):
         logger.info("signal_recompute_started release_id=%s", release_id)
         release = ReleaseRepository.get_release_by_id(session=session, release_id=release_id)
@@ -223,6 +234,221 @@ class SignalService:
             return "YELLOW", yellow_reasons, yellow_details
 
         return "GREEN", ["No major risk indicators"], []
+
+    @staticmethod
+    def _build_release_readiness_details(
+        signal: str | None,
+        open_blockers: int,
+        open_high_severity_bugs: int,
+        scope_churn_7d_pct: float,
+        reopen_rate_pct: float,
+        median_cycle_time_days: float | None,
+    ) -> dict[str, object]:
+        """Build deterministic release-readiness details for the signal UI."""
+        scope_churn_red_pct = SCOPE_CHURN_RED_THRESHOLD * 100
+        scope_churn_yellow_pct = SCOPE_CHURN_YELLOW_THRESHOLD * 100
+        reopen_rate_red_pct = REOPEN_RATE_RED_THRESHOLD * 100
+        reopen_rate_yellow_pct = REOPEN_RATE_YELLOW_THRESHOLD * 100
+
+        gates: list[dict[str, object]] = [
+            {
+                "metric_name": "open_blockers",
+                "label": "No blockers",
+                "passed": open_blockers <= OPEN_BLOCKERS_RED_THRESHOLD,
+                "value": open_blockers,
+                "comparison": "<=",
+                "threshold": OPEN_BLOCKERS_RED_THRESHOLD,
+            },
+            {
+                "metric_name": "open_high_severity_bugs",
+                "label": f"High severity bugs <= {HIGH_SEVERITY_BUGS_RED_THRESHOLD}",
+                "passed": open_high_severity_bugs <= HIGH_SEVERITY_BUGS_RED_THRESHOLD,
+                "value": open_high_severity_bugs,
+                "comparison": "<=",
+                "threshold": HIGH_SEVERITY_BUGS_RED_THRESHOLD,
+            },
+            {
+                "metric_name": "scope_churn_7d_pct",
+                "label": f"Scope churn <= {scope_churn_red_pct:.0f}%",
+                "passed": scope_churn_7d_pct <= scope_churn_red_pct,
+                "value": scope_churn_7d_pct,
+                "comparison": "<=",
+                "threshold": float(scope_churn_red_pct),
+            },
+            {
+                "metric_name": "reopen_rate_pct",
+                "label": f"Reopen rate <= {reopen_rate_red_pct:.0f}%",
+                "passed": reopen_rate_pct <= reopen_rate_red_pct,
+                "value": reopen_rate_pct,
+                "comparison": "<=",
+                "threshold": float(reopen_rate_red_pct),
+            },
+            {
+                "metric_name": "median_cycle_time_days",
+                "label": f"Cycle time <= {CYCLE_TIME_YELLOW_THRESHOLD_DAYS:.0f}d",
+                "passed": median_cycle_time_days is None
+                or median_cycle_time_days <= CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
+                "value": median_cycle_time_days,
+                "comparison": "<=",
+                "threshold": CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
+            },
+        ]
+
+        risk_points: dict[str, float] = {}
+        critical_risks: list[dict[str, object]] = []
+        warnings: list[dict[str, object]] = []
+
+        if open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
+            points = SignalService.RISK_WEIGHTS["open_blockers"]
+            risk_points["open_blockers"] = points
+            critical_risks.append(
+                {
+                    "metric_name": "open_blockers",
+                    "level": "CRITICAL",
+                    "message": f"{open_blockers} blockers remain open",
+                    "value": open_blockers,
+                    "contribution_pct": 0.0,
+                }
+            )
+
+        if open_high_severity_bugs > HIGH_SEVERITY_BUGS_RED_THRESHOLD:
+            points = SignalService.RISK_WEIGHTS["open_high_severity_bugs_red"]
+            risk_points["open_high_severity_bugs"] = points
+            critical_risks.append(
+                {
+                    "metric_name": "open_high_severity_bugs",
+                    "level": "CRITICAL",
+                    "message": f"{open_high_severity_bugs} high severity bugs remain unresolved",
+                    "value": open_high_severity_bugs,
+                    "contribution_pct": 0.0,
+                }
+            )
+        elif open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
+            points = SignalService.RISK_WEIGHTS["open_high_severity_bugs_yellow"]
+            risk_points["open_high_severity_bugs"] = points
+            warnings.append(
+                {
+                    "metric_name": "open_high_severity_bugs",
+                    "level": "WARNING",
+                    "message": f"{open_high_severity_bugs} high severity bug remains unresolved",
+                    "value": open_high_severity_bugs,
+                    "contribution_pct": 0.0,
+                }
+            )
+
+        if scope_churn_7d_pct > scope_churn_red_pct:
+            points = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_red"]
+            risk_points["scope_churn_7d_pct"] = points
+            warnings.append(
+                {
+                    "metric_name": "scope_churn_7d_pct",
+                    "level": "WARNING",
+                    "message": f"Scope churn increased to {scope_churn_7d_pct:.0f}%",
+                    "value": scope_churn_7d_pct,
+                    "contribution_pct": 0.0,
+                }
+            )
+        elif scope_churn_7d_pct > scope_churn_yellow_pct:
+            points = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_yellow"]
+            risk_points["scope_churn_7d_pct"] = points
+            warnings.append(
+                {
+                    "metric_name": "scope_churn_7d_pct",
+                    "level": "WARNING",
+                    "message": f"Scope churn increased to {scope_churn_7d_pct:.0f}%",
+                    "value": scope_churn_7d_pct,
+                    "contribution_pct": 0.0,
+                }
+            )
+
+        if reopen_rate_pct > reopen_rate_red_pct:
+            points = SignalService.RISK_WEIGHTS["reopen_rate_pct_red"]
+            risk_points["reopen_rate_pct"] = points
+            warnings.append(
+                {
+                    "metric_name": "reopen_rate_pct",
+                    "level": "WARNING",
+                    "message": "Reopen rate exceeds target",
+                    "value": reopen_rate_pct,
+                    "contribution_pct": 0.0,
+                }
+            )
+        elif reopen_rate_pct > reopen_rate_yellow_pct:
+            points = SignalService.RISK_WEIGHTS["reopen_rate_pct_yellow"]
+            risk_points["reopen_rate_pct"] = points
+            warnings.append(
+                {
+                    "metric_name": "reopen_rate_pct",
+                    "level": "WARNING",
+                    "message": "Reopen rate exceeds target",
+                    "value": reopen_rate_pct,
+                    "contribution_pct": 0.0,
+                }
+            )
+
+        if median_cycle_time_days is not None and median_cycle_time_days > CYCLE_TIME_YELLOW_THRESHOLD_DAYS:
+            points = SignalService.RISK_WEIGHTS["median_cycle_time_days_yellow"]
+            risk_points["median_cycle_time_days"] = points
+            warnings.append(
+                {
+                    "metric_name": "median_cycle_time_days",
+                    "level": "WARNING",
+                    "message": "Median cycle time exceeds target",
+                    "value": median_cycle_time_days,
+                    "contribution_pct": 0.0,
+                }
+            )
+
+        total_risk_points = sum(risk_points.values())
+        confidence_score = round(max(0.0, 100.0 - total_risk_points), 1)
+        contribution_by_metric = {
+            metric_name: round((points / total_risk_points) * 100, 1)
+            for metric_name, points in risk_points.items()
+        } if total_risk_points > 0 else {}
+
+        for item in critical_risks + warnings:
+            item["contribution_pct"] = contribution_by_metric.get(str(item["metric_name"]), 0.0)
+
+        primary_risk = None
+        if risk_points:
+            primary_metric_name = max(risk_points, key=risk_points.get)
+            label_by_metric = {
+                "open_blockers": "Open blockers",
+                "open_high_severity_bugs": "High severity bugs",
+                "scope_churn_7d_pct": "Scope churn",
+                "reopen_rate_pct": "Reopen rate",
+                "median_cycle_time_days": "Cycle time",
+            }
+            primary_risk = {
+                "metric_name": primary_metric_name,
+                "label": label_by_metric[primary_metric_name],
+                "message": (
+                    f"{label_by_metric[primary_metric_name]} contribute "
+                    f"{contribution_by_metric[primary_metric_name]:.0f}% of total release risk."
+                ),
+                "contribution_pct": contribution_by_metric[primary_metric_name],
+            }
+
+        status_labels = {
+            "RED": "NOT READY FOR RELEASE",
+            "YELLOW": "RELEASE NEEDS ATTENTION",
+            "GREEN": "READY FOR RELEASE",
+        }
+        summaries = {
+            "RED": "Current release has significant delivery and quality risks.",
+            "YELLOW": "Current release has warnings that should be reviewed before release.",
+            "GREEN": "Current release is within configured delivery and quality gates.",
+        }
+
+        return {
+            "status_label": status_labels.get(signal or "", "NOT COMPUTED"),
+            "confidence_score": confidence_score,
+            "summary": summaries.get(signal or "", "Signal has not been computed yet for this release snapshot."),
+            "release_gates": gates,
+            "critical_risks": critical_risks,
+            "warnings": warnings,
+            "primary_risk": primary_risk,
+        }
 
     @staticmethod
     def _evaluate_signal(

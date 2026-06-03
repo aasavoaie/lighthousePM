@@ -358,6 +358,18 @@ select {
   gap: 10px;
 }
 
+.signal-confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #b9c9da;
+  border-radius: 12px;
+  color: #33506f;
+  background: #ffffff;
+  font-weight: 700;
+}
+
 .signal-trend-icon {
   width: 2.5rem;
   height: 2.5rem;
@@ -392,6 +404,69 @@ select {
 .signal-unknown {
   background: #e5ecf3;
   color: #4c5c70;
+}
+
+.signal-confidence {
+  margin: 0 0 14px;
+  font-weight: 700;
+}
+
+.signal-readiness-section {
+  margin-top: 22px;
+}
+
+.signal-readiness-section h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.signal-readiness-section p {
+  margin: 0;
+}
+
+.signal-gate-list,
+.signal-risk-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signal-gate-list li,
+.signal-risk-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signal-gate-state {
+  min-width: 42px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.signal-gate-pass .signal-gate-state {
+  color: #237445;
+}
+
+.signal-gate-fail .signal-gate-state {
+  color: #a63124;
+}
+
+.signal-risk-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.signal-risk-item.critical .signal-risk-dot {
+  background: #c43c2d;
+}
+
+.signal-risk-item.warning .signal-risk-dot {
+  background: #e48f00;
 }
 
 .reason-list {

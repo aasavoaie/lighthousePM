@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { Release, ReleaseSignalResponse } from "../api/types";
-import { MetricColors } from "./ChartComponents";
+import type { Release, ReleaseSignalResponse, SignalGate, SignalRiskItem } from "../api/types";
 
 interface SignalSummaryPanelProps {
   signal: ReleaseSignalResponse | null;
@@ -15,12 +14,6 @@ type SignalTrend = "increasing" | "decreasing" | "similar";
 
 type ReleaseSignalTrendRow = {
   release_id: string;
-  signal: string;
-};
-
-type SignalChartRow = {
-  name: string;
-  signal_score: number;
   signal: string;
 };
 
@@ -39,15 +32,49 @@ function signalClassName(signalValue: string | null) {
 
 function signalDescription(signalValue: string | null) {
   if (signalValue === "RED") {
-    return "High release risk: one or more red-threshold conditions are currently triggered.";
+    return "Current release has significant delivery and quality risks.";
   }
   if (signalValue === "YELLOW") {
-    return "Moderate release risk: warning conditions are present and should be reviewed.";
+    return "Current release has warnings that should be reviewed before release.";
   }
   if (signalValue === "GREEN") {
-    return "Low release risk: no major threshold violations are currently detected.";
+    return "Current release is within configured delivery and quality gates.";
   }
   return "Signal not computed yet for this release snapshot.";
+}
+
+function signalStatusLabel(signalValue: ReleaseSignalResponse | null) {
+  if (signalValue?.status_label) {
+    return signalValue.status_label;
+  }
+  if (signalValue?.signal === "RED") {
+    return "NOT READY FOR RELEASE";
+  }
+  if (signalValue?.signal === "YELLOW") {
+    return "RELEASE NEEDS ATTENTION";
+  }
+  if (signalValue?.signal === "GREEN") {
+    return "READY FOR RELEASE";
+  }
+  return "NOT COMPUTED";
+}
+
+function renderReleaseGate(gate: SignalGate) {
+  return (
+    <li className={gate.passed ? "signal-gate-pass" : "signal-gate-fail"} key={gate.metric_name}>
+      <span className="signal-gate-state">{gate.passed ? "PASS" : "FAIL"}</span>
+      <span>{gate.label}</span>
+    </li>
+  );
+}
+
+function renderRiskItem(item: SignalRiskItem) {
+  return (
+    <li className={`signal-risk-item ${item.level.toLowerCase()}`} key={`${item.level}-${item.metric_name}`}>
+      <span className="signal-risk-dot" aria-hidden="true" />
+      <span>{item.message}</span>
+    </li>
+  );
 }
 
 function releaseSortTime(release: Release) {
@@ -110,6 +137,11 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
   const [isSignalExpanded, setIsSignalExpanded] = useState(true);
   const signalTrend = useMemo(() => getSignalTrend(signalTrendRows), [signalTrendRows]);
   const signalTrendTooltip = signalTrend ? getSignalTrendTooltip(signalTrend) : null;
+  const statusLabel = signalStatusLabel(signal);
+  const confidenceLabel = signal?.confidence_score !== null && signal?.confidence_score !== undefined
+    ? `${signal.confidence_score.toFixed(0)}%`
+    : "N/A";
+  const summary = signal?.summary ?? signalDescription(signal?.signal ?? null);
 
   useEffect(() => {
     if (recentReleases.length === 0) {
@@ -158,7 +190,8 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
         <h2>Signal</h2>
         <div className="panel-heading-actions">
           <div className="signal-value-group">
-            <span className={signalClassName(signal?.signal ?? null)}>{signal?.signal ?? "N/A"}</span>
+            <span className={signalClassName(signal?.signal ?? null)}>{statusLabel}</span>
+            <span className="signal-confidence-badge">Confidence {confidenceLabel}</span>
             {signalTrend && signalTrendTooltip ? (
               <span
                 className={`confidence-trend-icon signal-trend-icon ${signalTrend}`}
@@ -181,17 +214,42 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
       </div>
       {isSignalExpanded ? (
         <>
-          <p className="signal-description">{signalDescription(signal?.signal ?? null)}</p>
+          <p className="signal-description">{summary}</p>
           {isLoading ? <p className="muted">Loading signal...</p> : null}
-          {!isLoading && signal && signal.reasons.length > 0 ? (
-            <ul className="reason-list">
-              {signal.reasons.map((reason) => (
-                <li key={reason}>{reason}</li>
-              ))}
-            </ul>
+          {!isLoading && signal?.release_gates.length ? (
+            <div className="signal-readiness-section">
+              <h3>Release Gates</h3>
+              <ul className="signal-gate-list">{signal.release_gates.map(renderReleaseGate)}</ul>
+            </div>
+          ) : null}
+          {!isLoading && signal ? (
+            <div className="signal-readiness-section">
+              <h3>Critical Risks</h3>
+              {signal.critical_risks.length > 0 ? (
+                <ul className="signal-risk-list">{signal.critical_risks.map(renderRiskItem)}</ul>
+              ) : (
+                <p className="muted">No critical risks.</p>
+              )}
+            </div>
+          ) : null}
+          {!isLoading && signal ? (
+            <div className="signal-readiness-section">
+              <h3>Warnings</h3>
+              {signal.warnings.length > 0 ? (
+                <ul className="signal-risk-list">{signal.warnings.map(renderRiskItem)}</ul>
+              ) : (
+                <p className="muted">No warnings.</p>
+              )}
+            </div>
           ) : null}
           {!isLoading && signal && signal.reasons.length === 0 ? (
             <p className="muted">Signal has not been computed yet.</p>
+          ) : null}
+          {!isLoading && signal?.primary_risk ? (
+            <div className="signal-readiness-section">
+              <h3>Primary Risk</h3>
+              <p>{signal.primary_risk.message}</p>
+            </div>
           ) : null}
           {!isLoading && signal?.updated_at ? (
             <p className="timestamp">Updated {new Date(signal.updated_at).toLocaleString()}</p>
