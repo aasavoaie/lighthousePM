@@ -122,6 +122,7 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue }: Metr
     );
   }, [metrics]);
   const [metricIssuesByKey, setMetricIssuesByKey] = useState<Record<string, Issue>>({});
+  const [isMetricsExpanded, setIsMetricsExpanded] = useState(true);
 
   useEffect(() => {
     if (metricIssueKeys.length === 0) {
@@ -156,42 +157,56 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue }: Metr
     <section className="panel metrics-panel">
       <div className="panel-heading">
         <h2>Metrics</h2>
-        {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
-          <span className="muted">Age {metrics.snapshot_age_hours.toFixed(1)}h</span>
-        ) : null}
-      </div>
-      {isLoading ? <p className="muted">Loading metrics...</p> : null}
-      {!isLoading && metrics && !metrics.is_computed ? (
-        <p className="muted">Metrics have not been computed for this release yet.</p>
-      ) : null}
-      {!isLoading && metrics && metrics.is_computed ? (
-        <div className="metric-grid">
-          {(Object.keys(metrics.metrics) as Array<keyof MetricValues>).map((metricName) => {
-            const sparklineData = buildSparklineData(charts, metricName);
-            return (
-              <article className="metric-card" key={metricName}>
-                <h3>{metricLabels[metricName]}</h3>
-                <p className="metric-description">{metricDescriptions[metricName]}</p>
-                <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
-                <MetricSparkline
-                  data={sparklineData}
-                  valueKey="value"
-                  lineColor={sparklineColorMap[metricName]}
-                  empty={sparklineData.length === 0}
-                  emptyMessage="Trend data unavailable"
-                  formatter={(value, name) => formatMetricValue(metricName, value)}
-                />
-                {renderMetricIssueKeys(
-                  metricName,
-                  metrics.metrics[metricName],
-                  metrics,
-                  metricIssuesByKey,
-                  onSelectIssue
-                )}
-              </article>
-            );
-          })}
+        <div className="panel-heading-actions">
+          {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
+            <span className="muted">Age {metrics.snapshot_age_hours.toFixed(1)}h</span>
+          ) : null}
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            aria-expanded={isMetricsExpanded}
+            onClick={() => setIsMetricsExpanded((current) => !current)}
+          >
+            {isMetricsExpanded ? "Minimize" : "Expand"}
+          </button>
         </div>
+      </div>
+      {isMetricsExpanded ? (
+        <>
+          {isLoading ? <p className="muted">Loading metrics...</p> : null}
+          {!isLoading && metrics && !metrics.is_computed ? (
+            <p className="muted">Metrics have not been computed for this release yet.</p>
+          ) : null}
+          {!isLoading && metrics && metrics.is_computed ? (
+            <div className="metric-grid">
+              {(Object.keys(metrics.metrics) as Array<keyof MetricValues>).map((metricName) => {
+                const sparklineData = buildSparklineData(charts, metricName);
+                return (
+                  <article className="metric-card" key={metricName}>
+                    <h3>{metricLabels[metricName]}</h3>
+                    <p className="metric-description">{metricDescriptions[metricName]}</p>
+                    <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
+                    <MetricSparkline
+                      data={sparklineData}
+                      valueKey="value"
+                      lineColor={sparklineColorMap[metricName]}
+                      empty={sparklineData.length === 0}
+                      emptyMessage="Trend data unavailable"
+                      formatter={(value, name) => formatMetricValue(metricName, value)}
+                    />
+                    {renderMetricIssueKeys(
+                      metricName,
+                      metrics.metrics[metricName],
+                      metrics,
+                      metricIssuesByKey,
+                      onSelectIssue
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

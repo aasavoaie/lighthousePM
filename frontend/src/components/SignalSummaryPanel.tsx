@@ -107,6 +107,7 @@ function getSignalTrendTooltip(trend: SignalTrend) {
 export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }: SignalSummaryPanelProps) {
   const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
   const [signalTrendRows, setSignalTrendRows] = useState<ReleaseSignalTrendRow[]>([]);
+  const [isSignalExpanded, setIsSignalExpanded] = useState(true);
   const signalTrend = useMemo(() => getSignalTrend(signalTrendRows), [signalTrendRows]);
   const signalTrendTooltip = signalTrend ? getSignalTrendTooltip(signalTrend) : null;
 
@@ -155,33 +156,47 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
     <section className="panel signal-panel">
       <div className="panel-heading">
         <h2>Signal</h2>
-        <div className="signal-value-group">
-          <span className={signalClassName(signal?.signal ?? null)}>{signal?.signal ?? "N/A"}</span>
-          {signalTrend && signalTrendTooltip ? (
-            <span
-              className={`confidence-trend-icon signal-trend-icon ${signalTrend}`}
-              title={signalTrendTooltip}
-              aria-label={signalTrendTooltip}
-              role="img"
-              tabIndex={0}
-            />
-          ) : null}
+        <div className="panel-heading-actions">
+          <div className="signal-value-group">
+            <span className={signalClassName(signal?.signal ?? null)}>{signal?.signal ?? "N/A"}</span>
+            {signalTrend && signalTrendTooltip ? (
+              <span
+                className={`confidence-trend-icon signal-trend-icon ${signalTrend}`}
+                title={signalTrendTooltip}
+                aria-label={signalTrendTooltip}
+                role="img"
+                tabIndex={0}
+              />
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            aria-expanded={isSignalExpanded}
+            onClick={() => setIsSignalExpanded((current) => !current)}
+          >
+            {isSignalExpanded ? "Minimize" : "Expand"}
+          </button>
         </div>
       </div>
-      <p className="signal-description">{signalDescription(signal?.signal ?? null)}</p>
-      {isLoading ? <p className="muted">Loading signal...</p> : null}
-      {!isLoading && signal && signal.reasons.length > 0 ? (
-        <ul className="reason-list">
-          {signal.reasons.map((reason) => (
-            <li key={reason}>{reason}</li>
-          ))}
-        </ul>
-      ) : null}
-      {!isLoading && signal && signal.reasons.length === 0 ? (
-        <p className="muted">Signal has not been computed yet.</p>
-      ) : null}
-      {!isLoading && signal?.updated_at ? (
-        <p className="timestamp">Updated {new Date(signal.updated_at).toLocaleString()}</p>
+      {isSignalExpanded ? (
+        <>
+          <p className="signal-description">{signalDescription(signal?.signal ?? null)}</p>
+          {isLoading ? <p className="muted">Loading signal...</p> : null}
+          {!isLoading && signal && signal.reasons.length > 0 ? (
+            <ul className="reason-list">
+              {signal.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          ) : null}
+          {!isLoading && signal && signal.reasons.length === 0 ? (
+            <p className="muted">Signal has not been computed yet.</p>
+          ) : null}
+          {!isLoading && signal?.updated_at ? (
+            <p className="timestamp">Updated {new Date(signal.updated_at).toLocaleString()}</p>
+          ) : null}
+        </>
       ) : null}
 
     </section>

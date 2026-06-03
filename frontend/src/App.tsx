@@ -170,9 +170,7 @@ export default function App() {
       <Header
         title="LighthousePM"
         subtitle={
-          selectedRelease
-            ? `${selectedRelease.name} • ${selectedRelease.project_key} • ${selectedRelease.status ?? "Unknown status"}`
-            : "Release analytics dashboard"
+          ""
         }
       />
 
@@ -244,6 +242,7 @@ export default function App() {
             <ChartsPanel
               charts={charts}
               releases={releases}
+              selectedReleaseName={selectedRelease?.name ?? null}
               refreshNonce={dashboardRefreshNonce}
               isLoading={isLoadingDetails}
             />

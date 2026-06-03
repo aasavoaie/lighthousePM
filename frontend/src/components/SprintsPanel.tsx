@@ -442,9 +442,11 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [issues, setIssues] = useState<SprintIssue[]>([]);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [isSprintHealthStatsExpanded, setIsSprintHealthStatsExpanded] = useState(true);
   const [isTicketSituationExpanded, setIsTicketSituationExpanded] = useState(false);
   const [isDeliveryConfidenceExpanded, setIsDeliveryConfidenceExpanded] = useState(true);
   const [isSprintMetricsExpanded, setIsSprintMetricsExpanded] = useState(true);
+  const [isSprintChartsExpanded, setIsSprintChartsExpanded] = useState(true);
   const [sprintStoryPointRows, setSprintStoryPointRows] = useState<SprintStoryPointRow[]>([]);
   const [isLoadingSprintStoryPoints, setIsLoadingSprintStoryPoints] = useState(false);
   const [sprintStoryPointError, setSprintStoryPointError] = useState<string | null>(null);
@@ -723,58 +725,70 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
     <div className="sprints-panel">
       <section className="panel sprint-controls-panel">
         <div className="panel-heading">
-          <h2>Sprint Metrics</h2>
-        </div>
-        <div className="sprint-controls-layout">
-          <div className="sprint-control-block">
-            <label className="field-label" htmlFor="sprint-selector">
-              Select sprint
-            </label>
-            <select
-              id="sprint-selector"
-              className="select-input"
-              value={selectedSprintId ?? ""}
-              disabled={isLoadingList || options.length === 0}
-              onChange={(event) => setSelectedSprintId(event.target.value || null)}
-            >
-              {options.length === 0 ? <option value="">No sprints available</option> : null}
-              {options.map((option) => (
-                <option key={option.sprint.sprint_id} value={option.sprint.sprint_id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {selectedSprint ? (
-              <div className="sprint-meta">
-                <p>
-                  <strong>State:</strong> {selectedSprint.state}
-                </p>
-                <p>
-                  <strong>Start:</strong> {formatDate(selectedSprint.start_date)}
-                </p>
-                <p>
-                  <strong>End:</strong> {formatDate(selectedSprint.end_date)}
-                </p>
-                <p>
-                  <strong>Completed:</strong> {formatDate(selectedSprint.complete_date)}
-                </p>
-              </div>
-            ) : null}
-          </div>
-          <div className="sprint-control-block sprint-recompute-block">
+          <h2>Sprint Health Stats</h2>
+          <div className="panel-heading-actions">
             <button
               type="button"
-              className="primary-button"
-              disabled={!selectedSprintId || isRecomputing}
-              onClick={handleRecomputeSprint}
+              className="secondary-button compact-button"
+              aria-expanded={isSprintHealthStatsExpanded}
+              onClick={() => setIsSprintHealthStatsExpanded((current) => !current)}
             >
-              {isRecomputing ? "Recomputing..." : "Recompute Sprint"}
+              {isSprintHealthStatsExpanded ? "Minimize" : "Expand"}
             </button>
-            {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
-              <p className="muted action-status">Age {metrics.snapshot_age_hours.toFixed(1)}h</p>
-            ) : null}
           </div>
         </div>
+        {isSprintHealthStatsExpanded ? (
+          <div className="sprint-controls-layout">
+            <div className="sprint-control-block">
+              <label className="field-label" htmlFor="sprint-selector">
+                Select sprint
+              </label>
+              <select
+                id="sprint-selector"
+                className="select-input"
+                value={selectedSprintId ?? ""}
+                disabled={isLoadingList || options.length === 0}
+                onChange={(event) => setSelectedSprintId(event.target.value || null)}
+              >
+                {options.length === 0 ? <option value="">No sprints available</option> : null}
+                {options.map((option) => (
+                  <option key={option.sprint.sprint_id} value={option.sprint.sprint_id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {selectedSprint ? (
+                <div className="sprint-meta">
+                  <p>
+                    <strong>State:</strong> {selectedSprint.state}
+                  </p>
+                  <p>
+                    <strong>Start:</strong> {formatDate(selectedSprint.start_date)}
+                  </p>
+                  <p>
+                    <strong>End:</strong> {formatDate(selectedSprint.end_date)}
+                  </p>
+                  <p>
+                    <strong>Completed:</strong> {formatDate(selectedSprint.complete_date)}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+            <div className="sprint-control-block sprint-recompute-block">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!selectedSprintId || isRecomputing}
+                onClick={handleRecomputeSprint}
+              >
+                {isRecomputing ? "Recomputing..." : "Recompute Sprint"}
+              </button>
+              {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
+                <p className="muted action-status">Age {metrics.snapshot_age_hours.toFixed(1)}h</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
@@ -918,86 +932,107 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
       </section>
 
       <section className="panel charts-panel">
-        <div id="delivery-confidence-history" className="chart-section-heading first">
-          <h3>Delivery confidence in recent sprints</h3>
-          {sprintConfidenceRows.length > 0 ? <span className="muted">Last {sprintConfidenceRows.length}</span> : null}
+        <div className="panel-heading">
+          <h2>Charts</h2>
+          <div className="panel-heading-actions">
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              aria-expanded={isSprintChartsExpanded}
+              onClick={() => setIsSprintChartsExpanded((current) => !current)}
+            >
+              {isSprintChartsExpanded ? "Minimize" : "Expand"}
+            </button>
+          </div>
         </div>
-        {isLoadingSprintConfidence ? <p className="muted">Loading delivery confidence...</p> : null}
-        {sprintConfidenceError ? <p className="error-text">{sprintConfidenceError}</p> : null}
-        {!isLoadingSprintConfidence && !sprintConfidenceError && sprintConfidenceRows.length === 0 ? (
-          <p className="muted">No sprint confidence data available yet.</p>
-        ) : null}
-        {!isLoadingSprintConfidence && !sprintConfidenceError && sprintConfidenceRows.length > 0 ? (
-          <MetricLineChart
-            data={sprintConfidenceRows}
-            lines={[
-              {
-                key: "delivery_confidence",
-                label: "Delivery confidence",
-                color: MetricColors.sprintConfidence,
-              },
-            ]}
-            dataKey="name"
-            formatter={formatDecimal}
-          />
-        ) : null}
+        {isSprintChartsExpanded ? (
+          <>
+            <div id="delivery-confidence-history" className="chart-section-heading first">
+              <h3>Delivery confidence in recent sprints</h3>
+              {sprintConfidenceRows.length > 0 ? (
+                <span className="muted">Last {sprintConfidenceRows.length}</span>
+              ) : null}
+            </div>
+            {isLoadingSprintConfidence ? <p className="muted">Loading delivery confidence...</p> : null}
+            {sprintConfidenceError ? <p className="error-text">{sprintConfidenceError}</p> : null}
+            {!isLoadingSprintConfidence && !sprintConfidenceError && sprintConfidenceRows.length === 0 ? (
+              <p className="muted">No sprint confidence data available yet.</p>
+            ) : null}
+            {!isLoadingSprintConfidence && !sprintConfidenceError && sprintConfidenceRows.length > 0 ? (
+              <MetricLineChart
+                data={sprintConfidenceRows}
+                lines={[
+                  {
+                    key: "delivery_confidence",
+                    label: "Delivery confidence",
+                    color: MetricColors.sprintConfidence,
+                  },
+                ]}
+                dataKey="name"
+                formatter={formatDecimal}
+              />
+            ) : null}
 
-        <div className="chart-section-heading">
-          <h3>Sprint Commitment Reliability</h3>
-          {sprintCommitmentReliabilityRows.length > 0 ? (
-            <span className="muted">Last {sprintCommitmentReliabilityRows.length}</span>
-          ) : null}
-        </div>
-        {isLoadingSprintConfidence ? <p className="muted">Loading sprint commitment reliability...</p> : null}
-        {sprintConfidenceError ? <p className="error-text">{sprintConfidenceError}</p> : null}
-        {!isLoadingSprintConfidence && !sprintConfidenceError && sprintCommitmentReliabilityRows.length === 0 ? (
-          <p className="muted">No sprint commitment reliability data available yet.</p>
-        ) : null}
-        {!isLoadingSprintConfidence && !sprintConfidenceError && sprintCommitmentReliabilityRows.length > 0 ? (
-          <MetricMultiBarChart
-            data={sprintCommitmentReliabilityRows}
-            bars={[
-              {
-                key: "committed_story_points",
-                label: "Committed story points",
-                color: committedStoryPointColor,
-              },
-              {
-                key: "completed_story_points",
-                label: "Completed story points",
-                color: completedStoryPointColor,
-              },
-            ]}
-            dataKey="name"
-            formatter={(value) => String(value)}
-          />
-        ) : null}
+            <div className="chart-section-heading">
+              <h3>Sprint Commitment Reliability</h3>
+              {sprintCommitmentReliabilityRows.length > 0 ? (
+                <span className="muted">Last {sprintCommitmentReliabilityRows.length}</span>
+              ) : null}
+            </div>
+            {isLoadingSprintConfidence ? <p className="muted">Loading sprint commitment reliability...</p> : null}
+            {sprintConfidenceError ? <p className="error-text">{sprintConfidenceError}</p> : null}
+            {!isLoadingSprintConfidence && !sprintConfidenceError && sprintCommitmentReliabilityRows.length === 0 ? (
+              <p className="muted">No sprint commitment reliability data available yet.</p>
+            ) : null}
+            {!isLoadingSprintConfidence && !sprintConfidenceError && sprintCommitmentReliabilityRows.length > 0 ? (
+              <MetricMultiBarChart
+                data={sprintCommitmentReliabilityRows}
+                bars={[
+                  {
+                    key: "committed_story_points",
+                    label: "Committed story points",
+                    color: committedStoryPointColor,
+                  },
+                  {
+                    key: "completed_story_points",
+                    label: "Completed story points",
+                    color: completedStoryPointColor,
+                  },
+                ]}
+                dataKey="name"
+                formatter={(value) => String(value)}
+              />
+            ) : null}
 
-        <div className="chart-section-heading">
-          <h3>Story points in every sprint</h3>
-          {sprintStoryPointRows.length > 0 ? <span className="muted">Last {sprintStoryPointRows.length}</span> : null}
-        </div>
-        <div className="chart-legend-note" aria-label="Sprint state color legend">
-          <span className="chart-legend-swatch not-closed" aria-hidden="true" />
-          <span>All sprints in this color are not closed yet.</span>
-        </div>
-        {sprintStoryPointError ? <p className="error-text">{sprintStoryPointError}</p> : null}
-        {!isLoadingSprintStoryPoints && !sprintStoryPointError ? (
-          <MetricBarChart
-            data={sprintStoryPointRows}
-            barKey="story_points"
-            barLabel="Story points"
-            barColor={MetricColors.closedSprintStoryPoints}
-            cellColors={(row) => {
-              const sprintRow = row as SprintStoryPointRow;
-              return sprintRow.is_not_closed
-                ? MetricColors.notClosedSprintStoryPoints
-                : MetricColors.closedSprintStoryPoints;
-            }}
-            loading={isLoadingSprintStoryPoints}
-            empty={sprintStoryPointRows.length === 0}
-            emptyMessage="No sprint story point data available yet."
-          />
+            <div className="chart-section-heading">
+              <h3>Story points in every sprint</h3>
+              {sprintStoryPointRows.length > 0 ? (
+                <span className="muted">Last {sprintStoryPointRows.length}</span>
+              ) : null}
+            </div>
+            <div className="chart-legend-note" aria-label="Sprint state color legend">
+              <span className="chart-legend-swatch not-closed" aria-hidden="true" />
+              <span>All sprints in this color are not closed yet.</span>
+            </div>
+            {sprintStoryPointError ? <p className="error-text">{sprintStoryPointError}</p> : null}
+            {!isLoadingSprintStoryPoints && !sprintStoryPointError ? (
+              <MetricBarChart
+                data={sprintStoryPointRows}
+                barKey="story_points"
+                barLabel="Story points"
+                barColor={MetricColors.closedSprintStoryPoints}
+                cellColors={(row) => {
+                  const sprintRow = row as SprintStoryPointRow;
+                  return sprintRow.is_not_closed
+                    ? MetricColors.notClosedSprintStoryPoints
+                    : MetricColors.closedSprintStoryPoints;
+                }}
+                loading={isLoadingSprintStoryPoints}
+                empty={sprintStoryPointRows.length === 0}
+                emptyMessage="No sprint story point data available yet."
+              />
+            ) : null}
+          </>
         ) : null}
       </section>
     </div>

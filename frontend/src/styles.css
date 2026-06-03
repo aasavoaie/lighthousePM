@@ -111,14 +111,11 @@ select {
   grid-column: span 4;
 }
 
-.admin-panel {
-  grid-column: span 8;
-}
-
 .signal-panel,
 .issues-panel,
 .metrics-panel,
-.charts-panel {
+.charts-panel,
+.admin-panel {
   grid-column: 1 / -1;
 }
 

@@ -12,6 +12,7 @@ import {
 interface ChartsPanelProps {
   charts: ReleaseChartsResponse | null;
   releases: Release[];
+  selectedReleaseName: string | null;
   refreshNonce: number;
   isLoading: boolean;
 }
@@ -115,8 +116,11 @@ function isUnreleasedRelease(release: Release) {
   return (release.status ?? "").trim().toLowerCase() !== "released";
 }
 
-export function ChartsPanel({ charts, releases, refreshNonce, isLoading }: ChartsPanelProps) {
+export function ChartsPanel({ charts, releases, selectedReleaseName, refreshNonce, isLoading }: ChartsPanelProps) {
   const rows = buildChartRows(charts);
+  const releaseEventsTitle = selectedReleaseName
+    ? `Release ${selectedReleaseName} events`
+    : "Release events";
   const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
   const [storyPointRows, setStoryPointRows] = useState<StoryPointRow[]>([]);
   const [isLoadingStoryPoints, setIsLoadingStoryPoints] = useState(false);
@@ -125,6 +129,7 @@ export function ChartsPanel({ charts, releases, refreshNonce, isLoading }: Chart
   const [signalTrendChartRows, setSignalTrendChartRows] = useState<SignalChartRow[]>([]);
   const [isLoadingSignalTrend, setIsLoadingSignalTrend] = useState(false);
   const [signalTrendError, setSignalTrendError] = useState<string | null>(null);
+  const [isChartsExpanded, setIsChartsExpanded] = useState(true);
 
   useEffect(() => {
     if (recentReleases.length === 0) {
@@ -240,74 +245,99 @@ export function ChartsPanel({ charts, releases, refreshNonce, isLoading }: Chart
   return (
     <section className="panel charts-panel">
       <div className="panel-heading">
-        <h2>Release events</h2>
-        {charts ? <span className="muted">Snapshots {charts.point_count}</span> : null}
+        <h2>Release-related Charts</h2>
+        <div className="panel-heading-actions">
+          {charts ? <span className="muted">Snapshots {charts.point_count}</span> : null}
+          <button
+            type="button"
+            className="secondary-button compact-button"
+            aria-expanded={isChartsExpanded}
+            onClick={() => setIsChartsExpanded((current) => !current)}
+          >
+            {isChartsExpanded ? "Minimize" : "Expand"}
+          </button>
+        </div>
       </div>
-      {isLoading ? <p className="muted">Loading charts...</p> : null}
-      {!isLoading && rows.length === 0 ? <p className="muted">No chart data available yet.</p> : null}
-      {!isLoading && rows.length > 0 ? (
-        <MetricLineChart
-          data={rows}
-          lines={chartLines}
-          dataKey="snapshot_at"
-          formatter={(value, name) => {
-            if (name === "scope_completed_pct" || name === "open_high_severity_bugs" || name === "open_blockers") {
-              return String(value);
-            }
-            return formatPercentage(value);
-          }}
-        />
-      ) : null}
+      {isChartsExpanded ? (
+        <>
+          {isLoading ? <p className="muted">Loading charts...</p> : null}
+          {!isLoading && rows.length === 0 ? <p className="muted">No chart data available yet.</p> : null}
+          {!isLoading && rows.length > 0 ? (
+            <div className="chart-section-heading first">
+              <h3>{releaseEventsTitle}</h3>
+            </div>
+          ) : null}
+          {!isLoading && rows.length > 0 ? (
+            <MetricLineChart
+              data={rows}
+              lines={chartLines}
+              dataKey="snapshot_at"
+              formatter={(value, name) => {
+                if (
+                  name === "scope_completed_pct" ||
+                  name === "open_high_severity_bugs" ||
+                  name === "open_blockers"
+                ) {
+                  return String(value);
+                }
+                return formatPercentage(value);
+              }}
+            />
+          ) : null}
 
-      <div className="chart-section-heading">
-        <h3>Signal trend (recent releases)</h3>
-        {signalTrendChartRows.length > 0 ? <span className="muted">Last {signalTrendChartRows.length}</span> : null}
-      </div>
-      {signalTrendError ? <p className="error-text">{signalTrendError}</p> : null}
-      {!signalTrendError ? (
-        <MetricBarChart
-          data={signalTrendChartRows}
-          barKey="signal_score"
-          barLabel="Signal health"
-          barColor={MetricColors.sprintConfidence}
-          cellColors={(row) => getSignalColor((row as SignalChartRow).signal)}
-          height={240}
-          dataKey="name"
-          formatter={(value) => {
-            const valueMap: Record<number, string> = { 1: "RED", 2: "YELLOW", 3: "GREEN" };
-            return valueMap[Math.round(value)] || String(value);
-          }}
-          loading={isLoadingSignalTrend}
-          empty={signalTrendChartRows.length === 0}
-          emptyMessage="Loading signal trend..."
-        />
-      ) : null}
+          <div className="chart-section-heading">
+            <h3>Signal trend (recent releases)</h3>
+            {signalTrendChartRows.length > 0 ? (
+              <span className="muted">Last {signalTrendChartRows.length}</span>
+            ) : null}
+          </div>
+          {signalTrendError ? <p className="error-text">{signalTrendError}</p> : null}
+          {!signalTrendError ? (
+            <MetricBarChart
+              data={signalTrendChartRows}
+              barKey="signal_score"
+              barLabel="Signal health"
+              barColor={MetricColors.sprintConfidence}
+              cellColors={(row) => getSignalColor((row as SignalChartRow).signal)}
+              height={240}
+              dataKey="name"
+              formatter={(value) => {
+                const valueMap: Record<number, string> = { 1: "RED", 2: "YELLOW", 3: "GREEN" };
+                return valueMap[Math.round(value)] || String(value);
+              }}
+              loading={isLoadingSignalTrend}
+              empty={signalTrendChartRows.length === 0}
+              emptyMessage="Loading signal trend..."
+            />
+          ) : null}
 
-      <div className="chart-section-heading">
-        <h3>Story points in every release</h3>
-        {storyPointRows.length > 0 ? <span className="muted">Last {storyPointRows.length}</span> : null}
-      </div>
-      <div className="chart-legend-note" aria-label="Release status color legend">
-        <span className="chart-legend-swatch unreleased" aria-hidden="true" />
-        <span>All releases in this color are not released yet.</span>
-      </div>
-      {storyPointError ? <p className="error-text">{storyPointError}</p> : null}
-      {!isLoadingStoryPoints && !storyPointError ? (
-        <MetricBarChart
-          data={storyPointRows}
-          barKey="story_points"
-          barLabel="Story points"
-          barColor={MetricColors.releasedStoryPoints}
-          cellColors={(row) => {
-            const storyRow = row as StoryPointRow;
-            return storyRow.is_unreleased
-              ? MetricColors.unreleasedStoryPoints
-              : MetricColors.releasedStoryPoints;
-          }}
-          loading={isLoadingStoryPoints}
-          empty={storyPointRows.length === 0}
-          emptyMessage="No release story point data available yet."
-        />
+          <div className="chart-section-heading">
+            <h3>Story points in every release</h3>
+            {storyPointRows.length > 0 ? <span className="muted">Last {storyPointRows.length}</span> : null}
+          </div>
+          <div className="chart-legend-note" aria-label="Release status color legend">
+            <span className="chart-legend-swatch unreleased" aria-hidden="true" />
+            <span>All releases in this color are not released yet.</span>
+          </div>
+          {storyPointError ? <p className="error-text">{storyPointError}</p> : null}
+          {!isLoadingStoryPoints && !storyPointError ? (
+            <MetricBarChart
+              data={storyPointRows}
+              barKey="story_points"
+              barLabel="Story points"
+              barColor={MetricColors.releasedStoryPoints}
+              cellColors={(row) => {
+                const storyRow = row as StoryPointRow;
+                return storyRow.is_unreleased
+                  ? MetricColors.unreleasedStoryPoints
+                  : MetricColors.releasedStoryPoints;
+              }}
+              loading={isLoadingStoryPoints}
+              empty={storyPointRows.length === 0}
+              emptyMessage="No release story point data available yet."
+            />
+          ) : null}
+        </>
       ) : null}
     </section>
   );
