@@ -480,6 +480,10 @@ select {
   color: inherit;
 }
 
+.delivery-confidence-heading-score {
+  margin-top: 0;
+}
+
 .confidence-trend-icon {
   position: relative;
   display: inline-flex;
@@ -558,7 +562,7 @@ select {
   font-size: 0.82rem;
 }
 
-.confidence-score-card h3,
+.delivery-confidence-title,
 .confidence-component h3 {
   display: inline-flex;
   align-items: center;

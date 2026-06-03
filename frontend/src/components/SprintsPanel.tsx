@@ -268,40 +268,9 @@ function getConfidenceTrendTooltip(trend: ConfidenceTrend) {
   return `Based on the last 3 sprints, confidence is ${trend}.`;
 }
 
-function renderDeliveryConfidence(
-  confidence: DeliveryConfidenceDetail,
-  confidenceTrend: ConfidenceTrend | null
-) {
-  const confidenceTrendTooltip = confidenceTrend ? getConfidenceTrendTooltip(confidenceTrend) : null;
-
+function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail) {
   return (
     <div className="metric-grid confidence-grid">
-      <article className="metric-card confidence-score-card">
-        <h3>
-          Delivery confidence
-          <button
-            type="button"
-            className="info-button"
-            title="Delivery confidence is a weighted sprint health score. It combines progress alignment, velocity fit, blocker penalty, and scope stability to produce a single confidence value."
-            aria-label="Delivery confidence info"
-          >
-            i
-          </button>
-        </h3>
-        <p className="metric-description">{sprintMetricDescriptions.delivery_confidence_score}</p>
-        <div className="confidence-score-value">
-          <strong className={getDeliveryConfidenceClass(confidence.score)}>{confidence.score.toFixed(2)}</strong>
-          {confidenceTrend && confidenceTrendTooltip ? (
-            <span
-              className={`confidence-trend-icon ${confidenceTrend}`}
-              title={confidenceTrendTooltip}
-              aria-label={confidenceTrendTooltip}
-              role="img"
-              tabIndex={0}
-            />
-          ) : null}
-        </div>
-      </article>
       <div className="confidence-breakdown">
         {(Object.keys(confidence.components) as Array<keyof DeliveryConfidenceDetail["components"]>).map((key) => {
           const value = confidence.components[key];
@@ -480,6 +449,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
     return getRecentSprints(Array.from(sprintsById.values()));
   }, [currentSprint, closedSprints]);
   const confidenceTrend = useMemo(() => getConfidenceTrend(sprintConfidenceRows), [sprintConfidenceRows]);
+  const confidenceTrendTooltip = confidenceTrend ? getConfidenceTrendTooltip(confidenceTrend) : null;
 
   useEffect(() => {
     let isActive = true;
@@ -723,83 +693,38 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
 
   return (
     <div className="sprints-panel">
-      <section className="panel sprint-controls-panel">
-        <div className="panel-heading">
-          <h2>Sprint Health Stats</h2>
-          <div className="panel-heading-actions">
-            <button
-              type="button"
-              className="secondary-button compact-button"
-              aria-expanded={isSprintHealthStatsExpanded}
-              onClick={() => setIsSprintHealthStatsExpanded((current) => !current)}
-            >
-              {isSprintHealthStatsExpanded ? "Minimize" : "Expand"}
-            </button>
-          </div>
-        </div>
-        {isSprintHealthStatsExpanded ? (
-          <div className="sprint-controls-layout">
-            <div className="sprint-control-block">
-              <label className="field-label" htmlFor="sprint-selector">
-                Select sprint
-              </label>
-              <select
-                id="sprint-selector"
-                className="select-input"
-                value={selectedSprintId ?? ""}
-                disabled={isLoadingList || options.length === 0}
-                onChange={(event) => setSelectedSprintId(event.target.value || null)}
-              >
-                {options.length === 0 ? <option value="">No sprints available</option> : null}
-                {options.map((option) => (
-                  <option key={option.sprint.sprint_id} value={option.sprint.sprint_id}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {selectedSprint ? (
-                <div className="sprint-meta">
-                  <p>
-                    <strong>State:</strong> {selectedSprint.state}
-                  </p>
-                  <p>
-                    <strong>Start:</strong> {formatDate(selectedSprint.start_date)}
-                  </p>
-                  <p>
-                    <strong>End:</strong> {formatDate(selectedSprint.end_date)}
-                  </p>
-                  <p>
-                    <strong>Completed:</strong> {formatDate(selectedSprint.complete_date)}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-            <div className="sprint-control-block sprint-recompute-block">
-              <button
-                type="button"
-                className="primary-button"
-                disabled={!selectedSprintId || isRecomputing}
-                onClick={handleRecomputeSprint}
-              >
-                {isRecomputing ? "Recomputing..." : "Recompute Sprint"}
-              </button>
-              {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
-                <p className="muted action-status">Age {metrics.snapshot_age_hours.toFixed(1)}h</p>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-      </section>
-
       {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
 
       <section className="panel delivery-confidence-panel">
         <div className="panel-heading">
-          <h2>Delivery Confidence</h2>
+          <h2 className="delivery-confidence-title">
+            Delivery Confidence
+            <button
+              type="button"
+              className="info-button"
+              title="Delivery confidence is a weighted sprint health score. It combines progress alignment, velocity fit, blocker penalty, and scope stability to produce a single confidence value."
+              aria-label="Delivery confidence info"
+            >
+              i
+            </button>
+          </h2>
           <div className="panel-heading-actions">
             {metrics?.delivery_confidence ? (
               <>
-                <span className="muted">Score {metrics.delivery_confidence.score.toFixed(2)}</span>
+                <div className="confidence-score-value delivery-confidence-heading-score">
+                  <strong className={getDeliveryConfidenceClass(metrics.delivery_confidence.score)}>
+                    {metrics.delivery_confidence.score.toFixed(2)}
+                  </strong>
+                  {confidenceTrend && confidenceTrendTooltip ? (
+                    <span
+                      className={`confidence-trend-icon ${confidenceTrend}`}
+                      title={confidenceTrendTooltip}
+                      aria-label={confidenceTrendTooltip}
+                      role="img"
+                      tabIndex={0}
+                    />
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   className="secondary-button compact-button"
@@ -817,7 +742,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           <p className="muted">Sprint metrics have not been computed yet.</p>
         ) : null}
         {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
-          ? renderDeliveryConfidence(metrics.delivery_confidence, confidenceTrend)
+          ? renderDeliveryConfidence(metrics.delivery_confidence)
           : null}
       </section>
 
@@ -1033,6 +958,74 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
               />
             ) : null}
           </>
+        ) : null}
+      </section>
+
+      <section className="panel sprint-controls-panel">
+        <div className="panel-heading">
+          <h2>Sprint Health Stats</h2>
+          <div className="panel-heading-actions">
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              aria-expanded={isSprintHealthStatsExpanded}
+              onClick={() => setIsSprintHealthStatsExpanded((current) => !current)}
+            >
+              {isSprintHealthStatsExpanded ? "Minimize" : "Expand"}
+            </button>
+          </div>
+        </div>
+        {isSprintHealthStatsExpanded ? (
+          <div className="sprint-controls-layout">
+            <div className="sprint-control-block">
+              <label className="field-label" htmlFor="sprint-selector">
+                Select sprint
+              </label>
+              <select
+                id="sprint-selector"
+                className="select-input"
+                value={selectedSprintId ?? ""}
+                disabled={isLoadingList || options.length === 0}
+                onChange={(event) => setSelectedSprintId(event.target.value || null)}
+              >
+                {options.length === 0 ? <option value="">No sprints available</option> : null}
+                {options.map((option) => (
+                  <option key={option.sprint.sprint_id} value={option.sprint.sprint_id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {selectedSprint ? (
+                <div className="sprint-meta">
+                  <p>
+                    <strong>State:</strong> {selectedSprint.state}
+                  </p>
+                  <p>
+                    <strong>Start:</strong> {formatDate(selectedSprint.start_date)}
+                  </p>
+                  <p>
+                    <strong>End:</strong> {formatDate(selectedSprint.end_date)}
+                  </p>
+                  <p>
+                    <strong>Completed:</strong> {formatDate(selectedSprint.complete_date)}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+            <div className="sprint-control-block sprint-recompute-block">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!selectedSprintId || isRecomputing}
+                onClick={handleRecomputeSprint}
+              >
+                {isRecomputing ? "Recomputing..." : "Recompute Sprint"}
+              </button>
+              {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
+                <p className="muted action-status">Age {metrics.snapshot_age_hours.toFixed(1)}h</p>
+              ) : null}
+            </div>
+          </div>
         ) : null}
       </section>
     </div>

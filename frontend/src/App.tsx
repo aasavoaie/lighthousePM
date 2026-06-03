@@ -199,18 +199,6 @@ export default function App() {
       </nav>
 
       <main className="dashboard-grid">
-        {selectedTab === "dashboard" ? (
-          <ReleaseSelector
-            releases={releases}
-            selectedReleaseId={selectedReleaseId}
-            selectedRelease={selectedRelease}
-            isLoading={isLoadingReleases}
-            isRecomputing={isRecomputingRelease}
-            onChange={setSelectedReleaseId}
-            onRecompute={handleRecomputeRelease}
-          />
-        ) : null}
-
         {errorMessage && selectedTab === "dashboard" ? <div className="panel error-panel">{errorMessage}</div> : null}
 
         {!isLoadingReleases && releases.length === 0 && selectedTab !== "admin" && selectedTab !== "sprints" ? (
@@ -247,6 +235,18 @@ export default function App() {
               isLoading={isLoadingDetails}
             />
           </>
+        ) : null}
+
+        {selectedTab === "dashboard" ? (
+          <ReleaseSelector
+            releases={releases}
+            selectedReleaseId={selectedReleaseId}
+            selectedRelease={selectedRelease}
+            isLoading={isLoadingReleases}
+            isRecomputing={isRecomputingRelease}
+            onChange={setSelectedReleaseId}
+            onRecompute={handleRecomputeRelease}
+          />
         ) : null}
 
         {selectedTab === "sprints" ? (
