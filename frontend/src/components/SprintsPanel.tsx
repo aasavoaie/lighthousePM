@@ -441,6 +441,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [isTicketSituationExpanded, setIsTicketSituationExpanded] = useState(false);
   const [isDeliveryConfidenceExpanded, setIsDeliveryConfidenceExpanded] = useState(true);
+  const [isSprintMetricsExpanded, setIsSprintMetricsExpanded] = useState(true);
   const [sprintStoryPointRows, setSprintStoryPointRows] = useState<SprintStoryPointRow[]>([]);
   const [isLoadingSprintStoryPoints, setIsLoadingSprintStoryPoints] = useState(false);
   const [sprintStoryPointError, setSprintStoryPointError] = useState<string | null>(null);
@@ -776,11 +777,26 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
       {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
 
       <section className="panel metrics-panel">
-        {isLoadingDetails ? <p className="muted">Loading sprint metrics...</p> : null}
-        {!isLoadingDetails && metrics && !metrics.is_computed ? (
-          <p className="muted">Sprint metrics have not been computed yet.</p>
-        ) : null}
-        {!isLoadingDetails && metrics?.is_computed ? (
+        <div className="panel-heading">
+          <h2>Metrics</h2>
+          <div className="panel-heading-actions">
+            <button
+              type="button"
+              className="secondary-button compact-button"
+              aria-expanded={isSprintMetricsExpanded}
+              onClick={() => setIsSprintMetricsExpanded((current) => !current)}
+            >
+              {isSprintMetricsExpanded ? "Minimize" : "Expand"}
+            </button>
+          </div>
+        </div>
+        {isSprintMetricsExpanded ? (
+          <>
+            {isLoadingDetails ? <p className="muted">Loading sprint metrics...</p> : null}
+            {!isLoadingDetails && metrics && !metrics.is_computed ? (
+              <p className="muted">Sprint metrics have not been computed yet.</p>
+            ) : null}
+            {!isLoadingDetails && metrics?.is_computed ? (
           <>
             {metrics.delivery_confidence ? (
               <div className="panel-heading delivery-confidence-heading">
@@ -828,6 +844,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
             </div>
           </>
         ) : null}
+      </>
+    ) : null}
       </section>
 
       <section className="panel issues-panel">
