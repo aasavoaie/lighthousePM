@@ -125,6 +125,7 @@ export interface MetricValues {
   open_blockers: number | null;
   open_high_severity_bugs: number | null;
   scope_completed_pct: number | null;
+  completed_tickets: number | null;
   scope_churn_7d_pct: number | null;
   median_cycle_time_days: number | null;
   reopen_rate_pct: number | null;
@@ -161,6 +162,7 @@ export interface MetricSeries {
   open_blockers: ChartPoint[];
   open_high_severity_bugs: ChartPoint[];
   scope_completed_pct: ChartPoint[];
+  completed_tickets: ChartPoint[];
   scope_churn_7d_pct: ChartPoint[];
   median_cycle_time_days: ChartPoint[];
   reopen_rate_pct: ChartPoint[];
@@ -229,6 +231,21 @@ export interface SignalRiskAging {
   as_of: string | null;
 }
 
+export interface SignalLast24HoursItem {
+  metric_name: string;
+  label: string;
+  delta: number | null;
+  value_type: string;
+  impact: "positive" | "negative" | "neutral" | "unknown";
+}
+
+export interface SignalLast24Hours {
+  as_of: string | null;
+  baseline_at: string | null;
+  has_baseline: boolean;
+  items: SignalLast24HoursItem[];
+}
+
 export interface ReleaseSignalResponse {
   release_id: string;
   signal: string | null;
@@ -242,6 +259,7 @@ export interface ReleaseSignalResponse {
   warnings: SignalRiskItem[];
   primary_risk: SignalPrimaryRisk | null;
   risk_aging: SignalRiskAging;
+  last_24_hours: SignalLast24Hours;
   thresholds: SignalThresholds;
   updated_at: string | null;
 }

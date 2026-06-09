@@ -74,6 +74,7 @@ def _seed_snapshot(
     snapshot_at: datetime | None = None,
     open_blocker_issue_keys: list[str] | None = None,
     open_high_severity_bug_issue_keys: list[str] | None = None,
+    completed_tickets: int | None = None,
 ) -> None:
     session.add(
         MetricSnapshot(
@@ -84,6 +85,7 @@ def _seed_snapshot(
             open_blocker_issue_keys=open_blocker_issue_keys or [],
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys or [],
             scope_completed_pct=50.0,
+            completed_tickets=completed_tickets,
             scope_churn_7d_pct=scope_churn_7d_pct,
             median_cycle_time_days=median_cycle_time_days,
             reopen_rate_pct=reopen_rate_pct,
@@ -166,6 +168,7 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
             "high_severity_bugs": {"count": 0, "oldest_age_days": None, "average_age_days": None},
             "as_of": None,
         },
+        "last_24_hours": {"as_of": None, "baseline_at": None, "has_baseline": False, "items": []},
         "thresholds": {
             "open_blockers_red": 0,
             "open_high_severity_bugs_red": 1,
@@ -232,6 +235,7 @@ def test_get_release_signal_after_metrics_recompute_returns_green(client: TestCl
     assert payload["primary_risk"] is None
     assert payload["risk_aging"]["blockers"]["count"] == 0
     assert payload["risk_aging"]["high_severity_bugs"]["count"] == 0
+    assert payload["last_24_hours"]["has_baseline"] is False
     assert payload["reasons"] == ["No major risk indicators"]
     assert payload["reason_details"] == []
     assert payload["thresholds"]["median_cycle_time_days_yellow"] == 7.0
@@ -366,3 +370,81 @@ def test_get_release_signal_risk_aging_honors_zero_count_snapshot(client: TestCl
         "oldest_age_days": None,
         "average_age_days": None,
     }
+
+
+def test_get_release_signal_returns_last_24_hours_deltas(client: TestClient) -> None:
+    latest_at = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
+    baseline_at = latest_at - timedelta(hours=25)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_snapshot(
+            session,
+            release_id="REL-1",
+            snapshot_at=baseline_at,
+            open_blockers=3,
+            open_high_severity_bugs=3,
+            completed_tickets=2,
+            scope_churn_7d_pct=0.0,
+            reopen_rate_pct=11.0,
+            median_cycle_time_days=2.0,
+        )
+        _seed_snapshot(
+            session,
+            release_id="REL-1",
+            snapshot_at=latest_at - timedelta(hours=23),
+            open_blockers=99,
+            open_high_severity_bugs=99,
+            completed_tickets=99,
+            scope_churn_7d_pct=99.0,
+            reopen_rate_pct=99.0,
+            median_cycle_time_days=99.0,
+        )
+        _seed_snapshot(
+            session,
+            release_id="REL-1",
+            snapshot_at=latest_at,
+            open_blockers=5,
+            open_high_severity_bugs=2,
+            completed_tickets=6,
+            scope_churn_7d_pct=0.0,
+            reopen_rate_pct=0.0,
+            median_cycle_time_days=2.0,
+        )
+        _seed_signal(session, release_id="REL-1", signal="RED")
+
+    response = client.get("/releases/REL-1/signal")
+    assert response.status_code == 200
+    last_24_hours = response.json()["last_24_hours"]
+    assert last_24_hours["as_of"] == "2026-01-20T12:00:00Z"
+    assert last_24_hours["baseline_at"] == "2026-01-19T11:00:00Z"
+    assert last_24_hours["has_baseline"] is True
+    assert last_24_hours["items"] == [
+        {
+            "metric_name": "open_blockers",
+            "label": "blocker",
+            "delta": 2.0,
+            "value_type": "count",
+            "impact": "negative",
+        },
+        {
+            "metric_name": "open_high_severity_bugs",
+            "label": "high severity bug",
+            "delta": -1.0,
+            "value_type": "count",
+            "impact": "positive",
+        },
+        {
+            "metric_name": "completed_tickets",
+            "label": "completed ticket",
+            "delta": 4.0,
+            "value_type": "count",
+            "impact": "positive",
+        },
+        {
+            "metric_name": "confidence_score",
+            "label": "Confidence",
+            "delta": 3.0,
+            "value_type": "percentage",
+            "impact": "positive",
+        },
+    ]

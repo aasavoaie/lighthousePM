@@ -146,6 +146,7 @@ def test_scope_completed_pct_empty_release(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.scope_completed_pct == 0.0
+    assert result.completed_tickets == 0
 
 
 def test_scope_completed_pct_partial(db_session: Session) -> None:
@@ -158,6 +159,7 @@ def test_scope_completed_pct_partial(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.scope_completed_pct == 50.0
+    assert result.completed_tickets == 2
 
 
 def test_scope_completed_pct_all_done(db_session: Session) -> None:
@@ -168,6 +170,7 @@ def test_scope_completed_pct_all_done(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.scope_completed_pct == 100.0
+    assert result.completed_tickets == 2
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +374,7 @@ def test_recompute_inserts_metric_snapshot_row(db_session: Session) -> None:
     assert stored.open_blockers == 1
     assert stored.open_blocker_issue_keys == ["P-2"]
     assert stored.scope_completed_pct == 50.0
+    assert stored.completed_tickets == 1
     assert stored is snapshot
 
 

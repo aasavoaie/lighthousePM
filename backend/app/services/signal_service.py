@@ -1,11 +1,11 @@
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Issue
+from app.models import Issue, MetricSnapshot
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.repositories.release_repository import ReleaseRepository
@@ -61,6 +61,65 @@ class SignalService:
         "reopen_rate_pct_yellow": 3.0,
         "median_cycle_time_days_yellow": 4.0,
     }
+
+    @staticmethod
+    def _compute_release_risk_points(
+        open_blockers: int,
+        open_high_severity_bugs: int,
+        scope_churn_7d_pct: float,
+        reopen_rate_pct: float,
+        median_cycle_time_days: float | None,
+    ) -> dict[str, float]:
+        scope_churn_red_pct = SCOPE_CHURN_RED_THRESHOLD * 100
+        scope_churn_yellow_pct = SCOPE_CHURN_YELLOW_THRESHOLD * 100
+        reopen_rate_red_pct = REOPEN_RATE_RED_THRESHOLD * 100
+        reopen_rate_yellow_pct = REOPEN_RATE_YELLOW_THRESHOLD * 100
+
+        risk_points: dict[str, float] = {}
+
+        if open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
+            risk_points["open_blockers"] = SignalService.RISK_WEIGHTS["open_blockers"]
+
+        if open_high_severity_bugs > HIGH_SEVERITY_BUGS_RED_THRESHOLD:
+            risk_points["open_high_severity_bugs"] = SignalService.RISK_WEIGHTS[
+                "open_high_severity_bugs_red"
+            ]
+        elif open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
+            risk_points["open_high_severity_bugs"] = SignalService.RISK_WEIGHTS[
+                "open_high_severity_bugs_yellow"
+            ]
+
+        if scope_churn_7d_pct > scope_churn_red_pct:
+            risk_points["scope_churn_7d_pct"] = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_red"]
+        elif scope_churn_7d_pct > scope_churn_yellow_pct:
+            risk_points["scope_churn_7d_pct"] = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_yellow"]
+
+        if reopen_rate_pct > reopen_rate_red_pct:
+            risk_points["reopen_rate_pct"] = SignalService.RISK_WEIGHTS["reopen_rate_pct_red"]
+        elif reopen_rate_pct > reopen_rate_yellow_pct:
+            risk_points["reopen_rate_pct"] = SignalService.RISK_WEIGHTS["reopen_rate_pct_yellow"]
+
+        if median_cycle_time_days is not None and median_cycle_time_days > CYCLE_TIME_YELLOW_THRESHOLD_DAYS:
+            risk_points["median_cycle_time_days"] = SignalService.RISK_WEIGHTS["median_cycle_time_days_yellow"]
+
+        return risk_points
+
+    @staticmethod
+    def _compute_release_confidence_score(
+        open_blockers: int,
+        open_high_severity_bugs: int,
+        scope_churn_7d_pct: float,
+        reopen_rate_pct: float,
+        median_cycle_time_days: float | None,
+    ) -> float:
+        risk_points = SignalService._compute_release_risk_points(
+            open_blockers=open_blockers,
+            open_high_severity_bugs=open_high_severity_bugs,
+            scope_churn_7d_pct=scope_churn_7d_pct,
+            reopen_rate_pct=reopen_rate_pct,
+            median_cycle_time_days=median_cycle_time_days,
+        )
+        return round(max(0.0, 100.0 - sum(risk_points.values())), 1)
 
     def recompute_release_signal(self, session: Session, release_id: str):
         logger.info("signal_recompute_started release_id=%s", release_id)
@@ -305,13 +364,17 @@ class SignalService:
             },
         ]
 
-        risk_points: dict[str, float] = {}
+        risk_points = SignalService._compute_release_risk_points(
+            open_blockers=open_blockers,
+            open_high_severity_bugs=open_high_severity_bugs,
+            scope_churn_7d_pct=scope_churn_7d_pct,
+            reopen_rate_pct=reopen_rate_pct,
+            median_cycle_time_days=median_cycle_time_days,
+        )
         critical_risks: list[dict[str, object]] = []
         warnings: list[dict[str, object]] = []
 
         if open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
-            points = SignalService.RISK_WEIGHTS["open_blockers"]
-            risk_points["open_blockers"] = points
             critical_risks.append(
                 {
                     "metric_name": "open_blockers",
@@ -323,8 +386,6 @@ class SignalService:
             )
 
         if open_high_severity_bugs > HIGH_SEVERITY_BUGS_RED_THRESHOLD:
-            points = SignalService.RISK_WEIGHTS["open_high_severity_bugs_red"]
-            risk_points["open_high_severity_bugs"] = points
             critical_risks.append(
                 {
                     "metric_name": "open_high_severity_bugs",
@@ -335,8 +396,6 @@ class SignalService:
                 }
             )
         elif open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
-            points = SignalService.RISK_WEIGHTS["open_high_severity_bugs_yellow"]
-            risk_points["open_high_severity_bugs"] = points
             warnings.append(
                 {
                     "metric_name": "open_high_severity_bugs",
@@ -348,8 +407,6 @@ class SignalService:
             )
 
         if scope_churn_7d_pct > scope_churn_red_pct:
-            points = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_red"]
-            risk_points["scope_churn_7d_pct"] = points
             warnings.append(
                 {
                     "metric_name": "scope_churn_7d_pct",
@@ -360,8 +417,6 @@ class SignalService:
                 }
             )
         elif scope_churn_7d_pct > scope_churn_yellow_pct:
-            points = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_yellow"]
-            risk_points["scope_churn_7d_pct"] = points
             warnings.append(
                 {
                     "metric_name": "scope_churn_7d_pct",
@@ -373,8 +428,6 @@ class SignalService:
             )
 
         if reopen_rate_pct > reopen_rate_red_pct:
-            points = SignalService.RISK_WEIGHTS["reopen_rate_pct_red"]
-            risk_points["reopen_rate_pct"] = points
             warnings.append(
                 {
                     "metric_name": "reopen_rate_pct",
@@ -385,8 +438,6 @@ class SignalService:
                 }
             )
         elif reopen_rate_pct > reopen_rate_yellow_pct:
-            points = SignalService.RISK_WEIGHTS["reopen_rate_pct_yellow"]
-            risk_points["reopen_rate_pct"] = points
             warnings.append(
                 {
                     "metric_name": "reopen_rate_pct",
@@ -398,8 +449,6 @@ class SignalService:
             )
 
         if median_cycle_time_days is not None and median_cycle_time_days > CYCLE_TIME_YELLOW_THRESHOLD_DAYS:
-            points = SignalService.RISK_WEIGHTS["median_cycle_time_days_yellow"]
-            risk_points["median_cycle_time_days"] = points
             warnings.append(
                 {
                     "metric_name": "median_cycle_time_days",
@@ -411,7 +460,13 @@ class SignalService:
             )
 
         total_risk_points = sum(risk_points.values())
-        confidence_score = round(max(0.0, 100.0 - total_risk_points), 1)
+        confidence_score = SignalService._compute_release_confidence_score(
+            open_blockers=open_blockers,
+            open_high_severity_bugs=open_high_severity_bugs,
+            scope_churn_7d_pct=scope_churn_7d_pct,
+            reopen_rate_pct=reopen_rate_pct,
+            median_cycle_time_days=median_cycle_time_days,
+        )
         contribution_by_metric = {
             metric_name: round((points / total_risk_points) * 100, 1)
             for metric_name, points in risk_points.items()
@@ -492,6 +547,108 @@ class SignalService:
             "blockers": SignalService._summarize_issue_ages(blocker_issues, as_of_utc),
             "high_severity_bugs": SignalService._summarize_issue_ages(high_severity_bug_issues, as_of_utc),
             "as_of": as_of_utc,
+        }
+
+    @staticmethod
+    def _build_last_24_hours(
+        session: Session,
+        release_id: str,
+        latest_snapshot: MetricSnapshot,
+    ) -> dict[str, object]:
+        """Build deterministic deltas from latest snapshot against the 24h baseline snapshot."""
+        latest_at = _coerce_utc(latest_snapshot.snapshot_at)
+        baseline_snapshot = MetricRepository.get_latest_snapshot_at_or_before(
+            session=session,
+            release_id=release_id,
+            snapshot_at=latest_at - timedelta(hours=24),
+        )
+
+        if baseline_snapshot is None:
+            return {"as_of": latest_at, "baseline_at": None, "has_baseline": False, "items": []}
+
+        baseline_at = _coerce_utc(baseline_snapshot.snapshot_at)
+        latest_confidence = SignalService._confidence_score_for_snapshot(latest_snapshot)
+        baseline_confidence = SignalService._confidence_score_for_snapshot(baseline_snapshot)
+
+        items = [
+            SignalService._build_last_24_hours_item(
+                metric_name="open_blockers",
+                label="blocker",
+                value_type="count",
+                delta=SignalService._numeric_delta(latest_snapshot.open_blockers, baseline_snapshot.open_blockers),
+                positive_when="decrease",
+            ),
+            SignalService._build_last_24_hours_item(
+                metric_name="open_high_severity_bugs",
+                label="high severity bug",
+                value_type="count",
+                delta=SignalService._numeric_delta(
+                    latest_snapshot.open_high_severity_bugs,
+                    baseline_snapshot.open_high_severity_bugs,
+                ),
+                positive_when="decrease",
+            ),
+            SignalService._build_last_24_hours_item(
+                metric_name="completed_tickets",
+                label="completed ticket",
+                value_type="count",
+                delta=SignalService._numeric_delta(
+                    latest_snapshot.completed_tickets,
+                    baseline_snapshot.completed_tickets,
+                ),
+                positive_when="increase",
+            ),
+            SignalService._build_last_24_hours_item(
+                metric_name="confidence_score",
+                label="Confidence",
+                value_type="percentage",
+                delta=SignalService._numeric_delta(latest_confidence, baseline_confidence),
+                positive_when="increase",
+            ),
+        ]
+
+        return {"as_of": latest_at, "baseline_at": baseline_at, "has_baseline": True, "items": items}
+
+    @staticmethod
+    def _confidence_score_for_snapshot(snapshot: MetricSnapshot) -> float:
+        return SignalService._compute_release_confidence_score(
+            open_blockers=snapshot.open_blockers,
+            open_high_severity_bugs=snapshot.open_high_severity_bugs,
+            scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
+            reopen_rate_pct=snapshot.reopen_rate_pct,
+            median_cycle_time_days=snapshot.median_cycle_time_days,
+        )
+
+    @staticmethod
+    def _numeric_delta(latest_value: int | float | None, baseline_value: int | float | None) -> float | None:
+        if latest_value is None or baseline_value is None:
+            return None
+        return round(float(latest_value) - float(baseline_value), 1)
+
+    @staticmethod
+    def _build_last_24_hours_item(
+        metric_name: str,
+        label: str,
+        value_type: str,
+        delta: float | None,
+        positive_when: str,
+    ) -> dict[str, str | float | None]:
+        impact = "unknown"
+        if delta == 0:
+            impact = "neutral"
+        elif delta is not None:
+            increased = delta > 0
+            if positive_when == "increase":
+                impact = "positive" if increased else "negative"
+            elif positive_when == "decrease":
+                impact = "negative" if increased else "positive"
+
+        return {
+            "metric_name": metric_name,
+            "label": label,
+            "delta": delta,
+            "value_type": value_type,
+            "impact": impact,
         }
 
     @staticmethod

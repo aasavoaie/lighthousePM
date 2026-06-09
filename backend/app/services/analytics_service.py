@@ -59,6 +59,7 @@ class AnalyticsService:
             open_blocker_issue_keys=open_blocker_issue_keys,
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
             scope_completed_pct=self._compute_scope_completed_pct(session, release_id, field_mapper),
+            completed_tickets=self._count_completed_tickets(session, release_id, field_mapper),
             scope_churn_7d_pct=self._compute_scope_churn_7d_pct(
                 session,
                 release_id,
@@ -272,6 +273,22 @@ class AnalyticsService:
             )
         ) or 0
         return round(100.0 * done / total, 2)
+
+    @staticmethod
+    def _count_completed_tickets(
+        session: Session,
+        release_id: str,
+        field_mapper: JiraFieldMapper,
+    ) -> int:
+        """COUNT release issues currently in a configured done status."""
+        return session.scalar(
+            select(func.count())
+            .select_from(Issue)
+            .where(
+                Issue.release_id == release_id,
+                func.lower(Issue.status).in_(field_mapper.done_statuses),
+            )
+        ) or 0
 
     @staticmethod
     def _compute_scope_churn_7d_pct(

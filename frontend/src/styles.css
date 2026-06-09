@@ -489,6 +489,39 @@ select {
   font-weight: 600;
 }
 
+.signal-delta-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.signal-delta-item {
+  border-left: 4px solid #9aa8b8;
+  color: #334155;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.signal-delta-item.positive {
+  border-left-color: #237445;
+  color: #1f6b3a;
+}
+
+.signal-delta-item.negative {
+  border-left-color: #c43c2d;
+  color: #9f2f24;
+}
+
+.signal-delta-item.neutral {
+  border-left-color: #9aa8b8;
+}
+
+.signal-delta-item.unknown {
+  color: #58677c;
+}
+
 .reason-list {
   margin: 0;
   padding-left: 18px;

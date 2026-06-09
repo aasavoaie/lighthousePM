@@ -15,6 +15,7 @@ const metricLabels: Record<keyof MetricValues, string> = {
   open_blockers: "Open blockers",
   open_high_severity_bugs: "Open high-severity bugs",
   scope_completed_pct: "Scope completed",
+  completed_tickets: "Completed tickets",
   scope_churn_7d_pct: "Scope churn 7d",
   median_cycle_time_days: "Median cycle time (days)",
   reopen_rate_pct: "Reopen rate",
@@ -24,6 +25,7 @@ const metricDescriptions: Record<keyof MetricValues, string> = {
   open_blockers: "Release issues excluded from done status and classified as blockers by issue type (Blocker/Incident), priority (Blocker/Highest/Critical), status (Blocked), or the configured blocker field.",
   open_high_severity_bugs: "Open bugs with high or critical severity levels.",
   scope_completed_pct: "Percentage of release issues currently in done status.",
+  completed_tickets: "Number of release issues currently in a configured done status.",
   scope_churn_7d_pct: "Scope changes affecting this release during the last 7 days.",
   median_cycle_time_days: "Median days from first in-progress to first done transition.",
   reopen_rate_pct: "Share of release issues that moved from done back to active work.",
@@ -36,6 +38,9 @@ function formatMetricValue(metricName: keyof MetricValues, value: number | null)
   if (metricName === "open_blockers" || metricName === "open_high_severity_bugs") {
     return String(value);
   }
+  if (metricName === "completed_tickets") {
+    return String(value);
+  }
   if (metricName === "scope_completed_pct" || metricName === "scope_churn_7d_pct" || metricName === "reopen_rate_pct") {
     return `${value.toFixed(2)}%`;
   }
@@ -46,6 +51,7 @@ const sparklineColorMap: Record<keyof MetricValues, string> = {
   open_blockers: MetricColors.blockers,
   open_high_severity_bugs: MetricColors.bugs,
   scope_completed_pct: MetricColors.scopeCompleted,
+  completed_tickets: MetricColors.completedTickets,
   scope_churn_7d_pct: MetricColors.scopeChurn,
   median_cycle_time_days: MetricColors.cycleTime,
   reopen_rate_pct: MetricColors.reopenRate,

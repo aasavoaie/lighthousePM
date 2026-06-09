@@ -59,12 +59,31 @@ class SignalRiskAging(BaseModel):
     as_of: datetime | None = None
 
 
+class SignalLast24HoursItem(BaseModel):
+    metric_name: str
+    label: str
+    delta: float | None
+    value_type: str
+    impact: str
+
+
+class SignalLast24Hours(BaseModel):
+    as_of: datetime | None = None
+    baseline_at: datetime | None = None
+    has_baseline: bool = False
+    items: list[SignalLast24HoursItem] = Field(default_factory=list)
+
+
 def _empty_risk_aging() -> SignalRiskAging:
     return SignalRiskAging(
         blockers=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None),
         high_severity_bugs=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None),
         as_of=None,
     )
+
+
+def _empty_last_24_hours() -> SignalLast24Hours:
+    return SignalLast24Hours()
 
 
 class ReleaseSignalResponse(BaseModel):
@@ -80,5 +99,6 @@ class ReleaseSignalResponse(BaseModel):
     warnings: list[SignalRiskItem] = Field(default_factory=list)
     primary_risk: SignalPrimaryRisk | None = None
     risk_aging: SignalRiskAging = Field(default_factory=_empty_risk_aging)
+    last_24_hours: SignalLast24Hours = Field(default_factory=_empty_last_24_hours)
     thresholds: SignalThresholds
     updated_at: datetime | None

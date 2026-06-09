@@ -26,6 +26,10 @@ def _empty_risk_aging() -> dict[str, object]:
     return {"blockers": empty_group, "high_severity_bugs": empty_group, "as_of": None}
 
 
+def _empty_last_24_hours() -> dict[str, object]:
+    return {"as_of": None, "baseline_at": None, "has_baseline": False, "items": []}
+
+
 def _build_thresholds() -> SignalThresholds:
     return SignalThresholds(
         open_blockers_red=OPEN_BLOCKERS_RED_THRESHOLD,
@@ -59,6 +63,7 @@ def get_release_signal(
             reasons=[],
             reason_details=[],
             risk_aging=_empty_risk_aging(),
+            last_24_hours=_empty_last_24_hours(),
             thresholds=_build_thresholds(),
             updated_at=None,
         )
@@ -66,6 +71,7 @@ def get_release_signal(
     reason_details: list[SignalReasonDetail] = []
     readiness_details: dict[str, object] = {}
     risk_aging: dict[str, object] = _empty_risk_aging()
+    last_24_hours: dict[str, object] = _empty_last_24_hours()
     latest_snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
     if latest_snapshot is not None:
         _, _, details = SignalService._evaluate_signal_with_details(
@@ -99,6 +105,11 @@ def get_release_signal(
                 else None
             ),
         )
+        last_24_hours = SignalService._build_last_24_hours(
+            session=session,
+            release_id=release_id,
+            latest_snapshot=latest_snapshot,
+        )
 
     return ReleaseSignalResponse(
         release_id=signal_row.release_id,
@@ -113,6 +124,7 @@ def get_release_signal(
         warnings=readiness_details.get("warnings", []),
         primary_risk=readiness_details.get("primary_risk"),
         risk_aging=risk_aging,
+        last_24_hours=last_24_hours,
         thresholds=_build_thresholds(),
         updated_at=signal_row.updated_at,
     )

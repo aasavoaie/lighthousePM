@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { Release, ReleaseSignalResponse, SignalGate, SignalRiskAgingGroup, SignalRiskItem } from "../api/types";
+import type {
+  Release,
+  ReleaseSignalResponse,
+  SignalGate,
+  SignalLast24HoursItem,
+  SignalRiskAgingGroup,
+  SignalRiskItem,
+} from "../api/types";
 
 interface SignalSummaryPanelProps {
   signal: ReleaseSignalResponse | null;
@@ -102,6 +109,32 @@ function renderRiskAgingCard(
         {primaryLabel}: {formatAgeDays(group[metricKey])}
       </span>
     </article>
+  );
+}
+
+function formatDeltaNumber(value: number) {
+  const formatted = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+  return value > 0 ? `+${formatted}` : formatted;
+}
+
+function formatLast24HoursItem(item: SignalLast24HoursItem) {
+  if (item.delta === null) {
+    return `${item.label} N/A`;
+  }
+  if (item.value_type === "percentage") {
+    return `${item.label} ${formatDeltaNumber(item.delta)}%`;
+  }
+
+  const absoluteDelta = Math.abs(item.delta);
+  const label = absoluteDelta === 1 ? item.label : `${item.label}s`;
+  return `${formatDeltaNumber(item.delta)} ${label}`;
+}
+
+function renderLast24HoursItem(item: SignalLast24HoursItem) {
+  return (
+    <li className={`signal-delta-item ${item.impact}`} key={item.metric_name}>
+      <span>{formatLast24HoursItem(item)}</span>
+    </li>
   );
 }
 
@@ -244,6 +277,16 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
         <>
           <p className="signal-description">{summary}</p>
           {isLoading ? <p className="muted">Loading signal...</p> : null}
+          {!isLoading && signal ? (
+            <div className="signal-readiness-section">
+              <h3>Last 24 Hours</h3>
+              {signal.last_24_hours.has_baseline && signal.last_24_hours.items.length > 0 ? (
+                <ul className="signal-delta-list">{signal.last_24_hours.items.map(renderLast24HoursItem)}</ul>
+              ) : (
+                <p className="muted">No 24-hour baseline snapshot available.</p>
+              )}
+            </div>
+          ) : null}
           {!isLoading && signal?.release_gates.length ? (
             <div className="signal-readiness-section">
               <h3>Release Gates</h3>

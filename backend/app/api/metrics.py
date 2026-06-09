@@ -41,6 +41,7 @@ METRIC_NAMES = [
     "open_blockers",
     "open_high_severity_bugs",
     "scope_completed_pct",
+    "completed_tickets",
     "scope_churn_7d_pct",
     "median_cycle_time_days",
     "reopen_rate_pct",
@@ -78,6 +79,7 @@ def get_release_metrics(
                 open_blockers=None,
                 open_high_severity_bugs=None,
                 scope_completed_pct=None,
+                completed_tickets=None,
                 scope_churn_7d_pct=None,
                 median_cycle_time_days=None,
                 reopen_rate_pct=None,
@@ -110,6 +112,7 @@ def get_release_metrics(
             open_blockers=snapshot.open_blockers,
             open_high_severity_bugs=snapshot.open_high_severity_bugs,
             scope_completed_pct=snapshot.scope_completed_pct,
+            completed_tickets=snapshot.completed_tickets,
             scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
             median_cycle_time_days=snapshot.median_cycle_time_days,
             reopen_rate_pct=snapshot.reopen_rate_pct,
@@ -160,6 +163,10 @@ def get_release_charts(
             ],
             scope_completed_pct=[
                 ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_completed_pct)
+                for snapshot in snapshots
+            ],
+            completed_tickets=[
+                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.completed_tickets)
                 for snapshot in snapshots
             ],
             scope_churn_7d_pct=[

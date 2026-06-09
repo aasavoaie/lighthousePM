@@ -20,6 +20,23 @@ class MetricRepository:
         return session.scalar(query)
 
     @staticmethod
+    def get_latest_snapshot_at_or_before(
+        session: Session,
+        release_id: str,
+        snapshot_at: datetime,
+    ) -> MetricSnapshot | None:
+        query = (
+            select(MetricSnapshot)
+            .where(
+                MetricSnapshot.release_id == release_id,
+                MetricSnapshot.snapshot_at <= snapshot_at,
+            )
+            .order_by(desc(MetricSnapshot.snapshot_at), desc(MetricSnapshot.id))
+            .limit(1)
+        )
+        return session.scalar(query)
+
+    @staticmethod
     def list_snapshots_for_release(
         session: Session,
         release_id: str,

@@ -114,6 +114,7 @@ def _seed_snapshot(
     release_id: str,
     snapshot_at: datetime,
     open_blockers: int,
+    completed_tickets: int | None = None,
 ) -> None:
     session.add(
         MetricSnapshot(
@@ -122,6 +123,7 @@ def _seed_snapshot(
             open_blockers=open_blockers,
             open_high_severity_bugs=open_blockers,
             scope_completed_pct=float(open_blockers),
+            completed_tickets=completed_tickets,
             scope_churn_7d_pct=float(open_blockers),
             median_cycle_time_days=float(open_blockers),
             reopen_rate_pct=float(open_blockers),
@@ -150,6 +152,7 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
         "open_blockers",
         "open_high_severity_bugs",
         "scope_completed_pct",
+        "completed_tickets",
         "scope_churn_7d_pct",
         "median_cycle_time_days",
         "reopen_rate_pct",
@@ -165,6 +168,7 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
         "open_blockers": None,
         "open_high_severity_bugs": None,
         "scope_completed_pct": None,
+        "completed_tickets": None,
         "scope_churn_7d_pct": None,
         "median_cycle_time_days": None,
         "reopen_rate_pct": None,
@@ -184,6 +188,7 @@ def test_get_release_charts_returns_empty_series_when_snapshot_missing(client: T
         "open_blockers",
         "open_high_severity_bugs",
         "scope_completed_pct",
+        "completed_tickets",
         "scope_churn_7d_pct",
         "median_cycle_time_days",
         "reopen_rate_pct",
@@ -193,6 +198,7 @@ def test_get_release_charts_returns_empty_series_when_snapshot_missing(client: T
         "open_blockers": [],
         "open_high_severity_bugs": [],
         "scope_completed_pct": [],
+        "completed_tickets": [],
         "scope_churn_7d_pct": [],
         "median_cycle_time_days": [],
         "reopen_rate_pct": [],
@@ -228,6 +234,7 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
         "open_blockers",
         "open_high_severity_bugs",
         "scope_completed_pct",
+        "completed_tickets",
         "scope_churn_7d_pct",
         "median_cycle_time_days",
         "reopen_rate_pct",
@@ -245,6 +252,7 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     assert metrics["metrics"]["open_blockers"] == 1
     assert metrics["metrics"]["open_high_severity_bugs"] == 1
     assert metrics["metrics"]["scope_completed_pct"] == 50.0
+    assert metrics["metrics"]["completed_tickets"] == 1
     assert metrics["metrics"]["scope_churn_7d_pct"] == 50.0
     assert metrics["metrics"]["reopen_rate_pct"] == 0.0
     assert metrics["metric_issue_keys"] == {
@@ -259,6 +267,7 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
         "open_blockers",
         "open_high_severity_bugs",
         "scope_completed_pct",
+        "completed_tickets",
         "scope_churn_7d_pct",
         "median_cycle_time_days",
         "reopen_rate_pct",
@@ -269,6 +278,8 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     assert series["open_blockers"][0]["value"] == 1
     assert len(series["scope_completed_pct"]) == 1
     assert series["scope_completed_pct"][0]["value"] == 50.0
+    assert len(series["completed_tickets"]) == 1
+    assert series["completed_tickets"][0]["value"] == 1
 
     admin_status = client.get("/admin/status")
     assert admin_status.status_code == 200
