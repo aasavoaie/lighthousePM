@@ -31,6 +31,7 @@ export const MetricColors = {
   blockers: "#c43c2d",
   bugs: "#e48f00",
   scopeCompleted: "#0b6bcb",
+  completedTickets: "#237445",
   scopeChurn: "#6f42c1",
   cycleTime: "#237445",
   reopenRate: "#9f6a00",

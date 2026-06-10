@@ -170,9 +170,7 @@ export default function App() {
       <Header
         title="LighthousePM"
         subtitle={
-          selectedRelease
-            ? `${selectedRelease.name} • ${selectedRelease.project_key} • ${selectedRelease.status ?? "Unknown status"}`
-            : "Release analytics dashboard"
+          ""
         }
       />
 
@@ -201,18 +199,6 @@ export default function App() {
       </nav>
 
       <main className="dashboard-grid">
-        {selectedTab === "dashboard" ? (
-          <ReleaseSelector
-            releases={releases}
-            selectedReleaseId={selectedReleaseId}
-            selectedRelease={selectedRelease}
-            isLoading={isLoadingReleases}
-            isRecomputing={isRecomputingRelease}
-            onChange={setSelectedReleaseId}
-            onRecompute={handleRecomputeRelease}
-          />
-        ) : null}
-
         {errorMessage && selectedTab === "dashboard" ? <div className="panel error-panel">{errorMessage}</div> : null}
 
         {!isLoadingReleases && releases.length === 0 && selectedTab !== "admin" && selectedTab !== "sprints" ? (
@@ -244,10 +230,23 @@ export default function App() {
             <ChartsPanel
               charts={charts}
               releases={releases}
+              selectedReleaseName={selectedRelease?.name ?? null}
               refreshNonce={dashboardRefreshNonce}
               isLoading={isLoadingDetails}
             />
           </>
+        ) : null}
+
+        {selectedTab === "dashboard" ? (
+          <ReleaseSelector
+            releases={releases}
+            selectedReleaseId={selectedReleaseId}
+            selectedRelease={selectedRelease}
+            isLoading={isLoadingReleases}
+            isRecomputing={isRecomputingRelease}
+            onChange={setSelectedReleaseId}
+            onRecompute={handleRecomputeRelease}
+          />
         ) : null}
 
         {selectedTab === "sprints" ? (

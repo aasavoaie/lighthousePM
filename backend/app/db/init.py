@@ -36,6 +36,7 @@ def _ensure_metric_issue_key_columns() -> None:
             "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
             "bugs_created_during_sprint_issue_keys JSON NOT NULL DEFAULT '[]'"
         ),
+        "ALTER TABLE metric_snapshots ADD COLUMN IF NOT EXISTS completed_tickets INTEGER",
     ]
     with engine.begin() as connection:
         for statement in statements:

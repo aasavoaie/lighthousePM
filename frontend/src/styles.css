@@ -97,6 +97,7 @@ select {
 
 .release-controls-panel,
 .sprints-panel .sprint-controls-panel,
+.sprints-panel .delivery-confidence-panel,
 .sprints-panel .metrics-panel,
 .sprints-panel .issues-panel {
   grid-column: 1 / -1;
@@ -110,14 +111,11 @@ select {
   grid-column: span 4;
 }
 
-.admin-panel {
-  grid-column: span 8;
-}
-
 .signal-panel,
 .issues-panel,
 .metrics-panel,
-.charts-panel {
+.charts-panel,
+.admin-panel {
   grid-column: 1 / -1;
 }
 
@@ -360,6 +358,18 @@ select {
   gap: 10px;
 }
 
+.signal-confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #b9c9da;
+  border-radius: 12px;
+  color: #33506f;
+  background: #ffffff;
+  font-weight: 700;
+}
+
 .signal-trend-icon {
   width: 2.5rem;
   height: 2.5rem;
@@ -396,6 +406,137 @@ select {
   color: #4c5c70;
 }
 
+.signal-confidence {
+  margin: 0 0 14px;
+  font-weight: 700;
+}
+
+.signal-readiness-section {
+  margin-top: 22px;
+}
+
+.signal-readiness-section h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.signal-readiness-section p {
+  margin: 0;
+}
+
+.signal-two-column-section {
+  display: flex;
+  gap: 16px;
+}
+
+.signal-column-section {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.signal-gate-list,
+.signal-risk-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signal-gate-list li,
+.signal-risk-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.signal-gate-state {
+  min-width: 42px;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.signal-gate-pass .signal-gate-state {
+  color: #237445;
+}
+
+.signal-gate-fail .signal-gate-state {
+  color: #a63124;
+}
+
+.signal-risk-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.signal-risk-item.critical .signal-risk-dot {
+  background: #c43c2d;
+}
+
+.signal-risk-item.warning .signal-risk-dot {
+  background: #e48f00;
+}
+
+.signal-aging-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.signal-aging-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #f8fbfe;
+  border: 1px solid #dbe7f2;
+}
+
+.signal-aging-card span {
+  color: #58677c;
+  font-weight: 600;
+}
+
+.signal-aging-summary {
+  color: #58677c;
+  font-weight: 600;
+}
+
+.signal-delta-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.signal-delta-item {
+  border-left: 4px solid #9aa8b8;
+  color: #334155;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.signal-delta-item.positive {
+  border-left-color: #237445;
+  color: #1f6b3a;
+}
+
+.signal-delta-item.negative {
+  border-left-color: #c43c2d;
+  color: #9f2f24;
+}
+
+.signal-delta-item.neutral {
+  border-left-color: #9aa8b8;
+}
+
+.signal-delta-item.unknown {
+  color: #58677c;
+}
+
 .reason-list {
   margin: 0;
   padding-left: 18px;
@@ -409,14 +550,6 @@ select {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-.confidence-summary {
-  margin-bottom: 16px;
-  padding: 16px;
-  border-radius: 14px;
-  background: #f8fbfe;
-  border: 1px solid #dbe7f2;
 }
 
 .scope-stability-summary {
@@ -472,27 +605,26 @@ select {
   min-width: 180px;
 }
 
-.confidence-score {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+.confidence-grid {
+  align-items: stretch;
 }
 
 .confidence-score-value {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  justify-content: flex-end;
   gap: 10px;
-  text-align: right;
+  margin-top: 10px;
 }
 
-.confidence-score strong {
+.confidence-score-value strong {
   font-size: 2.25rem;
   line-height: 1;
   color: inherit;
+}
+
+.delivery-confidence-heading-score {
+  margin-top: 0;
 }
 
 .confidence-trend-icon {
@@ -545,42 +677,36 @@ select {
   color: #6d6d72;
 }
 
-.confidence-score strong.confidence-value-success {
+.confidence-score-value strong.confidence-value-success {
   color: #237445;
 }
 
-.confidence-score strong.confidence-value-warning {
+.confidence-score-value strong.confidence-value-warning {
   color: #9f6a00;
 }
 
-.confidence-score strong.confidence-value-danger {
+.confidence-score-value strong.confidence-value-danger {
   color: #a63124;
 }
 
-.confidence-breakdown,
+.confidence-breakdown {
+  display: contents;
+}
+
 .confidence-inputs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
-.confidence-component {
-  padding: 10px;
-  border-radius: 10px;
-  background: #ffffff;
-  border: 1px solid #dbe7f2;
-}
-
-.confidence-component-label,
-.confidence-component span,
 .confidence-inputs dt {
   display: block;
   color: #58677c;
   font-size: 0.82rem;
 }
 
-.confidence-component-label,
-.confidence-label {
+.delivery-confidence-title,
+.confidence-component h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -621,8 +747,8 @@ select {
 
 .confidence-component strong {
   display: block;
-  margin-top: 4px;
-  font-size: 1.1rem;
+  margin-top: 10px;
+  font-size: 1.45rem;
 }
 
 .confidence-value-danger {
@@ -649,8 +775,12 @@ select {
   color: #237445;
 }
 
+.confidence-input-card {
+  grid-column: 1 / -1;
+}
+
 .confidence-inputs {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
 }
 
 .confidence-inputs dd {
@@ -837,6 +967,14 @@ select {
   }
 
   .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .signal-two-column-section {
+    flex-direction: column;
+  }
+
+  .signal-aging-grid {
     grid-template-columns: 1fr;
   }
 

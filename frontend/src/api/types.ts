@@ -125,6 +125,7 @@ export interface MetricValues {
   open_blockers: number | null;
   open_high_severity_bugs: number | null;
   scope_completed_pct: number | null;
+  completed_tickets: number | null;
   scope_churn_7d_pct: number | null;
   median_cycle_time_days: number | null;
   reopen_rate_pct: number | null;
@@ -161,6 +162,7 @@ export interface MetricSeries {
   open_blockers: ChartPoint[];
   open_high_severity_bugs: ChartPoint[];
   scope_completed_pct: ChartPoint[];
+  completed_tickets: ChartPoint[];
   scope_churn_7d_pct: ChartPoint[];
   median_cycle_time_days: ChartPoint[];
   reopen_rate_pct: ChartPoint[];
@@ -193,11 +195,72 @@ export interface SignalThresholds {
   median_cycle_time_days_yellow: number;
 }
 
+export interface SignalGate {
+  metric_name: string;
+  label: string;
+  passed: boolean;
+  value: number | null;
+  comparison: string;
+  threshold: number;
+}
+
+export interface SignalRiskItem {
+  metric_name: string;
+  level: string;
+  message: string;
+  value: number | null;
+  contribution_pct: number;
+}
+
+export interface SignalPrimaryRisk {
+  metric_name: string;
+  label: string;
+  message: string;
+  contribution_pct: number;
+}
+
+export interface SignalRiskAgingGroup {
+  count: number;
+  oldest_age_days: number | null;
+  average_age_days: number | null;
+  tickets?: Array<{ key: string; age_days: number }>;
+}
+
+export interface SignalRiskAging {
+  blockers: SignalRiskAgingGroup;
+  high_severity_bugs: SignalRiskAgingGroup;
+  as_of: string | null;
+}
+
+export interface SignalLast24HoursItem {
+  metric_name: string;
+  label: string;
+  delta: number | null;
+  value_type: string;
+  impact: "positive" | "negative" | "neutral" | "unknown";
+}
+
+export interface SignalLast24Hours {
+  as_of: string | null;
+  baseline_at: string | null;
+  has_baseline: boolean;
+  items: SignalLast24HoursItem[];
+}
+
 export interface ReleaseSignalResponse {
   release_id: string;
   signal: string | null;
+  status_label: string | null;
+  confidence_score: number | null;
+  summary: string | null;
   reasons: string[];
   reason_details: SignalReasonDetail[];
+  release_gates: SignalGate[];
+  critical_risks: SignalRiskItem[];
+  warnings: SignalRiskItem[];
+  primary_risk: SignalPrimaryRisk | null;
+  risk_aging: SignalRiskAging;
+  last_24_hours: SignalLast24Hours;
   thresholds: SignalThresholds;
   updated_at: string | null;
 }

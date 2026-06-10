@@ -79,6 +79,7 @@ Important behavior:
 - if the release exists but no metrics have been computed yet, this still returns `200`
 - in that empty state, `snapshot_at` is `null`, metric values are `null`, and `is_computed` is `false`
 - when a snapshot exists, the response includes `metric_names`, `metric_thresholds`, and `snapshot_age_hours`
+- `completed_tickets` is the count of release issues currently in a configured done status
 
 Typical use:
 - current release health summary
@@ -134,12 +135,17 @@ Returns the latest computed release risk signal for a release.
 What it does:
 - validates the release exists
 - reads the current stored signal row for the release
-- returns the signal level, human-readable reasons, structured reason details, and explicit thresholds
+- returns the signal level, human-readable reasons, structured reason details, risk aging, and explicit thresholds
 
 Important behavior:
 - if the release exists but signal has not been computed yet, this still returns `200`
-- in that empty state, `signal` is `null`, `reasons` is empty, `reason_details` is empty, and `updated_at` is `null`
+- in that empty state, `signal` is `null`, `reasons` is empty, `reason_details` is empty, `risk_aging` has zero counts, and `updated_at` is `null`
 - thresholds are always returned so clients do not need to hardcode rule boundaries
+- `risk_aging` reports open blocker and high-severity bug age summaries from the latest metric snapshot
+- risk ages are computed from issue `created_at` timestamps to the snapshot `snapshot_at`, so values are reproducible for the same stored data
+- `last_24_hours` compares the latest metric snapshot with the latest snapshot at or before `snapshot_at - 24 hours`
+- when no 24-hour baseline snapshot exists, `last_24_hours.has_baseline` is `false` and deltas are not inferred
+- Last 24 Hours includes blocker, high-severity bug, completed-ticket, and confidence-score deltas
 
 Typical use:
 - release readiness indicators

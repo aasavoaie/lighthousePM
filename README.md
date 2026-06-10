@@ -58,6 +58,10 @@ Jira → Ingestion → Database → Metrics → Signals → API
 - Weighted 40/30/20/10 and stored on sprint snapshots
 - Bugs created during sprint: linked sprint bug issues whose Jira creation time falls inside the sprint window
 
+#### Definitions
+- **Baseline:** The number of recent closed sprints used to compute historical velocity for a team or board. In this project the baseline defaults to the last 3 closed sprints (configurable in code). Historical velocity is the average of `completed_effective_points` across those baseline sprints and is used by the `velocity_fit` component of Delivery Confidence.
+- **Blocked ratio:** The fraction of currently open blocker issues relative to the total number of committed issues in the sprint. It is computed as `blocked_issue_ratio = 0.0 if committed_issue_count == 0 else open_blockers / committed_issue_count`. A higher blocked ratio indicates more work blocked and decreases the `blocker_penalty` component of Delivery Confidence (the penalty is applied as `blocker_penalty = clamp(100 * (1 - blocked_issue_ratio), 0, 100)`).
+
 ### Flow
 - Median cycle time
 - Aging work
