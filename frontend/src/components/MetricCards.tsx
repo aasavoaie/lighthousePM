@@ -10,11 +10,13 @@ interface MetricStatusCardProps {
   comparison?: string | null;
   comparisonImpact?: MetricImpact;
   details?: string[];
+  infoText?: string;
   children?: ReactNode;
 }
 
 interface MetricCategorySectionProps {
   title: string;
+  summary?: string;
   children: ReactNode;
 }
 
@@ -32,6 +34,7 @@ export function MetricStatusCard({
   comparison,
   comparisonImpact = "unknown",
   details = [],
+  infoText,
   children,
 }: MetricStatusCardProps) {
   return (
@@ -39,7 +42,14 @@ export function MetricStatusCard({
       <div className="metric-status-heading">
         <span className="metric-status-dot" aria-hidden="true" />
         <h3>{title}</h3>
-        <span className="metric-status-label">{statusLabels[status]}</span>
+        <div className="metric-status-actions">
+          {infoText ? (
+            <button type="button" className="info-button compact-info-button" title={infoText} aria-label={`${title} info`}>
+              i
+            </button>
+          ) : null}
+          <span className="metric-status-label">{statusLabels[status]}</span>
+        </div>
       </div>
       <strong>{value}</strong>
       {comparison ? <p className={`metric-comparison metric-impact-${comparisonImpact}`}>{comparison}</p> : null}
@@ -55,10 +65,11 @@ export function MetricStatusCard({
   );
 }
 
-export function MetricCategorySection({ title, children }: MetricCategorySectionProps) {
+export function MetricCategorySection({ title, summary, children }: MetricCategorySectionProps) {
   return (
     <div className="metric-category-section">
       <h3>{title}</h3>
+      {summary ? <p className="metric-category-summary">{summary}</p> : null}
       <div className="metric-grid">{children}</div>
     </div>
   );

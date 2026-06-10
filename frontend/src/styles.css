@@ -557,6 +557,33 @@ select {
   gap: 22px;
 }
 
+.focus-areas-section {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 8px;
+  background: #f8fbfe;
+  border: 1px solid #dbe7f2;
+}
+
+.focus-areas-section h3 {
+  margin: 0;
+  color: #334155;
+  font-size: 1rem;
+}
+
+.focus-area-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.focus-area-list li {
+  color: #334155;
+  font-weight: 700;
+}
+
 .metric-category-section {
   display: grid;
   gap: 10px;
@@ -566,6 +593,11 @@ select {
   margin: 0;
   color: #334155;
   font-size: 1rem;
+}
+
+.metric-category-summary {
+  margin: -4px 0 2px;
+  color: #58677c;
 }
 
 .scope-stability-summary {
@@ -944,6 +976,12 @@ select {
   background: #f2f7ff;
 }
 
+.compact-info-button {
+  width: 22px;
+  height: 22px;
+  font-size: 0.78rem;
+}
+
 .confidence-value-danger {
   color: #a63124;
 }
@@ -1005,6 +1043,13 @@ select {
   color: #58677c;
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.metric-status-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .metric-status-good .metric-status-dot {
@@ -1126,6 +1171,17 @@ select {
   background: #e6f5ea;
   border-color: #5d9b5d;
   color: #1f6032;
+}
+
+.metric-ticket-list .overflow-badge {
+  display: inline-flex;
+  border: 1px solid #b9c9da;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #ffffff;
+  color: #58677c;
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 
 .metric-ticket-empty {
