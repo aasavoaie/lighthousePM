@@ -14,6 +14,12 @@ import {
   MetricMultiBarChart,
   formatDecimal,
 } from "./ChartComponents";
+import {
+  MetricCategorySection,
+  MetricStatusCard,
+  type MetricImpact,
+  type MetricStatus,
+} from "./MetricCards";
 
 type SprintOption = {
   label: string;
@@ -39,6 +45,7 @@ type SprintCommitmentReliabilityRow = {
   name: string;
   committed_story_points: number;
   completed_story_points: number;
+  is_not_closed: boolean;
 };
 
 type SprintMetricHistoryRow = {
@@ -398,6 +405,192 @@ function isNotClosedSprint(sprint: Sprint) {
   return sprint.state.trim().toLowerCase() !== "closed";
 }
 
+async function loadAllSprintIssues(sprintId: string) {
+  const items: SprintIssue[] = [];
+  let fetchedCount = 0;
+  let total = 0;
+
+  while (true) {
+    const response = await apiClient.getSprintIssues(sprintId, fetchedCount, sprintIssuePageSize);
+    total = response.total;
+    items.push(...response.items);
+    fetchedCount += response.items.length;
+    if (fetchedCount >= total || response.items.length === 0) {
+      break;
+    }
+  }
+
+  return items;
+}
+
+function getRatioStatus(value: number | null): MetricStatus {
+  if (value === null) {
+    return "neutral";
+  }
+  if (value >= 90) {
+    return "good";
+  }
+  return value >= 75 ? "warning" : "critical";
+}
+
+function getSprintMetricStatus(metricName: keyof SprintMetricValues, value: number | null): MetricStatus {
+  if (value === null) {
+    return "neutral";
+  }
+  if (metricName === "open_blockers") {
+    return value > 0 ? "critical" : "good";
+  }
+  if (metricName === "open_high_severity_bugs") {
+    if (value > 1) {
+      return "critical";
+    }
+    return value > 0 ? "warning" : "good";
+  }
+  if (metricName === "bugs_created_during_sprint") {
+    return value > 0 ? "warning" : "good";
+  }
+  if (metricName === "completed_scope_pct") {
+    if (value >= 80) {
+      return "good";
+    }
+    return value >= 50 ? "warning" : "critical";
+  }
+  if (metricName === "rollover_count") {
+    return value > 0 ? "critical" : "good";
+  }
+  if (metricName === "median_cycle_time_days") {
+    return value > 7 ? "warning" : "good";
+  }
+  if (metricName === "reopen_rate_pct") {
+    if (value > 15) {
+      return "critical";
+    }
+    return value > 10 ? "warning" : "good";
+  }
+  return "neutral";
+}
+
+function buildSprintMetricComparison(metricName: keyof SprintMetricValues, value: number | null): {
+  text: string;
+  impact: MetricImpact;
+} {
+  if (value === null) {
+    return { text: "Current snapshot unavailable", impact: "unknown" };
+  }
+  if (metricName === "open_blockers" || metricName === "open_high_severity_bugs") {
+    return value === 0
+      ? { text: "No open risk tickets", impact: "positive" }
+      : { text: "Open risk tickets need attention", impact: "negative" };
+  }
+  if (metricName === "completed_scope_pct") {
+    return { text: `${value.toFixed(0)}% of committed scope is done`, impact: value >= 80 ? "positive" : "neutral" };
+  }
+  if (metricName === "rollover_count") {
+    return value === 0
+      ? { text: "No rollover in this snapshot", impact: "positive" }
+      : { text: `${value} issues did not finish`, impact: "negative" };
+  }
+  if (metricName === "bugs_created_during_sprint") {
+    return value === 0
+      ? { text: "No sprint-created bugs", impact: "positive" }
+      : { text: `${value} bugs created in sprint window`, impact: "negative" };
+  }
+  return { text: "Current sprint snapshot", impact: "neutral" };
+}
+
+function buildScopeCreepCard(confidence: DeliveryConfidenceDetail) {
+  const index = confidence.inputs.scope_stability_index;
+  const creepPct = index === null ? null : Number((index * 100).toFixed(2));
+  const status: MetricStatus = creepPct === null ? "neutral" : creepPct > 20 ? "critical" : creepPct > 10 ? "warning" : "good";
+  return {
+    value: creepPct === null ? "N/A" : `${creepPct.toFixed(2)}%`,
+    status,
+    comparison:
+      confidence.inputs.scope_change_count === 0
+        ? "No changes after sprint start"
+        : `${confidence.inputs.scope_change_count} changes after sprint start`,
+    impact: confidence.inputs.scope_change_count === 0 ? ("positive" as MetricImpact) : ("negative" as MetricImpact),
+    details: [
+      `${confidence.inputs.scope_added_count} issues added`,
+      `${confidence.inputs.scope_removed_count} issues removed`,
+    ],
+  };
+}
+
+function buildVelocityHealthCard(confidence: DeliveryConfidenceDetail) {
+  const current = confidence.inputs.completed_effective_points;
+  const average = confidence.inputs.historical_velocity;
+  const pct = average && average > 0 ? Number(((current / average) * 100).toFixed(0)) : null;
+  return {
+    value: pct === null ? "N/A" : `${pct}% of normal`,
+    status: getRatioStatus(pct),
+    comparison:
+      average === null
+        ? "Baseline unavailable"
+        : `Current ${current.toFixed(2)} SP vs average ${average.toFixed(2)} SP`,
+    impact: pct === null ? ("unknown" as MetricImpact) : pct >= 90 ? ("positive" as MetricImpact) : ("negative" as MetricImpact),
+  };
+}
+
+function buildPredictabilityCard(rows: SprintCommitmentReliabilityRow[]) {
+  const closedRows = rows.filter((row) => !row.is_not_closed && row.committed_story_points > 0);
+  if (closedRows.length === 0) {
+    return {
+      value: "N/A",
+      status: "neutral" as MetricStatus,
+      comparison: "Closed sprint baseline unavailable",
+      impact: "unknown" as MetricImpact,
+    };
+  }
+  const ratios = closedRows.map((row) => row.completed_story_points / row.committed_story_points);
+  const pct = Number(((ratios.reduce((sum, value) => sum + value, 0) / ratios.length) * 100).toFixed(0));
+  return {
+    value: `${pct}%`,
+    status: getRatioStatus(pct),
+    comparison: `Average across last ${closedRows.length} closed sprints`,
+    impact: pct >= 90 ? ("positive" as MetricImpact) : pct >= 75 ? ("neutral" as MetricImpact) : ("negative" as MetricImpact),
+  };
+}
+
+function effectiveIssuePoints(issue: SprintIssue) {
+  return issue.story_points !== null && issue.story_points !== undefined && issue.story_points >= 0 ? issue.story_points : 1;
+}
+
+function buildWorkDistributionCard(issues: SprintIssue[]) {
+  if (issues.length === 0) {
+    return {
+      value: "N/A",
+      status: "neutral" as MetricStatus,
+      comparison: "No sprint work in this snapshot",
+      impact: "unknown" as MetricImpact,
+      details: [],
+    };
+  }
+
+  const totals = new Map<string, number>();
+  for (const issue of issues) {
+    const assignee = issue.assignee?.trim() || "Unassigned";
+    totals.set(assignee, (totals.get(assignee) ?? 0) + effectiveIssuePoints(issue));
+  }
+  const totalPoints = Array.from(totals.values()).reduce((sum, value) => sum + value, 0);
+  const rows = Array.from(totals.entries())
+    .map(([assignee, points]) => ({
+      assignee,
+      points,
+      pct: totalPoints === 0 ? 0 : Number(((points / totalPoints) * 100).toFixed(0)),
+    }))
+    .sort((left, right) => right.points - left.points || left.assignee.localeCompare(right.assignee));
+  const top = rows[0];
+  const status: MetricStatus = top.pct > 50 ? "critical" : top.pct > 35 ? "warning" : "good";
+  return {
+    value: `${top.pct}% top load`,
+    status,
+    comparison: `${top.assignee} owns ${top.pct}% of current work`,
+    impact: status === "good" ? ("positive" as MetricImpact) : ("negative" as MetricImpact),
+    details: rows.slice(0, 4).map((row) => `${row.assignee} ${row.pct}%`),
+  };
+}
+
 interface SprintsPanelProps {
   refreshNonce: number;
   onSelectIssue: (issueKey: string) => void;
@@ -450,6 +643,31 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
   }, [currentSprint, closedSprints]);
   const confidenceTrend = useMemo(() => getConfidenceTrend(sprintConfidenceRows), [sprintConfidenceRows]);
   const confidenceTrendTooltip = confidenceTrend ? getConfidenceTrendTooltip(confidenceTrend) : null;
+  const predictabilityCard = useMemo(
+    () => buildPredictabilityCard(sprintCommitmentReliabilityRows),
+    [sprintCommitmentReliabilityRows]
+  );
+  const workDistributionCard = useMemo(() => buildWorkDistributionCard(issues), [issues]);
+
+  function renderSprintMetricCard(metricName: keyof SprintMetricValues) {
+    if (!metrics || metricName === "delivery_confidence_score") {
+      return null;
+    }
+    const value = metrics.metrics[metricName];
+    const comparison = buildSprintMetricComparison(metricName, value);
+    return (
+      <MetricStatusCard
+        key={metricName}
+        title={sprintMetricLabels[metricName]}
+        value={formatMetricValue(metricName, value)}
+        status={getSprintMetricStatus(metricName, value)}
+        comparison={comparison.text}
+        comparisonImpact={comparison.impact}
+      >
+        {renderMetricIssueKeys(metricName, value, metrics, issuesByKey, onSelectIssue)}
+      </MetricStatusCard>
+    );
+  }
 
   useEffect(() => {
     let isActive = true;
@@ -503,13 +721,13 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
       try {
         const [metricsResponse, issueResponse] = await Promise.all([
           apiClient.getSprintMetrics(sprintId),
-          apiClient.getSprintIssues(sprintId, 0, 100),
+          loadAllSprintIssues(sprintId),
         ]);
         if (!isActive) {
           return;
         }
         setMetrics(metricsResponse);
-        setIssues(issueResponse.items);
+        setIssues(issueResponse);
       } catch (error) {
         if (isActive) {
           setErrorMessage(error instanceof Error ? error.message : "Failed to load sprint details.");
@@ -621,6 +839,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                 name: sprint.name,
                 committed_story_points: Number(deliveryConfidence.inputs.committed_effective_points.toFixed(2)),
                 completed_story_points: Number(deliveryConfidence.inputs.completed_effective_points.toFixed(2)),
+                is_not_closed: isNotClosedSprint(sprint),
               },
             };
           })
@@ -659,10 +878,10 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
       await apiClient.recomputeSprint(selectedSprintId);
       const [metricsResponse, issueResponse] = await Promise.all([
         apiClient.getSprintMetrics(selectedSprintId),
-        apiClient.getSprintIssues(selectedSprintId, 0, 100),
+        loadAllSprintIssues(selectedSprintId),
       ]);
       setMetrics(metricsResponse);
-      setIssues(issueResponse.items);
+      setIssues(issueResponse);
       const recomputedConfidence = metricsResponse.delivery_confidence;
       if (recomputedConfidence) {
         setSprintConfidenceRows((currentRows) =>
@@ -767,30 +986,66 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
               <p className="muted">Sprint metrics have not been computed yet.</p>
             ) : null}
             {!isLoadingDetails && metrics?.is_computed ? (
-              <div className="metric-grid">
-                {metrics.delivery_confidence ? (
-                  <article className="metric-card" key="scope_changes">
-                    <h3>Scope change tickets</h3>
-                    <p className="metric-description">Issues added or removed from the sprint after it started.</p>
-                    <strong>{metrics.delivery_confidence.inputs.scope_change_count}</strong>
-                    {renderScopeIssueKeys(
-                      "Scope change tickets",
-                      metrics.delivery_confidence.inputs.scope_change_issue_keys ?? [],
-                      issuesByKey,
-                      onSelectIssue
-                    )}
-                  </article>
-                ) : null}
-                {(Object.keys(metrics.metrics) as Array<keyof SprintMetricValues>)
-                  .filter((metricName) => metricName !== "delivery_confidence_score")
-                  .map((metricName) => (
-                    <article className="metric-card" key={metricName}>
-                      <h3>{sprintMetricLabels[metricName]}</h3>
-                      <p className="metric-description">{sprintMetricDescriptions[metricName]}</p>
-                      <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
-                      {renderMetricIssueKeys(metricName, metrics.metrics[metricName], metrics, issuesByKey, onSelectIssue)}
-                    </article>
-                  ))}
+              <div className="metric-category-stack">
+                <MetricCategorySection title="Delivery">
+                  {renderSprintMetricCard("completed_scope_pct")}
+                  {metrics.delivery_confidence ? (
+                    <MetricStatusCard
+                      title="Scope creep"
+                      value={buildScopeCreepCard(metrics.delivery_confidence).value}
+                      status={buildScopeCreepCard(metrics.delivery_confidence).status}
+                      comparison={buildScopeCreepCard(metrics.delivery_confidence).comparison}
+                      comparisonImpact={buildScopeCreepCard(metrics.delivery_confidence).impact}
+                      details={buildScopeCreepCard(metrics.delivery_confidence).details}
+                    >
+                      {renderScopeIssueKeys(
+                        "Scope change tickets",
+                        metrics.delivery_confidence.inputs.scope_change_issue_keys ?? [],
+                        issuesByKey,
+                        onSelectIssue
+                      )}
+                    </MetricStatusCard>
+                  ) : null}
+                  {metrics.delivery_confidence ? (
+                    <MetricStatusCard
+                      title="Velocity health"
+                      value={buildVelocityHealthCard(metrics.delivery_confidence).value}
+                      status={buildVelocityHealthCard(metrics.delivery_confidence).status}
+                      comparison={buildVelocityHealthCard(metrics.delivery_confidence).comparison}
+                      comparisonImpact={buildVelocityHealthCard(metrics.delivery_confidence).impact}
+                    />
+                  ) : null}
+                  <MetricStatusCard
+                    title="Team predictability"
+                    value={predictabilityCard.value}
+                    status={predictabilityCard.status}
+                    comparison={predictabilityCard.comparison}
+                    comparisonImpact={predictabilityCard.impact}
+                  />
+                  {renderSprintMetricCard("committed_scope")}
+                </MetricCategorySection>
+                <MetricCategorySection title="Quality">
+                  {renderSprintMetricCard("open_high_severity_bugs")}
+                  {renderSprintMetricCard("bugs_created_during_sprint")}
+                  {renderSprintMetricCard("reopen_rate_pct")}
+                </MetricCategorySection>
+                <MetricCategorySection title="Flow">
+                  {renderSprintMetricCard("median_cycle_time_days")}
+                  {renderSprintMetricCard("in_progress_count")}
+                  {renderSprintMetricCard("not_started_count")}
+                </MetricCategorySection>
+                <MetricCategorySection title="Risk">
+                  {renderSprintMetricCard("open_blockers")}
+                  {renderSprintMetricCard("rollover_count")}
+                  <MetricStatusCard
+                    title="Work distribution"
+                    value={workDistributionCard.value}
+                    status={workDistributionCard.status}
+                    comparison={workDistributionCard.comparison}
+                    comparisonImpact={workDistributionCard.impact}
+                    details={workDistributionCard.details}
+                  />
+                </MetricCategorySection>
               </div>
             ) : null}
           </>
@@ -895,6 +1150,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
                 ]}
                 dataKey="name"
                 formatter={formatDecimal}
+                yDomain={[0, 100]}
+                yTickFormatter={(value) => String(Math.round(value))}
               />
             ) : null}
 

@@ -37,6 +37,14 @@ def _ensure_metric_issue_key_columns() -> None:
             "bugs_created_during_sprint_issue_keys JSON NOT NULL DEFAULT '[]'"
         ),
         "ALTER TABLE metric_snapshots ADD COLUMN IF NOT EXISTS completed_tickets INTEGER",
+        (
+            "ALTER TABLE metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "scope_added_7d_count INTEGER NOT NULL DEFAULT 0"
+        ),
+        (
+            "ALTER TABLE metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "scope_removed_7d_count INTEGER NOT NULL DEFAULT 0"
+        ),
     ]
     with engine.begin() as connection:
         for statement in statements:

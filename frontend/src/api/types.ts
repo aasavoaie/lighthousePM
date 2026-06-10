@@ -127,6 +127,8 @@ export interface MetricValues {
   scope_completed_pct: number | null;
   completed_tickets: number | null;
   scope_churn_7d_pct: number | null;
+  scope_added_7d_count: number | null;
+  scope_removed_7d_count: number | null;
   median_cycle_time_days: number | null;
   reopen_rate_pct: number | null;
 }
@@ -164,8 +166,13 @@ export interface MetricSeries {
   scope_completed_pct: ChartPoint[];
   completed_tickets: ChartPoint[];
   scope_churn_7d_pct: ChartPoint[];
+  scope_added_7d_count: ChartPoint[];
+  scope_removed_7d_count: ChartPoint[];
   median_cycle_time_days: ChartPoint[];
   reopen_rate_pct: ChartPoint[];
+  confidence_score: ChartPoint[];
+  gates_passed_count: ChartPoint[];
+  readiness_pct: ChartPoint[];
 }
 
 export interface ReleaseChartsResponse {
@@ -173,6 +180,7 @@ export interface ReleaseChartsResponse {
   series: MetricSeries;
   metric_names: string[];
   point_count: number;
+  release_gates_total: number;
 }
 
 export interface SignalReasonDetail {
