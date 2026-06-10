@@ -20,6 +20,16 @@ import {
   type MetricImpact,
   type MetricStatus,
 } from "./MetricCards";
+import {
+  calculateExpectedVsActualProgress,
+  formatConfidencePercent,
+  getBiggestDrag,
+  getConfidenceComponentDetails,
+  getConfidenceStatus,
+  getDeliveryConfidenceSummary,
+  getRiskDrivers,
+  roundPercent,
+} from "./deliveryConfidence";
 
 type SprintOption = {
   label: string;
@@ -53,8 +63,6 @@ type SprintMetricHistoryRow = {
   commitmentReliability: SprintCommitmentReliabilityRow;
 };
 
-type ConfidenceTrend = "increasing" | "decreasing" | "similar";
-
 const sprintIssuePageSize = 100;
 const committedStoryPointColor = MetricColors.committedScope;
 const completedStoryPointColor = MetricColors.completedScope;
@@ -87,13 +95,6 @@ const sprintMetricDescriptions: Record<keyof SprintMetricValues, string> = {
   delivery_confidence_score: "Composite score from progress, velocity, blockers, and scope stability.",
 };
 
-const confidenceComponentLabels: Record<keyof DeliveryConfidenceDetail["components"], string> = {
-  progress_alignment: "Progress alignment",
-  velocity_fit: "Velocity fit",
-  blocker_penalty: "Blocker penalty",
-  scope_stability: "Scope stability",
-};
-
 function formatMetricValue(metricName: keyof SprintMetricValues, value: number | null) {
   if (value === null) {
     return "N/A";
@@ -113,66 +114,6 @@ function formatMetricValue(metricName: keyof SprintMetricValues, value: number |
     return `${value.toFixed(2)}%`;
   }
   return value.toFixed(2);
-}
-
-function formatNullableNumber(value: number | null | undefined, suffix = "") {
-  if (value === null || value === undefined) {
-    return "N/A";
-  }
-  return `${value.toFixed(2)}${suffix}`;
-}
-
-function getProgressAlignmentClass(value: number) {
-  if (value === 100) {
-    return "confidence-value-perfect";
-  }
-  if (value >= 76) {
-    return "confidence-value-good";
-  }
-  if (value >= 36) {
-    return "confidence-value-warning";
-  }
-  return "confidence-value-danger";
-}
-
-function getVelocityFitClass(value: number) {
-  if (value === 50) {
-    return "confidence-value-neutral";
-  }
-  if (value > 50) {
-    return "confidence-value-success";
-  }
-  return "confidence-value-danger";
-}
-
-function getBlockerPenaltyClass(value: number) {
-  if (value >= 80) {
-    return "confidence-value-success";
-  }
-  if (value >= 60) {
-    return "confidence-value-warning";
-  }
-  return "confidence-value-danger";
-}
-
-function getDeliveryConfidenceClass(value: number) {
-  if (value > 80) {
-    return "confidence-value-success";
-  }
-  if (value >= 55) {
-    return "confidence-value-warning";
-  }
-  return "confidence-value-danger";
-}
-
-function getScopeStabilityClass(value: number) {
-  if (value >= 80) {
-    return "confidence-value-success";
-  }
-  if (value >= 50) {
-    return "confidence-value-warning";
-  }
-  return "confidence-value-danger";
 }
 
 function getIssueStatusClass(issueKey: string, issuesByKey: Record<string, SprintIssue>) {
@@ -255,117 +196,125 @@ function renderMetricIssueKeys(
   );
 }
 
-function getConfidenceTrend(rows: SprintConfidenceRow[]): ConfidenceTrend | null {
-  const latestValues = rows.slice(-3).map((row) => row.delivery_confidence);
-  if (latestValues.length < 2) {
-    return null;
-  }
-
-  const difference = latestValues[latestValues.length - 1] - latestValues[0];
-  if (difference > 1) {
-    return "increasing";
-  }
-  if (difference < -1) {
-    return "decreasing";
-  }
-  return "similar";
-}
-
-function getConfidenceTrendTooltip(trend: ConfidenceTrend) {
-  return `Based on the last 3 sprints, confidence is ${trend}.`;
-}
-
 function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail) {
+  const componentDetails = getConfidenceComponentDetails(confidence.components);
+  const biggestDrag = getBiggestDrag(confidence.components);
+  const progress = calculateExpectedVsActualProgress(confidence.inputs);
+  const riskDrivers = getRiskDrivers(confidence.components);
+
+  function formatProgressValue(value: number | null) {
+    return value === null ? "N/A" : `${roundPercent(value)}%`;
+  }
+
+  function formatPoints(value: number) {
+    return `${Math.round(value)} pts`;
+  }
+
+  function formatSnapshotPercent(value: number | null | undefined) {
+    return value === null || value === undefined ? "N/A" : `${roundPercent(value)}%`;
+  }
+
+  function formatBlockedWork(value: number) {
+    return `${roundPercent(value * 100)}%`;
+  }
+
   return (
-    <div className="metric-grid confidence-grid">
-      <div className="confidence-breakdown">
-        {(Object.keys(confidence.components) as Array<keyof DeliveryConfidenceDetail["components"]>).map((key) => {
-          const value = confidence.components[key];
-          return (
-            <article className="metric-card confidence-component" key={key}>
-              <h3>
-                {confidenceComponentLabels[key]}
-                {key === "progress_alignment" ? (
-                  <button
-                    type="button"
-                    className="info-button"
-                    title="Progress alignment compares percent completed versus percent of sprint time elapsed. Closer to 100 means the sprint is on pace."
-                    aria-label="Progress alignment info"
-                  >
-                    i
-                  </button>
-                ) : null}
-                {key === "velocity_fit" ? (
-                  <button
-                    type="button"
-                    className="info-button"
-                    title="Velocity fit compares remaining work to estimated remaining capacity.\n\nUnder 50 means capacity is weak and lowers the overall score. Over 50 means capacity is stronger and raises the score. Exactly 50 is the fallback/neutral baseline contribution in the formula."
-                    aria-label="Velocity fit info"
-                  >
-                    i
-                  </button>
-                ) : null}
-                {key === "blocker_penalty" ? (
-                  <button
-                    type="button"
-                    className="info-button"
-                    title="Blocker penalty rewards sprints with fewer blocked issues. 80-100 is good (few or no blockers), 60-79 is moderate, and 0-59 is poor.\n\nA lower blocker penalty reduces the overall delivery confidence score."
-                    aria-label="Blocker penalty info"
-                  >
-                    i
-                  </button>
-                ) : null}
-                {key === "scope_stability" ? (
-                  <button
-                    type="button"
-                    className="info-button"
-                    title="Scope stability measures post-start scope churn. 80-100 is good, 50-79 is moderate, and 0-49 is poor.\n\nMore scope changes after sprint start reduce the overall delivery confidence score."
-                    aria-label="Scope stability info"
-                  >
-                    i
-                  </button>
-                ) : null}
-              </h3>
-              <strong
-                className={
-                  key === "progress_alignment"
-                    ? getProgressAlignmentClass(value)
-                    : key === "velocity_fit"
-                    ? getVelocityFitClass(value)
-                    : key === "blocker_penalty"
-                    ? getBlockerPenaltyClass(value)
-                    : key === "scope_stability"
-                    ? getScopeStabilityClass(value)
-                    : undefined
-                }
-              >
-                {value.toFixed(2)}
+    <div className="confidence-decision-layout">
+      <section className="confidence-section">
+        <div className="confidence-section-heading">
+          <h3>Confidence Breakdown</h3>
+        </div>
+        <div className="confidence-breakdown-grid">
+          {componentDetails.map((component) => (
+            <article className={`metric-card confidence-component status-${component.status.level}`} key={component.key}>
+              <div className="confidence-component-heading">
+                <h4>{component.label}</h4>
+                <span className={`confidence-status-pill confidence-status-${component.status.level}`}>
+                  {component.status.label}
+                </span>
+              </div>
+              <strong className={`confidence-status-text-${component.status.level}`}>
+                {formatConfidencePercent(component.score)}
               </strong>
+              <p>{component.explanation}</p>
             </article>
-          );
-        })}
-      </div>
-      <article className="metric-card confidence-input-card">
-        <h3>Calculation inputs</h3>
-        <dl className="confidence-inputs">
-          <dt>Committed pts</dt>
-          <dd>{confidence.inputs.committed_effective_points.toFixed(2)}</dd>
-          <dt>Completed pts</dt>
-          <dd>{confidence.inputs.completed_effective_points.toFixed(2)}</dd>
-          <dt>Remaining pts</dt>
-          <dd>{confidence.inputs.remaining_effective_points.toFixed(2)}</dd>
-          <dt>Elapsed</dt>
-          <dd>{formatNullableNumber(confidence.inputs.time_elapsed_pct, "%")}</dd>
-          <dt>Velocity</dt>
-          <dd>{formatNullableNumber(confidence.inputs.historical_velocity)}</dd>
-          <dt>Baseline</dt>
-          <dd>{confidence.inputs.baseline_sprint_count}</dd>
-          <dt>Blocked ratio</dt>
-          <dd>{confidence.inputs.blocked_issue_ratio.toFixed(4)}</dd>
-          <dt>Scope changes</dt>
-          <dd>{confidence.inputs.scope_change_count}</dd>
-        </dl>
+          ))}
+        </div>
+      </section>
+
+      <article className={`confidence-callout confidence-callout-${biggestDrag.status.level}`}>
+        <h3>Biggest Drag</h3>
+        <p>{biggestDrag.label} is the largest contributor to reduced confidence.</p>
       </article>
+
+      <section className="confidence-section">
+        <div className="confidence-section-heading">
+          <h3>Expected vs Actual Progress</h3>
+        </div>
+        <dl className="confidence-progress-grid">
+          <div>
+            <dt>Expected</dt>
+            <dd>{formatProgressValue(progress.expectedProgress)}</dd>
+          </div>
+          <div>
+            <dt>Actual</dt>
+            <dd>{formatProgressValue(progress.actualProgress)}</dd>
+          </div>
+          <div>
+            <dt>Gap</dt>
+            <dd className={progress.gap !== null && progress.gap < 0 ? "confidence-value-danger" : undefined}>
+              {formatProgressValue(progress.gap)}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="confidence-section">
+        <div className="confidence-section-heading">
+          <h3>Risk Drivers</h3>
+        </div>
+        {riskDrivers.length > 0 ? (
+          <ul className="confidence-risk-list">
+            {riskDrivers.map((driver) => (
+              <li className={`confidence-risk-driver risk-${driver.severity}`} key={driver.message}>
+                <span className="confidence-risk-icon" aria-hidden="true" />
+                {driver.message}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">No threshold-based risk drivers detected.</p>
+        )}
+      </section>
+
+      <section className="confidence-section">
+        <div className="confidence-section-heading">
+          <h3>Sprint Snapshot</h3>
+        </div>
+        <dl className="confidence-inputs">
+          <dt>Committed scope</dt>
+          <dd>{formatPoints(confidence.inputs.committed_effective_points)}</dd>
+          <dt>Completed scope</dt>
+          <dd>{formatPoints(confidence.inputs.completed_effective_points)}</dd>
+          <dt>Remaining scope</dt>
+          <dd>{formatPoints(confidence.inputs.remaining_effective_points)}</dd>
+          <dt>Sprint elapsed</dt>
+          <dd>{formatSnapshotPercent(confidence.inputs.time_elapsed_pct)}</dd>
+          <dt>Historical velocity</dt>
+          <dd>{confidence.inputs.historical_velocity === null ? "N/A" : formatPoints(confidence.inputs.historical_velocity)}</dd>
+          <dt>Scope changes</dt>
+          <dd>{Math.round(confidence.inputs.scope_change_count)}</dd>
+          <dt>Blocked work</dt>
+          <dd>{formatBlockedWork(confidence.inputs.blocked_issue_ratio)}</dd>
+        </dl>
+      </section>
+
+      <section className="confidence-section confidence-trend-placeholder">
+        <div className="confidence-section-heading">
+          <h3>Delivery confidence in this sprint</h3>
+        </div>
+        <p className="muted">Confidence trend will appear after multiple snapshots are collected.</p>
+      </section>
     </div>
   );
 }
@@ -641,13 +590,14 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
     }
     return getRecentSprints(Array.from(sprintsById.values()));
   }, [currentSprint, closedSprints]);
-  const confidenceTrend = useMemo(() => getConfidenceTrend(sprintConfidenceRows), [sprintConfidenceRows]);
-  const confidenceTrendTooltip = confidenceTrend ? getConfidenceTrendTooltip(confidenceTrend) : null;
   const predictabilityCard = useMemo(
     () => buildPredictabilityCard(sprintCommitmentReliabilityRows),
     [sprintCommitmentReliabilityRows]
   );
   const workDistributionCard = useMemo(() => buildWorkDistributionCard(issues), [issues]);
+  const deliveryConfidenceStatus = metrics?.delivery_confidence
+    ? getConfidenceStatus(metrics.delivery_confidence.score)
+    : null;
 
   function renderSprintMetricCard(metricName: keyof SprintMetricValues) {
     if (!metrics || metricName === "delivery_confidence_score") {
@@ -916,49 +866,50 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
 
       <section className="panel delivery-confidence-panel">
         <div className="panel-heading">
-          <h2 className="delivery-confidence-title">
-            Delivery Confidence
-            <button
-              type="button"
-              className="info-button"
-              title="Delivery confidence is a weighted sprint health score. It combines progress alignment, velocity fit, blocker penalty, and scope stability to produce a single confidence value."
-              aria-label="Delivery confidence info"
-            >
-              i
-            </button>
-          </h2>
+          <div className="delivery-confidence-heading">
+            <h2 className="delivery-confidence-title">
+              Delivery Confidence
+              <button
+                type="button"
+                className="info-button"
+                title="Delivery confidence is a weighted sprint health score. It combines progress alignment, velocity fit, blocker health, and scope stability to produce a single confidence value."
+                aria-label="Delivery confidence info"
+              >
+                i
+              </button>
+            </h2>
+            {metrics?.delivery_confidence && deliveryConfidenceStatus ? (
+              <div className="delivery-confidence-decision" aria-label={`Delivery confidence ${formatConfidencePercent(metrics.delivery_confidence.score)}, ${deliveryConfidenceStatus.label}`}>
+                <strong className={`delivery-confidence-score confidence-status-text-${deliveryConfidenceStatus.level}`}>
+                  {formatConfidencePercent(metrics.delivery_confidence.score)}
+                </strong>
+                <span className={`confidence-status-pill confidence-status-${deliveryConfidenceStatus.level}`}>
+                  {deliveryConfidenceStatus.label}
+                </span>
+              </div>
+            ) : null}
+          </div>
           <div className="panel-heading-actions">
             {metrics?.delivery_confidence ? (
-              <>
-                <div className="confidence-score-value delivery-confidence-heading-score">
-                  <strong className={getDeliveryConfidenceClass(metrics.delivery_confidence.score)}>
-                    {metrics.delivery_confidence.score.toFixed(2)}
-                  </strong>
-                  {confidenceTrend && confidenceTrendTooltip ? (
-                    <span
-                      className={`confidence-trend-icon ${confidenceTrend}`}
-                      title={confidenceTrendTooltip}
-                      aria-label={confidenceTrendTooltip}
-                      role="img"
-                      tabIndex={0}
-                    />
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  className="secondary-button compact-button"
-                  aria-expanded={isDeliveryConfidenceExpanded}
-                  onClick={() => setIsDeliveryConfidenceExpanded((c) => !c)}
-                >
-                  {isDeliveryConfidenceExpanded ? "Minimize" : "Expand"}
-                </button>
-              </>
+              <button
+                type="button"
+                className="secondary-button compact-button"
+                aria-expanded={isDeliveryConfidenceExpanded}
+                onClick={() => setIsDeliveryConfidenceExpanded((c) => !c)}
+              >
+                {isDeliveryConfidenceExpanded ? "Minimize" : "Expand"}
+              </button>
             ) : null}
           </div>
         </div>
         {isLoadingDetails ? <p className="muted">Loading delivery confidence...</p> : null}
         {!isLoadingDetails && metrics && !metrics.is_computed ? (
           <p className="muted">Sprint metrics have not been computed yet.</p>
+        ) : null}
+        {!isLoadingDetails && metrics?.delivery_confidence ? (
+          <p className="delivery-confidence-summary">
+            {getDeliveryConfidenceSummary(metrics.delivery_confidence.components)}
+          </p>
         ) : null}
         {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
           ? renderDeliveryConfidence(metrics.delivery_confidence)
