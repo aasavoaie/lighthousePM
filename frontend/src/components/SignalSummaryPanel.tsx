@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
 import type {
+  Issue,
   Release,
   ReleaseSignalResponse,
   SignalGate,
@@ -92,10 +93,25 @@ function formatAgeDays(value: number | null) {
   return `${formatted} ${value === 1 ? "day" : "days"}`;
 }
 
+function getIssueStatusClass(issueKey: string, issuesByKey: Record<string, Issue>) {
+  const status = issuesByKey[issueKey]?.status?.trim().toLowerCase() ?? "";
+  if (status === "blocked") {
+    return "blocked";
+  }
+  if (status === "done" || status === "closed" || status === "resolved") {
+    return "done";
+  }
+  if (status === "in progress" || status === "in development" || status === "in review" || status === "in testing") {
+    return "in-progress";
+  }
+  return "todo";
+}
+
 function renderRiskAgingCard(
   title: string,
   group: SignalRiskAgingGroup,
-  emptyMessage: string
+  emptyMessage: string,
+  issuesByKey: Record<string, Issue>
 ) {
   const tickets = group.tickets ?? [];
 
@@ -104,10 +120,12 @@ function renderRiskAgingCard(
       <strong>{title}</strong>
       {tickets.length > 0 ? (
         <>
-          <ul className="signal-aging-ticket-list">
+          <ul className="metric-ticket-list">
             {tickets.map((ticket) => (
               <li key={ticket.key}>
-                {ticket.key} ({formatAgeDays(ticket.age_days)})
+                <span className={`link-button status-badge ${getIssueStatusClass(ticket.key, issuesByKey)}`}>
+                  {ticket.key} ({formatAgeDays(ticket.age_days)})
+                </span>
               </li>
             ))}
           </ul>
@@ -254,16 +272,17 @@ function renderPrimaryRiskSection(signal: ReleaseSignalResponse) {
   );
 }
 
-function renderRiskAgingSection(signal: ReleaseSignalResponse) {
+function renderRiskAgingSection(signal: ReleaseSignalResponse, issuesByKey: Record<string, Issue>) {
   return (
     <div className="signal-readiness-section">
       <h3>Risk Aging</h3>
       <div className="signal-aging-grid">
-        {renderRiskAgingCard("Blockers", signal.risk_aging.blockers, "No blockers.")}
+        {renderRiskAgingCard("Blockers", signal.risk_aging.blockers, "No blockers.", issuesByKey)}
         {renderRiskAgingCard(
           "High-severity bugs",
           signal.risk_aging.high_severity_bugs,
-          "No high-severity bugs."
+          "No high-severity bugs.",
+          issuesByKey
         )}
       </div>
     </div>
@@ -285,7 +304,20 @@ function renderWarningsSection(signal: ReleaseSignalResponse) {
 
 export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }: SignalSummaryPanelProps) {
   const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
+  const riskAgingIssueKeys = useMemo(() => {
+    if (!signal) {
+      return [];
+    }
+
+    return Array.from(
+      new Set([
+        ...(signal.risk_aging.blockers.tickets ?? []).map((ticket) => ticket.key),
+        ...(signal.risk_aging.high_severity_bugs.tickets ?? []).map((ticket) => ticket.key),
+      ])
+    );
+  }, [signal]);
   const [signalTrendRows, setSignalTrendRows] = useState<ReleaseSignalTrendRow[]>([]);
+  const [riskAgingIssuesByKey, setRiskAgingIssuesByKey] = useState<Record<string, Issue>>({});
   const [isSignalExpanded, setIsSignalExpanded] = useState(true);
   const signalTrend = useMemo(() => getSignalTrend(signalTrendRows), [signalTrendRows]);
   const signalTrendTooltip = signalTrend ? getSignalTrendTooltip(signalTrend) : null;
@@ -336,6 +368,35 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
     };
   }, [recentReleases, refreshNonce]);
 
+  useEffect(() => {
+    if (riskAgingIssueKeys.length === 0) {
+      setRiskAgingIssuesByKey({});
+      return;
+    }
+
+    let isActive = true;
+
+    async function loadRiskAgingIssues() {
+      const issueResults = await Promise.allSettled(riskAgingIssueKeys.map((issueKey) => apiClient.getIssue(issueKey)));
+      const issuesByKey: Record<string, Issue> = {};
+      for (const result of issueResults) {
+        if (result.status === "fulfilled") {
+          issuesByKey[result.value.issue_key] = result.value;
+        }
+      }
+
+      if (isActive) {
+        setRiskAgingIssuesByKey(issuesByKey);
+      }
+    }
+
+    void loadRiskAgingIssues();
+
+    return () => {
+      isActive = false;
+    };
+  }, [riskAgingIssueKeys]);
+
   return (
     <section className="panel signal-panel">
       <div className="panel-heading">
@@ -376,7 +437,7 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
           ) : null}
           {!isLoading && signal ? renderCriticalRisksSection(signal) : null}
           {!isLoading && signal ? renderPrimaryRiskSection(signal) : null}
-          {!isLoading && signal ? renderRiskAgingSection(signal) : null}
+          {!isLoading && signal ? renderRiskAgingSection(signal, riskAgingIssuesByKey) : null}
           {!isLoading && signal ? renderWarningsSection(signal) : null}
           {!isLoading && signal && signal.reasons.length === 0 ? (
             <p className="muted">Signal has not been computed yet.</p>
