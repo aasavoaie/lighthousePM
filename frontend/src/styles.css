@@ -424,6 +424,16 @@ select {
   margin: 0;
 }
 
+.signal-two-column-section {
+  display: flex;
+  gap: 16px;
+}
+
+.signal-column-section {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .signal-gate-list,
 .signal-risk-list {
   display: grid;
@@ -485,6 +495,23 @@ select {
 }
 
 .signal-aging-card span {
+  color: #58677c;
+  font-weight: 600;
+}
+
+.signal-aging-ticket-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.signal-aging-ticket-list li {
+  color: #334155;
+  font-weight: 700;
+}
+
+.signal-aging-summary {
   color: #58677c;
   font-weight: 600;
 }
@@ -953,6 +980,10 @@ select {
 
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .signal-two-column-section {
+    flex-direction: column;
   }
 
   .signal-aging-grid {

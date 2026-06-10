@@ -164,8 +164,8 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
         "warnings": [],
         "primary_risk": None,
         "risk_aging": {
-            "blockers": {"count": 0, "oldest_age_days": None, "average_age_days": None},
-            "high_severity_bugs": {"count": 0, "oldest_age_days": None, "average_age_days": None},
+            "blockers": {"count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []},
+            "high_severity_bugs": {"count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []},
             "as_of": None,
         },
         "last_24_hours": {"as_of": None, "baseline_at": None, "has_baseline": False, "items": []},
@@ -327,11 +327,17 @@ def test_get_release_signal_returns_risk_aging_from_latest_snapshot(client: Test
         "count": 2,
         "oldest_age_days": 14.0,
         "average_age_days": 10.5,
+        "tickets": [{"key": "LHPM-1", "age_days": 14.0}, {"key": "LHPM-2", "age_days": 7.0}],
     }
     assert risk_aging["high_severity_bugs"] == {
         "count": 3,
         "oldest_age_days": 10.0,
         "average_age_days": 9.0,
+        "tickets": [
+            {"key": "LHPM-3", "age_days": 8.0},
+            {"key": "LHPM-4", "age_days": 9.0},
+            {"key": "LHPM-5", "age_days": 10.0},
+        ],
     }
 
 
@@ -364,11 +370,17 @@ def test_get_release_signal_risk_aging_honors_zero_count_snapshot(client: TestCl
     response = client.get("/releases/REL-1/signal")
     assert response.status_code == 200
     risk_aging = response.json()["risk_aging"]
-    assert risk_aging["blockers"] == {"count": 0, "oldest_age_days": None, "average_age_days": None}
+    assert risk_aging["blockers"] == {
+        "count": 0,
+        "oldest_age_days": None,
+        "average_age_days": None,
+        "tickets": [],
+    }
     assert risk_aging["high_severity_bugs"] == {
         "count": 0,
         "oldest_age_days": None,
         "average_age_days": None,
+        "tickets": [],
     }
 
 

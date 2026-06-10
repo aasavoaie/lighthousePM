@@ -223,6 +223,7 @@ export interface SignalRiskAgingGroup {
   count: number;
   oldest_age_days: number | null;
   average_age_days: number | null;
+  tickets?: Array<{ key: string; age_days: number }>;
 }
 
 export interface SignalRiskAging {

@@ -22,7 +22,7 @@ router = APIRouter(prefix="/releases", tags=["signals"])
 
 
 def _empty_risk_aging() -> dict[str, object]:
-    empty_group = {"count": 0, "oldest_age_days": None, "average_age_days": None}
+    empty_group = {"count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []}
     return {"blockers": empty_group, "high_severity_bugs": empty_group, "as_of": None}
 
 

@@ -701,15 +701,25 @@ class SignalService:
         raise ValueError(f"Unknown risk aging type: {risk_type!r}")
 
     @staticmethod
-    def _summarize_issue_ages(issues: list[Issue], as_of: datetime) -> dict[str, int | float | None]:
+    def _summarize_issue_ages(
+        issues: list[Issue], as_of: datetime
+    ) -> dict[str, int | float | None | list[dict[str, str | float]]]:
         if not issues:
-            return {"count": 0, "oldest_age_days": None, "average_age_days": None}
+            return {"count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []}
 
-        ages = [SignalService._issue_age_days(issue=issue, as_of=as_of) for issue in issues]
+        tickets = [
+            {
+                "key": issue.issue_key,
+                "age_days": round(SignalService._issue_age_days(issue=issue, as_of=as_of), 1),
+            }
+            for issue in issues
+        ]
+        ages = [float(ticket["age_days"]) for ticket in tickets]
         return {
             "count": len(issues),
             "oldest_age_days": round(max(ages), 1),
             "average_age_days": round(sum(ages) / len(ages), 1),
+            "tickets": tickets,
         }
 
     @staticmethod

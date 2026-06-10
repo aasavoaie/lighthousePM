@@ -95,19 +95,29 @@ function formatAgeDays(value: number | null) {
 function renderRiskAgingCard(
   title: string,
   group: SignalRiskAgingGroup,
-  primaryLabel: "Oldest" | "Average",
-  metricKey: "oldest_age_days" | "average_age_days"
+  emptyMessage: string
 ) {
-  if (group.count === 0) {
-    return null;
-  }
+  const tickets = group.tickets ?? [];
 
   return (
     <article className="signal-aging-card">
       <strong>{title}</strong>
-      <span>
-        {primaryLabel}: {formatAgeDays(group[metricKey])}
-      </span>
+      {tickets.length > 0 ? (
+        <>
+          <ul className="signal-aging-ticket-list">
+            {tickets.map((ticket) => (
+              <li key={ticket.key}>
+                {ticket.key} ({formatAgeDays(ticket.age_days)})
+              </li>
+            ))}
+          </ul>
+          <p className="signal-aging-summary">
+            Oldest: {formatAgeDays(group.oldest_age_days)}, Average: {formatAgeDays(group.average_age_days)}
+          </p>
+        </>
+      ) : (
+        <p className="muted">{emptyMessage}</p>
+      )}
     </article>
   );
 }
@@ -190,6 +200,87 @@ function getSignalTrendTooltip(trend: SignalTrend) {
     return "Based on the last 3 releases, release signal health is decreasing.";
   }
   return "Based on the last 3 releases, release signal health is similar.";
+}
+
+function renderLast24HoursSection(signal: ReleaseSignalResponse) {
+  return (
+    <div className="signal-readiness-section signal-column-section">
+      <h3>Last 24 Hours</h3>
+      {signal.last_24_hours.has_baseline && signal.last_24_hours.items.length > 0 ? (
+        <ul className="signal-delta-list">{signal.last_24_hours.items.map(renderLast24HoursItem)}</ul>
+      ) : (
+        <p className="muted">No 24-hour baseline snapshot available.</p>
+      )}
+    </div>
+  );
+}
+
+function renderReleaseGatesSection(signal: ReleaseSignalResponse) {
+  return (
+    <div className="signal-readiness-section signal-column-section">
+      <h3>Release Gates</h3>
+      {signal.release_gates.length > 0 ? (
+        <ul className="signal-gate-list">{signal.release_gates.map(renderReleaseGate)}</ul>
+      ) : (
+        <p className="muted">No release gates available.</p>
+      )}
+    </div>
+  );
+}
+
+function renderCriticalRisksSection(signal: ReleaseSignalResponse) {
+  return (
+    <div className="signal-readiness-section">
+      <h3>Critical Risks</h3>
+      {signal.critical_risks.length > 0 ? (
+        <ul className="signal-risk-list">{signal.critical_risks.map(renderRiskItem)}</ul>
+      ) : (
+        <p className="muted">No critical risks.</p>
+      )}
+    </div>
+  );
+}
+
+function renderPrimaryRiskSection(signal: ReleaseSignalResponse) {
+  if (!signal.primary_risk) {
+    return null;
+  }
+
+  return (
+    <div className="signal-readiness-section">
+      <h3>Primary Risk</h3>
+      <p>{signal.primary_risk.message}</p>
+    </div>
+  );
+}
+
+function renderRiskAgingSection(signal: ReleaseSignalResponse) {
+  return (
+    <div className="signal-readiness-section">
+      <h3>Risk Aging</h3>
+      <div className="signal-aging-grid">
+        {renderRiskAgingCard("Blockers", signal.risk_aging.blockers, "No blockers.")}
+        {renderRiskAgingCard(
+          "High-severity bugs",
+          signal.risk_aging.high_severity_bugs,
+          "No high-severity bugs."
+        )}
+      </div>
+    </div>
+  );
+}
+
+function renderWarningsSection(signal: ReleaseSignalResponse) {
+  return (
+    <div className="signal-readiness-section">
+      <h3>Warnings</h3>
+      {signal.warnings.length > 0 ? (
+        <ul className="signal-risk-list">{signal.warnings.map(renderRiskItem)}</ul>
+      ) : (
+        <p className="muted">No warnings.</p>
+      )}
+    </div>
+  );
 }
 
 export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }: SignalSummaryPanelProps) {
@@ -278,71 +369,17 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
           <p className="signal-description">{summary}</p>
           {isLoading ? <p className="muted">Loading signal...</p> : null}
           {!isLoading && signal ? (
-            <div className="signal-readiness-section">
-              <h3>Last 24 Hours</h3>
-              {signal.last_24_hours.has_baseline && signal.last_24_hours.items.length > 0 ? (
-                <ul className="signal-delta-list">{signal.last_24_hours.items.map(renderLast24HoursItem)}</ul>
-              ) : (
-                <p className="muted">No 24-hour baseline snapshot available.</p>
-              )}
+            <div className="signal-two-column-section">
+              {renderLast24HoursSection(signal)}
+              {renderReleaseGatesSection(signal)}
             </div>
           ) : null}
-          {!isLoading && signal?.release_gates.length ? (
-            <div className="signal-readiness-section">
-              <h3>Release Gates</h3>
-              <ul className="signal-gate-list">{signal.release_gates.map(renderReleaseGate)}</ul>
-            </div>
-          ) : null}
-          {!isLoading && signal ? (
-            <div className="signal-readiness-section">
-              <h3>Critical Risks</h3>
-              {signal.critical_risks.length > 0 ? (
-                <ul className="signal-risk-list">{signal.critical_risks.map(renderRiskItem)}</ul>
-              ) : (
-                <p className="muted">No critical risks.</p>
-              )}
-            </div>
-          ) : null}
-          {!isLoading && signal ? (
-            <div className="signal-readiness-section">
-              <h3>Risk Aging</h3>
-              <div className="signal-aging-grid">
-                {renderRiskAgingCard(
-                  `${signal.risk_aging.blockers.count} blockers remain open`,
-                  signal.risk_aging.blockers,
-                  "Oldest",
-                  "oldest_age_days"
-                )}
-                {renderRiskAgingCard(
-                  `${signal.risk_aging.high_severity_bugs.count} high severity bugs remain unresolved`,
-                  signal.risk_aging.high_severity_bugs,
-                  "Average",
-                  "average_age_days"
-                )}
-              </div>
-              {signal.risk_aging.blockers.count === 0 && signal.risk_aging.high_severity_bugs.count === 0 ? (
-                <p className="muted">No open blocker or high severity bug aging to report.</p>
-              ) : null}
-            </div>
-          ) : null}
-          {!isLoading && signal ? (
-            <div className="signal-readiness-section">
-              <h3>Warnings</h3>
-              {signal.warnings.length > 0 ? (
-                <ul className="signal-risk-list">{signal.warnings.map(renderRiskItem)}</ul>
-              ) : (
-                <p className="muted">No warnings.</p>
-              )}
-            </div>
-          ) : null}
+          {!isLoading && signal ? renderCriticalRisksSection(signal) : null}
+          {!isLoading && signal ? renderPrimaryRiskSection(signal) : null}
+          {!isLoading && signal ? renderRiskAgingSection(signal) : null}
+          {!isLoading && signal ? renderWarningsSection(signal) : null}
           {!isLoading && signal && signal.reasons.length === 0 ? (
             <p className="muted">Signal has not been computed yet.</p>
-          ) : null}
-          {!isLoading && signal?.primary_risk ? (
-            <div className="signal-readiness-section">
-              <h3>Primary Risk</h3>
-              <p>{signal.primary_risk.message}</p>
-            </div>
           ) : null}
           {!isLoading && signal?.updated_at ? (
             <p className="timestamp">Updated {new Date(signal.updated_at).toLocaleString()}</p>

@@ -51,6 +51,7 @@ class SignalRiskAgingGroup(BaseModel):
     count: int
     oldest_age_days: float | None
     average_age_days: float | None
+    tickets: list[dict[str, str | float]] = Field(default_factory=list)
 
 
 class SignalRiskAging(BaseModel):
@@ -76,8 +77,8 @@ class SignalLast24Hours(BaseModel):
 
 def _empty_risk_aging() -> SignalRiskAging:
     return SignalRiskAging(
-        blockers=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None),
-        high_severity_bugs=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None),
+        blockers=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None, tickets=[]),
+        high_severity_bugs=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None, tickets=[]),
         as_of=None,
     )
 
