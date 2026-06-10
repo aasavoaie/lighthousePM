@@ -1,68 +1,87 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { Release, ReleaseChartsResponse } from "../api/types";
+import type {
+  MetricSeries,
+  Release,
+  ReleaseChartsResponse,
+  ReleaseMetricsResponse,
+  ReleaseSignalResponse,
+  SignalRiskAgingGroup,
+} from "../api/types";
 import {
-  MetricColors,
-  MetricLineChart,
   MetricBarChart,
+  MetricColors,
+  MetricHorizontalBarChart,
+  MetricLineChart,
   formatPercentage,
 } from "./ChartComponents";
 
 interface ChartsPanelProps {
   charts: ReleaseChartsResponse | null;
+  signal: ReleaseSignalResponse | null;
   releases: Release[];
   selectedReleaseName: string | null;
   refreshNonce: number;
   isLoading: boolean;
 }
 
-type StoryPointRow = {
+type ChartMetricName = keyof MetricSeries;
+
+type ReleaseComparisonRow = {
   release_id: string;
   name: string;
-  story_points: number;
+  confidence_score: number | null;
+  blockers: number | null;
+  bugs: number | null;
+  reopen_rate_pct: number | null;
   is_unreleased: boolean;
 };
 
-type ReleaseSignalTrendRow = {
-  release_id: string;
-  release_name: string;
-  signal: string;
-};
-
-type SignalChartRow = {
+type RiskContributionRow = {
   name: string;
-  signal_score: number;
-  signal: string;
+  metric_name: string;
+  level: string;
+  contribution_pct: number;
 };
 
-const issuePageSize = 100;
+type BlockerAgingRow = {
+  name: string;
+  count: number;
+};
 
-const chartLines = [
-  { key: "open_blockers", color: MetricColors.blockers, label: "Open blockers" },
-  { key: "open_high_severity_bugs", color: MetricColors.bugs, label: "High-severity bugs" },
-  { key: "scope_completed_pct", color: MetricColors.scopeCompleted, label: "Scope completed %" },
-];
+const chartMetricLabels: Record<ChartMetricName, string> = {
+  open_blockers: "Open blockers",
+  open_high_severity_bugs: "High-severity bugs",
+  scope_completed_pct: "Scope completed",
+  completed_tickets: "Completed tickets",
+  scope_churn_7d_pct: "Scope churn",
+  scope_added_7d_count: "Scope added",
+  scope_removed_7d_count: "Scope removed",
+  median_cycle_time_days: "Median cycle time",
+  reopen_rate_pct: "Reopen rate",
+  confidence_score: "Confidence",
+  gates_passed_count: "Gates passed",
+  readiness_pct: "Readiness",
+};
 
-function buildChartRows(charts: ReleaseChartsResponse | null) {
+const riskMetricColors: Record<string, string> = {
+  open_blockers: MetricColors.blockers,
+  open_high_severity_bugs: MetricColors.bugs,
+  scope_churn_7d_pct: MetricColors.scopeChurn,
+  median_cycle_time_days: MetricColors.cycleTime,
+  reopen_rate_pct: MetricColors.reopenRate,
+};
+
+function buildSingleMetricRows(charts: ReleaseChartsResponse | null, metricName: ChartMetricName) {
   if (!charts) {
     return [];
   }
 
-  const rows = new Map<string, Record<string, number | string | null>>();
-  for (const metricName of charts.metric_names) {
-    const points = charts.series[metricName as keyof typeof charts.series];
-    for (const point of points) {
-      const existing = rows.get(point.snapshot_at) ?? {
-        snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
-      };
-      existing[metricName] = point.value;
-      rows.set(point.snapshot_at, existing);
-    }
-  }
-  return Array.from(rows.entries())
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, value]) => value);
+  return charts.series[metricName].map((point) => ({
+    snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
+    value: point.value,
+  }));
 }
 
 function releaseSortTime(release: Release) {
@@ -78,164 +97,176 @@ function getRecentReleases(releases: Release[]) {
     .reverse();
 }
 
-function signalHealthScore(signalValue: string | null): number | null {
-  if (signalValue === "GREEN") {
-    return 3;
-  }
-  if (signalValue === "YELLOW") {
-    return 2;
-  }
-  if (signalValue === "RED") {
-    return 1;
-  }
-  return null;
-}
-
-function buildSignalChartRows(rows: ReleaseSignalTrendRow[]): SignalChartRow[] {
-  return rows.map((row) => ({
-    name: row.release_name,
-    signal_score: signalHealthScore(row.signal) ?? 0,
-    signal: row.signal,
-  }));
-}
-
-function getSignalColor(signal: string) {
-  if (signal === "GREEN") {
-    return "#237445";
-  }
-  if (signal === "YELLOW") {
-    return "#e48f00";
-  }
-  if (signal === "RED") {
-    return "#c43c2d";
-  }
-  return MetricColors.sprintConfidence;
-}
-
 function isUnreleasedRelease(release: Release) {
   return (release.status ?? "").trim().toLowerCase() !== "released";
 }
 
-export function ChartsPanel({ charts, releases, selectedReleaseName, refreshNonce, isLoading }: ChartsPanelProps) {
-  const rows = buildChartRows(charts);
-  const releaseEventsTitle = selectedReleaseName
-    ? `Release ${selectedReleaseName} events`
-    : "Release events";
+function riskLabel(metricName: string) {
+  return chartMetricLabels[metricName as ChartMetricName] ?? metricName;
+}
+
+function buildRiskContributionRows(signal: ReleaseSignalResponse | null): RiskContributionRow[] {
+  if (!signal) {
+    return [];
+  }
+
+  const rowsByMetric = new Map<string, RiskContributionRow>();
+  for (const item of [...signal.critical_risks, ...signal.warnings]) {
+    const existing = rowsByMetric.get(item.metric_name);
+    if (!existing || item.contribution_pct > existing.contribution_pct) {
+      rowsByMetric.set(item.metric_name, {
+        name: riskLabel(item.metric_name),
+        metric_name: item.metric_name,
+        level: item.level,
+        contribution_pct: item.contribution_pct,
+      });
+    }
+  }
+
+  return Array.from(rowsByMetric.values())
+    .filter((row) => row.contribution_pct > 0)
+    .sort((left, right) => right.contribution_pct - left.contribution_pct || left.name.localeCompare(right.name));
+}
+
+function buildBlockerAgingRows(group: SignalRiskAgingGroup | null | undefined): BlockerAgingRow[] {
+  const rows: BlockerAgingRow[] = [
+    { name: "0-3 days", count: 0 },
+    { name: "4-7 days", count: 0 },
+    { name: "8-14 days", count: 0 },
+    { name: "15+ days", count: 0 },
+  ];
+
+  for (const ticket of group?.tickets ?? []) {
+    if (ticket.age_days <= 3) {
+      rows[0].count += 1;
+    } else if (ticket.age_days <= 7) {
+      rows[1].count += 1;
+    } else if (ticket.age_days <= 14) {
+      rows[2].count += 1;
+    } else {
+      rows[3].count += 1;
+    }
+  }
+
+  return rows;
+}
+
+function formatNullableNumber(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "N/A";
+  }
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+}
+
+function formatNullablePct(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return "N/A";
+  }
+  return `${value.toFixed(0)}%`;
+}
+
+function renderComparisonTable(rows: ReleaseComparisonRow[]) {
+  if (rows.length === 0) {
+    return <p className="muted">No release comparison data available yet.</p>;
+  }
+
+  return (
+    <div className="table-wrapper release-comparison-wrapper">
+      <table className="issues-table release-comparison-table">
+        <thead>
+          <tr>
+            <th>Release</th>
+            <th>Confidence</th>
+            <th>Blockers</th>
+            <th>Bugs</th>
+            <th>Reopen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.release_id}>
+              <td>
+                <span>{row.name}</span>
+                {row.is_unreleased ? <span className="comparison-status-note">Unreleased</span> : null}
+              </td>
+              <td>{formatNullablePct(row.confidence_score)}</td>
+              <td>{formatNullableNumber(row.blockers)}</td>
+              <td>{formatNullableNumber(row.bugs)}</td>
+              <td>{formatNullablePct(row.reopen_rate_pct)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+async function loadReleaseComparisonRow(release: Release): Promise<ReleaseComparisonRow> {
+  const [metricsResponse, signalResponse] = await Promise.all([
+    apiClient.getMetrics(release.release_id),
+    apiClient.getSignal(release.release_id),
+  ]);
+  const metrics: ReleaseMetricsResponse["metrics"] = metricsResponse.metrics;
+
+  return {
+    release_id: release.release_id,
+    name: release.name,
+    confidence_score: signalResponse.confidence_score,
+    blockers: metrics.open_blockers,
+    bugs: metrics.open_high_severity_bugs,
+    reopen_rate_pct: metrics.reopen_rate_pct,
+    is_unreleased: isUnreleasedRelease(release),
+  };
+}
+
+export function ChartsPanel({
+  charts,
+  signal,
+  releases,
+  selectedReleaseName,
+  refreshNonce,
+  isLoading,
+}: ChartsPanelProps) {
+  const confidenceRows = useMemo(() => buildSingleMetricRows(charts, "confidence_score"), [charts]);
+  const gateRows = useMemo(() => buildSingleMetricRows(charts, "gates_passed_count"), [charts]);
+  const readinessRows = useMemo(() => buildSingleMetricRows(charts, "readiness_pct"), [charts]);
+  const riskContributionRows = useMemo(() => buildRiskContributionRows(signal), [signal]);
+  const blockerAgingRows = useMemo(() => buildBlockerAgingRows(signal?.risk_aging.blockers), [signal]);
   const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
-  const [storyPointRows, setStoryPointRows] = useState<StoryPointRow[]>([]);
-  const [isLoadingStoryPoints, setIsLoadingStoryPoints] = useState(false);
-  const [storyPointError, setStoryPointError] = useState<string | null>(null);
-  const [signalTrendRows, setSignalTrendRows] = useState<ReleaseSignalTrendRow[]>([]);
-  const [signalTrendChartRows, setSignalTrendChartRows] = useState<SignalChartRow[]>([]);
-  const [isLoadingSignalTrend, setIsLoadingSignalTrend] = useState(false);
-  const [signalTrendError, setSignalTrendError] = useState<string | null>(null);
+  const [comparisonRows, setComparisonRows] = useState<ReleaseComparisonRow[]>([]);
+  const [isLoadingComparison, setIsLoadingComparison] = useState(false);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [isChartsExpanded, setIsChartsExpanded] = useState(true);
 
   useEffect(() => {
     if (recentReleases.length === 0) {
-      setStoryPointRows([]);
+      setComparisonRows([]);
       return;
     }
 
     let isActive = true;
 
-    async function loadStoryPoints() {
-      setIsLoadingStoryPoints(true);
-      setStoryPointError(null);
+    async function loadComparison() {
+      setIsLoadingComparison(true);
+      setComparisonError(null);
       try {
-        const rows = await Promise.all(
-          recentReleases.map(async (release) => {
-            let allStoryPoints = 0;
-            let fetchedCount = 0;
-            let total = 0;
-
-            while (true) {
-              const response = await apiClient.getReleaseIssues(release.release_id, fetchedCount, issuePageSize);
-              total = response.total;
-              for (const issue of response.items) {
-                allStoryPoints += issue.story_points ?? 0;
-              }
-
-              fetchedCount += response.items.length;
-              if (fetchedCount >= total || response.items.length === 0) {
-                break;
-              }
-            }
-
-            return {
-              release_id: release.release_id,
-              name: release.name,
-              story_points: Number(allStoryPoints.toFixed(2)),
-              is_unreleased: isUnreleasedRelease(release),
-            };
-          })
-        );
-
+        const rows = await Promise.all(recentReleases.map(loadReleaseComparisonRow));
         if (isActive) {
-          setStoryPointRows(rows);
+          setComparisonRows(rows);
         }
       } catch (error) {
         if (isActive) {
-          setStoryPointError(error instanceof Error ? error.message : "Failed to load release story points.");
+          setComparisonError(error instanceof Error ? error.message : "Failed to load release comparison.");
+          setComparisonRows([]);
         }
       } finally {
         if (isActive) {
-          setIsLoadingStoryPoints(false);
+          setIsLoadingComparison(false);
         }
       }
     }
 
-    void loadStoryPoints();
-
-    return () => {
-      isActive = false;
-    };
-  }, [recentReleases, refreshNonce]);
-
-  useEffect(() => {
-    if (recentReleases.length === 0) {
-      setSignalTrendRows([]);
-      setSignalTrendChartRows([]);
-      return;
-    }
-
-    let isActive = true;
-
-    async function loadSignalTrend() {
-      setIsLoadingSignalTrend(true);
-      setSignalTrendError(null);
-
-      try {
-        const rows = await Promise.all(
-          recentReleases.map(async (release) => {
-            const response = await apiClient.getSignal(release.release_id);
-            return {
-              release_id: release.release_id,
-              release_name: release.name,
-              signal: response.signal ?? "UNKNOWN",
-            };
-          })
-        );
-
-        if (isActive) {
-          const validRows = rows.filter((row) => row.signal !== "UNKNOWN");
-          setSignalTrendRows(validRows);
-          setSignalTrendChartRows(buildSignalChartRows(validRows));
-        }
-      } catch (error) {
-        if (isActive) {
-          setSignalTrendError(error instanceof Error ? error.message : "Failed to load signal trend.");
-          setSignalTrendRows([]);
-          setSignalTrendChartRows([]);
-        }
-      } finally {
-        if (isActive) {
-          setIsLoadingSignalTrend(false);
-        }
-      }
-    }
-
-    void loadSignalTrend();
+    void loadComparison();
 
     return () => {
       isActive = false;
@@ -245,7 +276,7 @@ export function ChartsPanel({ charts, releases, selectedReleaseName, refreshNonc
   return (
     <section className="panel charts-panel">
       <div className="panel-heading">
-        <h2>Release-related Charts</h2>
+        <h2>Release Charts</h2>
         <div className="panel-heading-actions">
           {charts ? <span className="muted">Snapshots {charts.point_count}</span> : null}
           <button
@@ -261,82 +292,107 @@ export function ChartsPanel({ charts, releases, selectedReleaseName, refreshNonc
       {isChartsExpanded ? (
         <>
           {isLoading ? <p className="muted">Loading charts...</p> : null}
-          {!isLoading && rows.length === 0 ? <p className="muted">No chart data available yet.</p> : null}
-          {!isLoading && rows.length > 0 ? (
-            <div className="chart-section-heading first">
-              <h3>{releaseEventsTitle}</h3>
-            </div>
-          ) : null}
-          {!isLoading && rows.length > 0 ? (
-            <MetricLineChart
-              data={rows}
-              lines={chartLines}
-              dataKey="snapshot_at"
-              formatter={(value, name) => {
-                if (
-                  name === "scope_completed_pct" ||
-                  name === "open_high_severity_bugs" ||
-                  name === "open_blockers"
-                ) {
-                  return String(value);
-                }
-                return formatPercentage(value);
-              }}
-            />
-          ) : null}
+
+          <div className="chart-section-heading first">
+            <h3>Confidence Evolution</h3>
+            {selectedReleaseName ? <span className="muted">{selectedReleaseName}</span> : null}
+          </div>
+          <MetricLineChart
+            data={confidenceRows}
+            lines={[
+              {
+                key: "value",
+                label: chartMetricLabels.confidence_score,
+                color: MetricColors.sprintConfidence,
+              },
+            ]}
+            formatter={(value) => formatPercentage(value)}
+            yDomain={[0, 100]}
+            yTickFormatter={(value) => `${value}%`}
+            empty={!isLoading && confidenceRows.length === 0}
+            emptyMessage="No confidence history available yet."
+            loading={isLoading}
+          />
 
           <div className="chart-section-heading">
-            <h3>Signal trend (recent releases)</h3>
-            {signalTrendChartRows.length > 0 ? (
-              <span className="muted">Last {signalTrendChartRows.length}</span>
+            <h3>Risk Breakdown</h3>
+            {riskContributionRows.length > 0 ? <span className="muted">Contribution %</span> : null}
+          </div>
+          <MetricHorizontalBarChart
+            data={riskContributionRows}
+            barKey="contribution_pct"
+            barLabel="Risk contribution"
+            cellColors={(row) => riskMetricColors[String(row.metric_name)] ?? MetricColors.neutralRisk}
+            formatter={(value) => formatPercentage(value)}
+            empty={!signal || riskContributionRows.length === 0}
+            emptyMessage="No active risk contribution."
+          />
+
+          <div className="chart-section-heading">
+            <h3>Quality Gates Pass Trend</h3>
+            {charts ? <span className="muted">Out of {charts.release_gates_total}</span> : null}
+          </div>
+          <MetricLineChart
+            data={gateRows}
+            lines={[
+              {
+                key: "value",
+                label: chartMetricLabels.gates_passed_count,
+                color: MetricColors.gatesPassed,
+              },
+            ]}
+            formatter={(value) => `${Math.round(value)}/${charts?.release_gates_total ?? 0}`}
+            yDomain={[0, charts?.release_gates_total ?? 5]}
+            yTickFormatter={(value) => String(Math.round(value))}
+            empty={!isLoading && gateRows.length === 0}
+            emptyMessage="No gate pass history available yet."
+            loading={isLoading}
+          />
+
+          <div className="chart-section-heading">
+            <h3>Readiness Trend</h3>
+          </div>
+          <MetricLineChart
+            data={readinessRows}
+            lines={[
+              {
+                key: "value",
+                label: chartMetricLabels.readiness_pct,
+                color: MetricColors.readiness,
+              },
+            ]}
+            formatter={(value) => formatPercentage(value)}
+            yDomain={[0, 100]}
+            yTickFormatter={(value) => `${value}%`}
+            empty={!isLoading && readinessRows.length === 0}
+            emptyMessage="No readiness history available yet."
+            loading={isLoading}
+          />
+
+          <div className="chart-section-heading">
+            <h3>Blocker Aging</h3>
+            {signal?.risk_aging.as_of ? (
+              <span className="muted">As of {new Date(signal.risk_aging.as_of).toLocaleDateString()}</span>
             ) : null}
           </div>
-          {signalTrendError ? <p className="error-text">{signalTrendError}</p> : null}
-          {!signalTrendError ? (
-            <MetricBarChart
-              data={signalTrendChartRows}
-              barKey="signal_score"
-              barLabel="Signal health"
-              barColor={MetricColors.sprintConfidence}
-              cellColors={(row) => getSignalColor((row as SignalChartRow).signal)}
-              height={240}
-              dataKey="name"
-              formatter={(value) => {
-                const valueMap: Record<number, string> = { 1: "RED", 2: "YELLOW", 3: "GREEN" };
-                return valueMap[Math.round(value)] || String(value);
-              }}
-              loading={isLoadingSignalTrend}
-              empty={signalTrendChartRows.length === 0}
-              emptyMessage="Loading signal trend..."
-            />
-          ) : null}
+          <MetricBarChart
+            data={blockerAgingRows}
+            barKey="count"
+            barLabel="Blockers"
+            barColor={MetricColors.blockers}
+            height={240}
+            formatter={(value) => String(Math.round(value))}
+            empty={!signal || (signal.risk_aging.blockers.tickets ?? []).length === 0}
+            emptyMessage="No blockers."
+          />
 
           <div className="chart-section-heading">
-            <h3>Story points in every release</h3>
-            {storyPointRows.length > 0 ? <span className="muted">Last {storyPointRows.length}</span> : null}
+            <h3>Release Comparison Dashboard</h3>
+            {comparisonRows.length > 0 ? <span className="muted">Last {comparisonRows.length}</span> : null}
           </div>
-          <div className="chart-legend-note" aria-label="Release status color legend">
-            <span className="chart-legend-swatch unreleased" aria-hidden="true" />
-            <span>All releases in this color are not released yet.</span>
-          </div>
-          {storyPointError ? <p className="error-text">{storyPointError}</p> : null}
-          {!isLoadingStoryPoints && !storyPointError ? (
-            <MetricBarChart
-              data={storyPointRows}
-              barKey="story_points"
-              barLabel="Story points"
-              barColor={MetricColors.releasedStoryPoints}
-              cellColors={(row) => {
-                const storyRow = row as StoryPointRow;
-                return storyRow.is_unreleased
-                  ? MetricColors.unreleasedStoryPoints
-                  : MetricColors.releasedStoryPoints;
-              }}
-              loading={isLoadingStoryPoints}
-              empty={storyPointRows.length === 0}
-              emptyMessage="No release story point data available yet."
-            />
-          ) : null}
+          {isLoadingComparison ? <p className="muted">Loading release comparison...</p> : null}
+          {comparisonError ? <p className="error-text">{comparisonError}</p> : null}
+          {!isLoadingComparison && !comparisonError ? renderComparisonTable(comparisonRows) : null}
         </>
       ) : null}
     </section>

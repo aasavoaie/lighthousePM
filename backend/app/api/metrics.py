@@ -43,8 +43,17 @@ METRIC_NAMES = [
     "scope_completed_pct",
     "completed_tickets",
     "scope_churn_7d_pct",
+    "scope_added_7d_count",
+    "scope_removed_7d_count",
     "median_cycle_time_days",
     "reopen_rate_pct",
+]
+
+CHART_METRIC_NAMES = [
+    *METRIC_NAMES,
+    "confidence_score",
+    "gates_passed_count",
+    "readiness_pct",
 ]
 
 
@@ -59,6 +68,34 @@ def _build_metric_thresholds() -> MetricThresholds:
         reopen_rate_pct_yellow=REOPEN_RATE_YELLOW_THRESHOLD * 100,
         median_cycle_time_days_yellow=CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
     )
+
+
+def _build_release_gate_values(snapshot) -> tuple[int, int, float]:
+    readiness_details = SignalService._build_release_readiness_details(
+        signal=None,
+        open_blockers=snapshot.open_blockers,
+        open_high_severity_bugs=snapshot.open_high_severity_bugs,
+        scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
+        reopen_rate_pct=snapshot.reopen_rate_pct,
+        median_cycle_time_days=snapshot.median_cycle_time_days,
+    )
+    gates = readiness_details.get("release_gates", [])
+    total = len(gates)
+    passed = sum(1 for gate in gates if isinstance(gate, dict) and gate.get("passed") is True)
+    readiness_pct = 0.0 if total == 0 else round((passed / total) * 100, 2)
+    return passed, total, readiness_pct
+
+
+def _release_gates_total() -> int:
+    class EmptySnapshot:
+        open_blockers = 0
+        open_high_severity_bugs = 0
+        scope_churn_7d_pct = 0.0
+        reopen_rate_pct = 0.0
+        median_cycle_time_days = None
+
+    _, total, _ = _build_release_gate_values(EmptySnapshot())
+    return total
 
 
 @router.get("/{release_id}/metrics", response_model=ReleaseMetricsResponse)
@@ -81,6 +118,8 @@ def get_release_metrics(
                 scope_completed_pct=None,
                 completed_tickets=None,
                 scope_churn_7d_pct=None,
+                scope_added_7d_count=None,
+                scope_removed_7d_count=None,
                 median_cycle_time_days=None,
                 reopen_rate_pct=None,
             ),
@@ -114,6 +153,8 @@ def get_release_metrics(
             scope_completed_pct=snapshot.scope_completed_pct,
             completed_tickets=snapshot.completed_tickets,
             scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
+            scope_added_7d_count=snapshot.scope_added_7d_count,
+            scope_removed_7d_count=snapshot.scope_removed_7d_count,
             median_cycle_time_days=snapshot.median_cycle_time_days,
             reopen_rate_pct=snapshot.reopen_rate_pct,
         ),
@@ -149,6 +190,10 @@ def get_release_charts(
         from_at=from_ts,
         to_at=to_ts,
     )
+    release_gate_values = {
+        snapshot.id: _build_release_gate_values(snapshot)
+        for snapshot in snapshots
+    }
 
     return ReleaseChartsResponse(
         release_id=release_id,
@@ -173,6 +218,14 @@ def get_release_charts(
                 ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_churn_7d_pct)
                 for snapshot in snapshots
             ],
+            scope_added_7d_count=[
+                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_added_7d_count)
+                for snapshot in snapshots
+            ],
+            scope_removed_7d_count=[
+                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_removed_7d_count)
+                for snapshot in snapshots
+            ],
             median_cycle_time_days=[
                 ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.median_cycle_time_days)
                 for snapshot in snapshots
@@ -181,9 +234,25 @@ def get_release_charts(
                 ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.reopen_rate_pct)
                 for snapshot in snapshots
             ],
+            confidence_score=[
+                ChartPoint(
+                    snapshot_at=snapshot.snapshot_at,
+                    value=SignalService._confidence_score_for_snapshot(snapshot),
+                )
+                for snapshot in snapshots
+            ],
+            gates_passed_count=[
+                ChartPoint(snapshot_at=snapshot.snapshot_at, value=release_gate_values[snapshot.id][0])
+                for snapshot in snapshots
+            ],
+            readiness_pct=[
+                ChartPoint(snapshot_at=snapshot.snapshot_at, value=release_gate_values[snapshot.id][2])
+                for snapshot in snapshots
+            ],
         ),
-        metric_names=METRIC_NAMES,
+        metric_names=CHART_METRIC_NAMES,
         point_count=len(snapshots),
+        release_gates_total=_release_gates_total(),
     )
 
 

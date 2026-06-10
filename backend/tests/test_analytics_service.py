@@ -193,6 +193,8 @@ def test_scope_churn_7d_counts_recent_fix_version_changes(db_session: Session) -
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.scope_churn_7d_pct == 100.0  # 2 churned / 2 total
+    assert result.scope_added_7d_count == 1
+    assert result.scope_removed_7d_count == 1
 
 
 def test_scope_churn_7d_excludes_old_changes(db_session: Session) -> None:
@@ -207,6 +209,8 @@ def test_scope_churn_7d_excludes_old_changes(db_session: Session) -> None:
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.scope_churn_7d_pct == 0.0
+    assert result.scope_added_7d_count == 0
+    assert result.scope_removed_7d_count == 0
 
 
 def test_scope_churn_7d_case_insensitive_release_name(db_session: Session) -> None:
@@ -221,6 +225,8 @@ def test_scope_churn_7d_case_insensitive_release_name(db_session: Session) -> No
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.scope_churn_7d_pct == 100.0
+    assert result.scope_added_7d_count == 0
+    assert result.scope_removed_7d_count == 1
 
 
 def test_scope_churn_7d_supports_configured_changelog_alias(
@@ -242,6 +248,8 @@ def test_scope_churn_7d_supports_configured_changelog_alias(
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
     assert result.scope_churn_7d_pct == 100.0
+    assert result.scope_added_7d_count == 1
+    assert result.scope_removed_7d_count == 0
 
 
 # ---------------------------------------------------------------------------

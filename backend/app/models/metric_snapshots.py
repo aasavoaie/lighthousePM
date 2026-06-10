@@ -37,6 +37,8 @@ class MetricSnapshot(Base):
     scope_completed_pct: Mapped[float] = mapped_column("scope_completed_pct", Float, nullable=False)
     completed_tickets: Mapped[int | None] = mapped_column("completed_tickets", Integer, nullable=True)
     scope_churn_7d_pct: Mapped[float] = mapped_column("scope_churn_7d_pct", Float, nullable=False)
+    scope_added_7d_count: Mapped[int] = mapped_column("scope_added_7d_count", Integer, nullable=False, default=0)
+    scope_removed_7d_count: Mapped[int] = mapped_column("scope_removed_7d_count", Integer, nullable=False, default=0)
     median_cycle_time_days: Mapped[float | None] = mapped_column("median_cycle_time_days", Float, nullable=True)
     reopen_rate_pct: Mapped[float] = mapped_column("reopen_rate_pct", Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

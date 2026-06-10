@@ -3,6 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { apiClient } from "../api/client";
 import type { Issue, MetricValues, ReleaseChartsResponse, ReleaseMetricsResponse } from "../api/types";
 import { MetricSparkline, MetricColors } from "./ChartComponents";
+import {
+  MetricCategorySection,
+  MetricStatusCard,
+  type MetricImpact,
+  type MetricStatus,
+  formatSignedDelta,
+  getDeltaImpact,
+} from "./MetricCards";
 
 interface MetricsPanelProps {
   metrics: ReleaseMetricsResponse | null;
@@ -16,26 +24,35 @@ const metricLabels: Record<keyof MetricValues, string> = {
   open_high_severity_bugs: "Open high-severity bugs",
   scope_completed_pct: "Scope completed",
   completed_tickets: "Completed tickets",
-  scope_churn_7d_pct: "Scope churn 7d",
+  scope_churn_7d_pct: "Scope creep",
+  scope_added_7d_count: "Scope added",
+  scope_removed_7d_count: "Scope removed",
   median_cycle_time_days: "Median cycle time (days)",
   reopen_rate_pct: "Reopen rate",
 };
 
-const metricDescriptions: Record<keyof MetricValues, string> = {
-  open_blockers: "Release issues excluded from done status and classified as blockers by issue type (Blocker/Incident), priority (Blocker/Highest/Critical), status (Blocked), or the configured blocker field.",
-  open_high_severity_bugs: "Open bugs with high or critical severity levels.",
-  scope_completed_pct: "Percentage of release issues currently in done status.",
-  completed_tickets: "Number of release issues currently in a configured done status.",
-  scope_churn_7d_pct: "Scope changes affecting this release during the last 7 days.",
-  median_cycle_time_days: "Median days from first in-progress to first done transition.",
-  reopen_rate_pct: "Share of release issues that moved from done back to active work.",
+const metricDirections: Record<keyof MetricValues, "higher-is-better" | "lower-is-better" | "neutral"> = {
+  open_blockers: "lower-is-better",
+  open_high_severity_bugs: "lower-is-better",
+  scope_completed_pct: "higher-is-better",
+  completed_tickets: "neutral",
+  scope_churn_7d_pct: "lower-is-better",
+  scope_added_7d_count: "lower-is-better",
+  scope_removed_7d_count: "lower-is-better",
+  median_cycle_time_days: "lower-is-better",
+  reopen_rate_pct: "lower-is-better",
 };
 
 function formatMetricValue(metricName: keyof MetricValues, value: number | null) {
   if (value === null) {
     return "N/A";
   }
-  if (metricName === "open_blockers" || metricName === "open_high_severity_bugs") {
+  if (
+    metricName === "open_blockers" ||
+    metricName === "open_high_severity_bugs" ||
+    metricName === "scope_added_7d_count" ||
+    metricName === "scope_removed_7d_count"
+  ) {
     return String(value);
   }
   if (metricName === "completed_tickets") {
@@ -53,6 +70,8 @@ const sparklineColorMap: Record<keyof MetricValues, string> = {
   scope_completed_pct: MetricColors.scopeCompleted,
   completed_tickets: MetricColors.completedTickets,
   scope_churn_7d_pct: MetricColors.scopeChurn,
+  scope_added_7d_count: MetricColors.scopeChurn,
+  scope_removed_7d_count: MetricColors.scopeChurn,
   median_cycle_time_days: MetricColors.cycleTime,
   reopen_rate_pct: MetricColors.reopenRate,
 };
@@ -69,6 +88,80 @@ function buildSparklineData(charts: ReleaseChartsResponse | null, metricName: ke
       snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
       value: point.value as number,
     }));
+}
+
+function getLatestDelta(charts: ReleaseChartsResponse | null, metricName: keyof MetricValues) {
+  const points = charts?.series[metricName] ?? [];
+  const numericPoints = points.filter((point) => point.value !== null);
+  if (numericPoints.length < 2) {
+    return null;
+  }
+  const previous = numericPoints[numericPoints.length - 2].value as number;
+  const current = numericPoints[numericPoints.length - 1].value as number;
+  return Number((current - previous).toFixed(2));
+}
+
+function buildComparison(charts: ReleaseChartsResponse | null, metricName: keyof MetricValues) {
+  const delta = getLatestDelta(charts, metricName);
+  if (delta === null) {
+    return { text: "Trend baseline unavailable", impact: "unknown" as MetricImpact };
+  }
+  return {
+    text: formatSignedDelta(delta, (value) => formatMetricValue(metricName, value)),
+    impact: getDeltaImpact(delta, metricDirections[metricName]),
+  };
+}
+
+function getReleaseMetricStatus(
+  metricName: keyof MetricValues,
+  value: number | null,
+  metrics: ReleaseMetricsResponse
+): MetricStatus {
+  if (value === null) {
+    return "neutral";
+  }
+
+  const thresholds = metrics.metric_thresholds;
+  if (metricName === "open_blockers") {
+    return thresholds && value > thresholds.open_blockers_red ? "critical" : "good";
+  }
+  if (metricName === "open_high_severity_bugs") {
+    if (!thresholds) {
+      return "neutral";
+    }
+    if (value > thresholds.open_high_severity_bugs_red) {
+      return "critical";
+    }
+    return value > thresholds.open_high_severity_bugs_yellow ? "warning" : "good";
+  }
+  if (metricName === "scope_churn_7d_pct") {
+    if (!thresholds) {
+      return "neutral";
+    }
+    if (value > thresholds.scope_churn_7d_pct_red) {
+      return "critical";
+    }
+    return value > thresholds.scope_churn_7d_pct_yellow ? "warning" : "good";
+  }
+  if (metricName === "reopen_rate_pct") {
+    if (!thresholds) {
+      return "neutral";
+    }
+    if (value > thresholds.reopen_rate_pct_red) {
+      return "critical";
+    }
+    return value > thresholds.reopen_rate_pct_yellow ? "warning" : "good";
+  }
+  if (metricName === "median_cycle_time_days") {
+    return thresholds && value > thresholds.median_cycle_time_days_yellow ? "warning" : "good";
+  }
+  if (metricName === "scope_completed_pct") {
+    if (value >= 80) {
+      return "good";
+    }
+    return value >= 50 ? "warning" : "critical";
+  }
+  return "neutral";
 }
 
 function getIssueStatusClass(issueKey: string, issuesByKey: Record<string, Issue>) {
@@ -130,6 +223,37 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue }: Metr
   const [metricIssuesByKey, setMetricIssuesByKey] = useState<Record<string, Issue>>({});
   const [isMetricsExpanded, setIsMetricsExpanded] = useState(true);
 
+  function renderReleaseMetricCard(metricName: keyof MetricValues, options?: { details?: string[] }) {
+    if (!metrics) {
+      return null;
+    }
+
+    const value = metrics.metrics[metricName];
+    const sparklineData = buildSparklineData(charts, metricName);
+    const comparison = buildComparison(charts, metricName);
+    return (
+      <MetricStatusCard
+        key={metricName}
+        title={metricLabels[metricName]}
+        value={formatMetricValue(metricName, value)}
+        status={getReleaseMetricStatus(metricName, value, metrics)}
+        comparison={comparison.text}
+        comparisonImpact={comparison.impact}
+        details={options?.details}
+      >
+        <MetricSparkline
+          data={sparklineData}
+          valueKey="value"
+          lineColor={sparklineColorMap[metricName]}
+          empty={sparklineData.length === 0}
+          emptyMessage="Trend data unavailable"
+          formatter={(pointValue) => formatMetricValue(metricName, pointValue)}
+        />
+        {renderMetricIssueKeys(metricName, value, metrics, metricIssuesByKey, onSelectIssue)}
+      </MetricStatusCard>
+    );
+  }
+
   useEffect(() => {
     if (metricIssueKeys.length === 0) {
       setMetricIssuesByKey({});
@@ -184,32 +308,23 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue }: Metr
             <p className="muted">Metrics have not been computed for this release yet.</p>
           ) : null}
           {!isLoading && metrics && metrics.is_computed ? (
-            <div className="metric-grid">
-              {(Object.keys(metrics.metrics) as Array<keyof MetricValues>).map((metricName) => {
-                const sparklineData = buildSparklineData(charts, metricName);
-                return (
-                  <article className="metric-card" key={metricName}>
-                    <h3>{metricLabels[metricName]}</h3>
-                    <p className="metric-description">{metricDescriptions[metricName]}</p>
-                    <strong>{formatMetricValue(metricName, metrics.metrics[metricName])}</strong>
-                    <MetricSparkline
-                      data={sparklineData}
-                      valueKey="value"
-                      lineColor={sparklineColorMap[metricName]}
-                      empty={sparklineData.length === 0}
-                      emptyMessage="Trend data unavailable"
-                      formatter={(value, name) => formatMetricValue(metricName, value)}
-                    />
-                    {renderMetricIssueKeys(
-                      metricName,
-                      metrics.metrics[metricName],
-                      metrics,
-                      metricIssuesByKey,
-                      onSelectIssue
-                    )}
-                  </article>
-                );
-              })}
+            <div className="metric-category-stack">
+              <MetricCategorySection title="Delivery">
+                {renderReleaseMetricCard("scope_completed_pct")}
+                {renderReleaseMetricCard("completed_tickets")}
+                {renderReleaseMetricCard("scope_churn_7d_pct", {
+                  details: [
+                    `${metrics.metrics.scope_added_7d_count ?? 0} issues added`,
+                    `${metrics.metrics.scope_removed_7d_count ?? 0} issues removed`,
+                  ],
+                })}
+              </MetricCategorySection>
+              <MetricCategorySection title="Quality">
+                {renderReleaseMetricCard("open_high_severity_bugs")}
+                {renderReleaseMetricCard("reopen_rate_pct")}
+              </MetricCategorySection>
+              <MetricCategorySection title="Flow">{renderReleaseMetricCard("median_cycle_time_days")}</MetricCategorySection>
+              <MetricCategorySection title="Risk">{renderReleaseMetricCard("open_blockers")}</MetricCategorySection>
             </div>
           ) : null}
         </>

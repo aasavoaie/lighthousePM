@@ -552,6 +552,22 @@ select {
   gap: 12px;
 }
 
+.metric-category-stack {
+  display: grid;
+  gap: 22px;
+}
+
+.metric-category-section {
+  display: grid;
+  gap: 10px;
+}
+
+.metric-category-section > h3 {
+  margin: 0;
+  color: #334155;
+  font-size: 1rem;
+}
+
 .scope-stability-summary {
   margin-bottom: 16px;
   padding: 16px;
@@ -790,9 +806,68 @@ select {
 
 .metric-card {
   padding: 16px;
-  border-radius: 14px;
+  border-radius: 8px;
   background: #f8fbfe;
   border: 1px solid #dbe7f2;
+}
+
+.metric-status-card {
+  display: flex;
+  min-height: 184px;
+  flex-direction: column;
+}
+
+.metric-status-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.metric-status-heading h3 {
+  overflow-wrap: anywhere;
+}
+
+.metric-status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: #6d6d72;
+  box-shadow: 0 0 0 3px rgba(109, 109, 114, 0.12);
+}
+
+.metric-status-label {
+  justify-self: end;
+  color: #58677c;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.metric-status-good .metric-status-dot {
+  background: #237445;
+  box-shadow: 0 0 0 3px rgba(35, 116, 69, 0.14);
+}
+
+.metric-status-warning .metric-status-dot {
+  background: #e48f00;
+  box-shadow: 0 0 0 3px rgba(228, 143, 0, 0.16);
+}
+
+.metric-status-critical .metric-status-dot {
+  background: #c43c2d;
+  box-shadow: 0 0 0 3px rgba(196, 60, 45, 0.14);
+}
+
+.metric-status-good .metric-status-label {
+  color: #237445;
+}
+
+.metric-status-warning .metric-status-label {
+  color: #9f6a00;
+}
+
+.metric-status-critical .metric-status-label {
+  color: #a63124;
 }
 
 .metric-description {
@@ -810,6 +885,41 @@ select {
   display: block;
   margin-top: 10px;
   font-size: 1.45rem;
+}
+
+.metric-comparison {
+  margin: 8px 0 0;
+  color: #58677c;
+  font-weight: 700;
+}
+
+.metric-impact-positive {
+  color: #237445;
+}
+
+.metric-impact-negative {
+  color: #a63124;
+}
+
+.metric-impact-neutral,
+.metric-impact-unknown {
+  color: #58677c;
+}
+
+.metric-detail-list {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  color: #334155;
+  font-size: 0.92rem;
+  list-style: none;
+}
+
+.metric-sparkline,
+.metric-sparkline-empty {
+  margin-top: auto;
+  padding-top: 12px;
 }
 
 .metric-ticket-list {
@@ -908,6 +1018,26 @@ select {
 
 .chart-legend-swatch.not-closed {
   background: #e48f00;
+}
+
+.release-comparison-wrapper {
+  margin-top: 4px;
+}
+
+.release-comparison-table td:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.comparison-status-note {
+  border: 1px solid #f0b45b;
+  background: #fff5e5;
+  color: #8a5200;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 0.74rem;
+  font-weight: 700;
 }
 
 .recharts-tooltip-wrapper {

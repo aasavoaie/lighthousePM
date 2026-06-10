@@ -15,6 +15,22 @@ from app.models import Issue, IssueHistory, MetricSnapshot, Release
 from app.services.analytics_service import AnalyticsService
 
 
+RELEASE_CHART_METRIC_NAMES = [
+    "open_blockers",
+    "open_high_severity_bugs",
+    "scope_completed_pct",
+    "completed_tickets",
+    "scope_churn_7d_pct",
+    "scope_added_7d_count",
+    "scope_removed_7d_count",
+    "median_cycle_time_days",
+    "reopen_rate_pct",
+    "confidence_score",
+    "gates_passed_count",
+    "readiness_pct",
+]
+
+
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
     engine = create_engine(
@@ -154,6 +170,8 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
         "scope_completed_pct",
         "completed_tickets",
         "scope_churn_7d_pct",
+        "scope_added_7d_count",
+        "scope_removed_7d_count",
         "median_cycle_time_days",
         "reopen_rate_pct",
     ]
@@ -170,6 +188,8 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
         "scope_completed_pct": None,
         "completed_tickets": None,
         "scope_churn_7d_pct": None,
+        "scope_added_7d_count": None,
+        "scope_removed_7d_count": None,
         "median_cycle_time_days": None,
         "reopen_rate_pct": None,
     }
@@ -184,24 +204,22 @@ def test_get_release_charts_returns_empty_series_when_snapshot_missing(client: T
     assert response.status_code == 200
     payload = response.json()
     assert payload["release_id"] == "REL-1"
-    assert payload["metric_names"] == [
-        "open_blockers",
-        "open_high_severity_bugs",
-        "scope_completed_pct",
-        "completed_tickets",
-        "scope_churn_7d_pct",
-        "median_cycle_time_days",
-        "reopen_rate_pct",
-    ]
+    assert payload["metric_names"] == RELEASE_CHART_METRIC_NAMES
     assert payload["point_count"] == 0
+    assert payload["release_gates_total"] == 5
     assert payload["series"] == {
         "open_blockers": [],
         "open_high_severity_bugs": [],
         "scope_completed_pct": [],
         "completed_tickets": [],
         "scope_churn_7d_pct": [],
+        "scope_added_7d_count": [],
+        "scope_removed_7d_count": [],
         "median_cycle_time_days": [],
         "reopen_rate_pct": [],
+        "confidence_score": [],
+        "gates_passed_count": [],
+        "readiness_pct": [],
     }
 
 
@@ -236,6 +254,8 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
         "scope_completed_pct",
         "completed_tickets",
         "scope_churn_7d_pct",
+        "scope_added_7d_count",
+        "scope_removed_7d_count",
         "median_cycle_time_days",
         "reopen_rate_pct",
     ]
@@ -254,6 +274,8 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     assert metrics["metrics"]["scope_completed_pct"] == 50.0
     assert metrics["metrics"]["completed_tickets"] == 1
     assert metrics["metrics"]["scope_churn_7d_pct"] == 50.0
+    assert metrics["metrics"]["scope_added_7d_count"] == 1
+    assert metrics["metrics"]["scope_removed_7d_count"] == 0
     assert metrics["metrics"]["reopen_rate_pct"] == 0.0
     assert metrics["metric_issue_keys"] == {
         "open_blockers": ["LHPM-1"],
@@ -263,16 +285,9 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     charts = client.get("/releases/REL-1/charts")
     assert charts.status_code == 200
     charts_payload = charts.json()
-    assert charts_payload["metric_names"] == [
-        "open_blockers",
-        "open_high_severity_bugs",
-        "scope_completed_pct",
-        "completed_tickets",
-        "scope_churn_7d_pct",
-        "median_cycle_time_days",
-        "reopen_rate_pct",
-    ]
+    assert charts_payload["metric_names"] == RELEASE_CHART_METRIC_NAMES
     assert charts_payload["point_count"] == 1
+    assert charts_payload["release_gates_total"] == 5
     series = charts_payload["series"]
     assert len(series["open_blockers"]) == 1
     assert series["open_blockers"][0]["value"] == 1
@@ -280,6 +295,16 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     assert series["scope_completed_pct"][0]["value"] == 50.0
     assert len(series["completed_tickets"]) == 1
     assert series["completed_tickets"][0]["value"] == 1
+    assert len(series["scope_added_7d_count"]) == 1
+    assert series["scope_added_7d_count"][0]["value"] == 1
+    assert len(series["scope_removed_7d_count"]) == 1
+    assert series["scope_removed_7d_count"][0]["value"] == 0
+    assert len(series["confidence_score"]) == 1
+    assert series["confidence_score"][0]["value"] == 55.0
+    assert len(series["gates_passed_count"]) == 1
+    assert series["gates_passed_count"][0]["value"] == 3
+    assert len(series["readiness_pct"]) == 1
+    assert series["readiness_pct"][0]["value"] == 60.0
 
     admin_status = client.get("/admin/status")
     assert admin_status.status_code == 200

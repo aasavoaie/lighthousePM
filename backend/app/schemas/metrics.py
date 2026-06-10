@@ -9,6 +9,8 @@ class MetricValues(BaseModel):
     scope_completed_pct: float | None
     completed_tickets: int | None
     scope_churn_7d_pct: float | None
+    scope_added_7d_count: int | None
+    scope_removed_7d_count: int | None
     median_cycle_time_days: float | None
     reopen_rate_pct: float | None
 
@@ -51,8 +53,13 @@ class MetricSeries(BaseModel):
     scope_completed_pct: list[ChartPoint]
     completed_tickets: list[ChartPoint]
     scope_churn_7d_pct: list[ChartPoint]
+    scope_added_7d_count: list[ChartPoint]
+    scope_removed_7d_count: list[ChartPoint]
     median_cycle_time_days: list[ChartPoint]
     reopen_rate_pct: list[ChartPoint]
+    confidence_score: list[ChartPoint]
+    gates_passed_count: list[ChartPoint]
+    readiness_pct: list[ChartPoint]
 
 
 class ReleaseChartsResponse(BaseModel):
@@ -60,6 +67,7 @@ class ReleaseChartsResponse(BaseModel):
     series: MetricSeries
     metric_names: list[str]
     point_count: int
+    release_gates_total: int
 
 
 class RecomputeMetricsResponse(BaseModel):

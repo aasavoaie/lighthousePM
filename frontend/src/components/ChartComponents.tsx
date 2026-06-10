@@ -36,6 +36,9 @@ export const MetricColors = {
   cycleTime: "#237445",
   reopenRate: "#9f6a00",
   sprintConfidence: "#237445",
+  readiness: "#0b6bcb",
+  gatesPassed: "#237445",
+  neutralRisk: "#58677c",
   committedScope: "#0b6bcb",
   completedScope: "#237445",
   releasedStoryPoints: "#0b6bcb",
@@ -85,6 +88,8 @@ interface MetricLineChartProps {
   height?: number;
   dataKey?: string;
   formatter?: (value: number, name: string) => string;
+  yDomain?: [number | string, number | string];
+  yTickFormatter?: (value: number) => string;
   loading?: boolean;
   empty?: boolean;
   emptyMessage?: string;
@@ -96,6 +101,8 @@ export function MetricLineChart({
   height = 320,
   dataKey = "snapshot_at",
   formatter,
+  yDomain,
+  yTickFormatter,
   loading = false,
   empty = false,
   emptyMessage = "No data available",
@@ -114,7 +121,7 @@ export function MetricLineChart({
         <RechartsLineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={dataKey} />
-          <YAxis />
+          <YAxis domain={yDomain} tickFormatter={yTickFormatter} />
           <RechartsTooltip content={<CustomChartTooltip formatter={formatter} />} />
           <RechartsLegend />
           {lines.map((line) => (
@@ -129,6 +136,62 @@ export function MetricLineChart({
             />
           ))}
         </RechartsLineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+interface MetricHorizontalBarChartProps {
+  data: Array<Record<string, unknown>>;
+  barKey: string;
+  barLabel: string;
+  barColor?: string;
+  cellColors?: (data: Record<string, unknown>) => string;
+  height?: number;
+  dataKey?: string;
+  formatter?: (value: number, name: string) => string;
+  loading?: boolean;
+  empty?: boolean;
+  emptyMessage?: string;
+}
+
+export function MetricHorizontalBarChart({
+  data,
+  barKey,
+  barLabel,
+  barColor = MetricColors.neutralRisk,
+  cellColors,
+  height = 260,
+  dataKey = "name",
+  formatter,
+  loading = false,
+  empty = false,
+  emptyMessage = "No data available",
+}: MetricHorizontalBarChartProps) {
+  if (loading) {
+    return <p className="muted">Loading chart...</p>;
+  }
+
+  if (empty) {
+    return <p className="muted">{emptyMessage}</p>;
+  }
+
+  return (
+    <div className="chart-wrapper">
+      <ResponsiveContainer width="100%" height={height}>
+        <RechartsBarChart data={data} layout="vertical" margin={{ left: 16, right: 24 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+          <XAxis type="number" domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+          <YAxis type="category" dataKey={dataKey} width={128} />
+          <RechartsTooltip content={<CustomChartTooltip formatter={formatter} />} />
+          <Bar dataKey={barKey} name={barLabel} fill={barColor} radius={[0, 6, 6, 0]}>
+            {cellColors && data
+              ? (data as Record<string, unknown>[]).map((row, index) => (
+                  <Cell key={index} fill={cellColors(row)} />
+                ))
+              : null}
+          </Bar>
+        </RechartsBarChart>
       </ResponsiveContainer>
     </div>
   );

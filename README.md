@@ -50,17 +50,24 @@ Jira → Ingestion → Database → Metrics → Signals → API
 - Open blockers
 - Open high-severity bugs
 - % of release scope completed
-- Scope churn (last 7 days)
+- Scope creep (last 7 days): percent of release scope touched by fix-version churn, with added and removed issue counts
 
 ### Sprint Confidence
 - Delivery confidence: a deterministic sprint-level score
 - Components: progress alignment, velocity fit, blocker penalty, scope stability
 - Weighted 40/30/20/10 and stored on sprint snapshots
 - Bugs created during sprint: linked sprint bug issues whose Jira creation time falls inside the sprint window
+- Velocity health: current completed effective points divided by historical velocity from the sprint baseline
+- Team predictability: average completed effective points divided by committed effective points across recent closed sprints
+- Work distribution: assignee share of current sprint effective points
 
 #### Definitions
 - **Baseline:** The number of recent closed sprints used to compute historical velocity for a team or board. In this project the baseline defaults to the last 3 closed sprints (configurable in code). Historical velocity is the average of `completed_effective_points` across those baseline sprints and is used by the `velocity_fit` component of Delivery Confidence.
 - **Blocked ratio:** The fraction of currently open blocker issues relative to the total number of committed issues in the sprint. It is computed as `blocked_issue_ratio = 0.0 if committed_issue_count == 0 else open_blockers / committed_issue_count`. A higher blocked ratio indicates more work blocked and decreases the `blocker_penalty` component of Delivery Confidence (the penalty is applied as `blocker_penalty = clamp(100 * (1 - blocked_issue_ratio), 0, 100)`).
+- **Scope creep:** For releases, scope creep uses distinct fix-version changelog entries from the last 7 days where either the old or new value references the release name. `scope_added_7d_count` counts entries moving into the release, and `scope_removed_7d_count` counts entries moving out. For sprints, scope creep uses `scope_stability_index = (scope_added_count + scope_removed_count) / initial_commitment_count`.
+- **Velocity health:** `100 * completed_effective_points / historical_velocity` when a historical velocity baseline exists. Dashboard interpretation is Good at `>= 90%`, Warning at `75-89%`, and Critical below `75%`.
+- **Team predictability:** Average of `completed_effective_points / committed_effective_points` across recent closed sprints with committed work. Dashboard interpretation uses the same `>= 90%`, `75-89%`, and `< 75%` boundaries as Velocity health.
+- **Work distribution:** Current sprint work share by assignee using story points; issues without story points count as `1` effective point. Dashboard interpretation is Good at `<= 35%` top-assignee load, Warning at `> 35%`, and Critical at `> 50%`.
 
 ### Flow
 - Median cycle time
@@ -209,7 +216,10 @@ Example `GET /releases/REL-1/metrics` (snapshot exists):
     "open_blockers",
     "open_high_severity_bugs",
     "scope_completed_pct",
+    "completed_tickets",
     "scope_churn_7d_pct",
+    "scope_added_7d_count",
+    "scope_removed_7d_count",
     "median_cycle_time_days",
     "reopen_rate_pct"
   ],
@@ -229,7 +239,10 @@ Example `GET /releases/REL-1/metrics` (snapshot exists):
     "open_blockers": 1,
     "open_high_severity_bugs": 2,
     "scope_completed_pct": 55.56,
+    "completed_tickets": 5,
     "scope_churn_7d_pct": 12.5,
+    "scope_added_7d_count": 2,
+    "scope_removed_7d_count": 1,
     "median_cycle_time_days": 4.0,
     "reopen_rate_pct": 8.33
   },
@@ -250,7 +263,10 @@ Example `GET /releases/REL-1/metrics` (empty state, release exists):
     "open_blockers",
     "open_high_severity_bugs",
     "scope_completed_pct",
+    "completed_tickets",
     "scope_churn_7d_pct",
+    "scope_added_7d_count",
+    "scope_removed_7d_count",
     "median_cycle_time_days",
     "reopen_rate_pct"
   ],
@@ -261,7 +277,10 @@ Example `GET /releases/REL-1/metrics` (empty state, release exists):
     "open_blockers": null,
     "open_high_severity_bugs": null,
     "scope_completed_pct": null,
+    "completed_tickets": null,
     "scope_churn_7d_pct": null,
+    "scope_added_7d_count": null,
+    "scope_removed_7d_count": null,
     "median_cycle_time_days": null,
     "reopen_rate_pct": null
   },
@@ -281,11 +300,18 @@ Example `GET /releases/REL-1/charts?limit=2`:
     "open_blockers",
     "open_high_severity_bugs",
     "scope_completed_pct",
+    "completed_tickets",
     "scope_churn_7d_pct",
+    "scope_added_7d_count",
+    "scope_removed_7d_count",
     "median_cycle_time_days",
-    "reopen_rate_pct"
+    "reopen_rate_pct",
+    "confidence_score",
+    "gates_passed_count",
+    "readiness_pct"
   ],
   "point_count": 2,
+  "release_gates_total": 5,
   "series": {
     "open_blockers": [
       {"snapshot_at": "2026-04-09T11:00:00Z", "value": 2},
@@ -299,9 +325,21 @@ Example `GET /releases/REL-1/charts?limit=2`:
       {"snapshot_at": "2026-04-09T11:00:00Z", "value": 50.0},
       {"snapshot_at": "2026-04-09T12:00:00Z", "value": 55.56}
     ],
+    "completed_tickets": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 4},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 5}
+    ],
     "scope_churn_7d_pct": [
       {"snapshot_at": "2026-04-09T11:00:00Z", "value": 15.0},
       {"snapshot_at": "2026-04-09T12:00:00Z", "value": 12.5}
+    ],
+    "scope_added_7d_count": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 3},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 2}
+    ],
+    "scope_removed_7d_count": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 0},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 1}
     ],
     "median_cycle_time_days": [
       {"snapshot_at": "2026-04-09T11:00:00Z", "value": 5.0},
@@ -310,6 +348,18 @@ Example `GET /releases/REL-1/charts?limit=2`:
     "reopen_rate_pct": [
       {"snapshot_at": "2026-04-09T11:00:00Z", "value": 10.0},
       {"snapshot_at": "2026-04-09T12:00:00Z", "value": 8.33}
+    ],
+    "confidence_score": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 73.0},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 82.0}
+    ],
+    "gates_passed_count": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 3},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 4}
+    ],
+    "readiness_pct": [
+      {"snapshot_at": "2026-04-09T11:00:00Z", "value": 60.0},
+      {"snapshot_at": "2026-04-09T12:00:00Z", "value": 80.0}
     ]
   }
 }
@@ -447,14 +497,18 @@ Example `GET /releases/REL-1/signal` (empty state, release exists):
   - `metric_issue_keys` stores the exact issue keys behind `open_blockers` and `open_high_severity_bugs`.
   - `is_computed` differentiates uncomputed releases from computed snapshots.
   - `snapshot_age_hours` exposes freshness for dashboard staleness indicators.
+  - `scope_added_7d_count` and `scope_removed_7d_count` explain the issue movement behind the 7-day scope creep percentage.
 - **Sprint metrics output** (`GET /sprints/{id}/metrics`):
   - Uses the same `metric_issue_keys` shape for sprint `open_blockers` and `open_high_severity_bugs`.
+  - Delivery-confidence inputs expose the deterministic source values used by dashboard-only Velocity health, Team predictability, and Work distribution cards.
 - **Notable issues output**:
   - Use existing `GET /releases/{id}/issues` and issue fields (`is_blocker`, `priority`, `status`).
   - No dedicated notable-issues endpoint is introduced in MVP.
 - **Historical trend output** (`GET /releases/{id}/charts`):
   - Time series remains metric-keyed (`series.<metric_name>[]`).
   - `metric_names` and `point_count` make chart wiring deterministic for consumers.
+  - `confidence_score`, `gates_passed_count`, and `readiness_pct` are derived from each stored metric snapshot using the same rule-based signal calculations.
+  - `release_gates_total` exposes the deterministic gate denominator for pass-trend charts.
 
 ### Modifying Signal Rules and Thresholds
 

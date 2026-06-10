@@ -229,6 +229,7 @@ export default function App() {
             />
             <ChartsPanel
               charts={charts}
+              signal={signal}
               releases={releases}
               selectedReleaseName={selectedRelease?.name ?? null}
               refreshNonce={dashboardRefreshNonce}

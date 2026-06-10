@@ -50,6 +50,12 @@ class AnalyticsService:
             release_id,
             field_mapper,
         )
+        scope_churn_7d = self._compute_release_scope_churn_7d(
+            session=session,
+            release_id=release_id,
+            release_name=release.name,
+            field_mapper=field_mapper,
+        )
 
         snapshot = MetricSnapshot(
             release_id=release_id,
@@ -60,12 +66,9 @@ class AnalyticsService:
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
             scope_completed_pct=self._compute_scope_completed_pct(session, release_id, field_mapper),
             completed_tickets=self._count_completed_tickets(session, release_id, field_mapper),
-            scope_churn_7d_pct=self._compute_scope_churn_7d_pct(
-                session,
-                release_id,
-                release.name,
-                field_mapper,
-            ),
+            scope_churn_7d_pct=scope_churn_7d["scope_churn_7d_pct"],
+            scope_added_7d_count=scope_churn_7d["scope_added_7d_count"],
+            scope_removed_7d_count=scope_churn_7d["scope_removed_7d_count"],
             reopen_rate_pct=self._compute_reopen_rate_pct(session, release_id, field_mapper),
             median_cycle_time_days=self._compute_median_cycle_time_days(session, release_id, field_mapper),
         )
@@ -297,6 +300,22 @@ class AnalyticsService:
         release_name: str,
         field_mapper: JiraFieldMapper,
     ) -> float:
+        return float(
+            AnalyticsService._compute_release_scope_churn_7d(
+                session=session,
+                release_id=release_id,
+                release_name=release_name,
+                field_mapper=field_mapper,
+            )["scope_churn_7d_pct"]
+        )
+
+    @staticmethod
+    def _compute_release_scope_churn_7d(
+        session: Session,
+        release_id: str,
+        release_name: str,
+        field_mapper: JiraFieldMapper,
+    ) -> dict[str, int | float]:
         """100 * distinct churned issues / total issues in last 7 days.
 
         Churn = a 'fix version' field change in issue_history where the old or new value
@@ -309,23 +328,42 @@ class AnalyticsService:
             select(func.count()).select_from(Issue).where(Issue.release_id == release_id)
         ) or 0
         if total == 0:
-            return 0.0
+            return {
+                "scope_churn_7d_pct": 0.0,
+                "scope_added_7d_count": 0,
+                "scope_removed_7d_count": 0,
+            }
 
         cutoff = datetime.now(UTC) - timedelta(days=7)
         release_name_lower = release_name.casefold()
 
-        churned_keys = session.scalars(
-            select(IssueHistory.issue_key)
+        entries = session.scalars(
+            select(IssueHistory)
             .where(
                 func.lower(IssueHistory.field_name).in_(field_mapper.fix_version_changelog_fields),
                 IssueHistory.changed_at >= cutoff,
                 func.lower(IssueHistory.old_value).in_([release_name_lower])
                 | func.lower(IssueHistory.new_value).in_([release_name_lower]),
             )
-            .distinct()
         ).all()
 
-        return round(100.0 * len(churned_keys) / total, 2)
+        churned_keys: set[str] = set()
+        added_keys: set[str] = set()
+        removed_keys: set[str] = set()
+        for entry in entries:
+            old_references_release = (entry.old_value or "").casefold() == release_name_lower
+            new_references_release = (entry.new_value or "").casefold() == release_name_lower
+            churned_keys.add(entry.issue_key)
+            if not old_references_release and new_references_release:
+                added_keys.add(entry.issue_key)
+            elif old_references_release and not new_references_release:
+                removed_keys.add(entry.issue_key)
+
+        return {
+            "scope_churn_7d_pct": round(100.0 * len(churned_keys) / total, 2),
+            "scope_added_7d_count": len(added_keys),
+            "scope_removed_7d_count": len(removed_keys),
+        }
 
     @staticmethod
     def _compute_reopen_rate_pct(
