@@ -16,6 +16,7 @@ import {
   Legend as RechartsLegend,
   Line,
   LineChart as RechartsLineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -36,6 +37,13 @@ export const MetricColors = {
   cycleTime: "#237445",
   reopenRate: "#9f6a00",
   sprintConfidence: "#237445",
+  confidenceWatch: "#e48f00",
+  confidenceRisk: "#9f6a00",
+  confidenceCritical: "#c43c2d",
+  progressAlignment: "#0b6bcb",
+  velocityFit: "#6f42c1",
+  blockerHealth: "#237445",
+  scopeStability: "#9f6a00",
   readiness: "#0b6bcb",
   gatesPassed: "#237445",
   neutralRisk: "#58677c",
@@ -90,6 +98,7 @@ interface MetricLineChartProps {
   formatter?: (value: number, name: string) => string;
   yDomain?: [number | string, number | string];
   yTickFormatter?: (value: number) => string;
+  referenceLines?: Array<{ y: number; label: string; color: string }>;
   loading?: boolean;
   empty?: boolean;
   emptyMessage?: string;
@@ -103,6 +112,7 @@ export function MetricLineChart({
   formatter,
   yDomain,
   yTickFormatter,
+  referenceLines = [],
   loading = false,
   empty = false,
   emptyMessage = "No data available",
@@ -124,6 +134,15 @@ export function MetricLineChart({
           <YAxis domain={yDomain} tickFormatter={yTickFormatter} />
           <RechartsTooltip content={<CustomChartTooltip formatter={formatter} />} />
           <RechartsLegend />
+          {referenceLines.map((line) => (
+            <ReferenceLine
+              key={`${line.y}-${line.label}`}
+              y={line.y}
+              label={line.label}
+              stroke={line.color}
+              strokeDasharray="4 4"
+            />
+          ))}
           {lines.map((line) => (
             <Line
               key={line.key}
@@ -310,6 +329,7 @@ export function MetricMultiBarChart({
     </div>
   );
 }
+
 interface MetricSparklineProps {
   data: Array<Record<string, unknown>>;
   valueKey: string;
