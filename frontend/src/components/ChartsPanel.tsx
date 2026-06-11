@@ -294,7 +294,12 @@ export function ChartsPanel({
           {isLoading ? <p className="muted">Loading charts...</p> : null}
 
           <div className="chart-section-heading first">
-            <h3>Confidence Evolution</h3>
+            <div>
+              <h3>Confidence Evolution</h3>
+              <p className="chart-section-subtitle">
+                Tracks how release confidence has changed across collected snapshots.
+              </p>
+            </div>
             {selectedReleaseName ? <span className="muted">{selectedReleaseName}</span> : null}
           </div>
           <MetricLineChart
@@ -315,7 +320,12 @@ export function ChartsPanel({
           />
 
           <div className="chart-section-heading">
-            <h3>Risk Breakdown</h3>
+            <div>
+              <h3>Risk Breakdown</h3>
+              <p className="chart-section-subtitle">
+                Shows which measured risks are contributing most to the current release signal.
+              </p>
+            </div>
             {riskContributionRows.length > 0 ? <span className="muted">Contribution %</span> : null}
           </div>
           <MetricHorizontalBarChart
@@ -329,7 +339,12 @@ export function ChartsPanel({
           />
 
           <div className="chart-section-heading">
-            <h3>Quality Gates Pass Trend</h3>
+            <div>
+              <h3>Quality Gates Pass Trend</h3>
+              <p className="chart-section-subtitle">
+                Tracks how many release gates are passing as the release moves toward readiness.
+              </p>
+            </div>
             {charts ? <span className="muted">Out of {charts.release_gates_total}</span> : null}
           </div>
           <MetricLineChart
@@ -350,7 +365,12 @@ export function ChartsPanel({
           />
 
           <div className="chart-section-heading">
-            <h3>Readiness Trend</h3>
+            <div>
+              <h3>Readiness Trend</h3>
+              <p className="chart-section-subtitle">
+                Shows the percentage of release readiness checks currently satisfied over time.
+              </p>
+            </div>
           </div>
           <MetricLineChart
             data={readinessRows}
@@ -370,7 +390,12 @@ export function ChartsPanel({
           />
 
           <div className="chart-section-heading">
-            <h3>Blocker Aging</h3>
+            <div>
+              <h3>Blocker Aging</h3>
+              <p className="chart-section-subtitle">
+                Groups open blockers by age so long-running impediments are easier to spot.
+              </p>
+            </div>
             {signal?.risk_aging.as_of ? (
               <span className="muted">As of {new Date(signal.risk_aging.as_of).toLocaleDateString()}</span>
             ) : null}
@@ -387,7 +412,12 @@ export function ChartsPanel({
           />
 
           <div className="chart-section-heading">
-            <h3>Release Comparison Dashboard</h3>
+            <div>
+              <h3>Release Comparison Dashboard</h3>
+              <p className="chart-section-subtitle">
+                Compares recent releases across confidence, blockers, bugs, and reopen risk.
+              </p>
+            </div>
             {comparisonRows.length > 0 ? <span className="muted">Last {comparisonRows.length}</span> : null}
           </div>
           {isLoadingComparison ? <p className="muted">Loading release comparison...</p> : null}
