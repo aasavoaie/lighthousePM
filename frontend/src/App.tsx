@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { apiClient } from "./api/client";
 import type {
+  MetricValues,
   Release,
   ReleaseChartsResponse,
   ReleaseMetricsResponse,
@@ -171,6 +172,7 @@ export default function App() {
   const [dashboardRefreshNonce, setDashboardRefreshNonce] = useState(0);
   const [selectedTab, setSelectedTab] = useState<AppTab>("overview");
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
+  const [focusedReleaseMetricName, setFocusedReleaseMetricName] = useState<keyof MetricValues | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -253,6 +255,16 @@ export default function App() {
     setDashboardRefreshNonce((current) => current + 1);
   }
 
+  function handleOpenReleaseDetails() {
+    setFocusedReleaseMetricName(null);
+    setSelectedTab("releases");
+  }
+
+  function handleOpenReleaseMetric(metricName: keyof MetricValues) {
+    setFocusedReleaseMetricName(metricName);
+    setSelectedTab("releases");
+  }
+
   useEffect(() => {
     if (!selectedReleaseId) {
       setSelectedRelease(null);
@@ -300,6 +312,21 @@ export default function App() {
       isActive = false;
     };
   }, [selectedReleaseId, dashboardRefreshNonce]);
+
+  useEffect(() => {
+    if (selectedTab !== "releases" || !focusedReleaseMetricName) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      document.getElementById(`release-metric-${focusedReleaseMetricName}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 100);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [focusedReleaseMetricName, selectedTab]);
 
   const currentReleaseId = getCurrentReleaseId(releases);
   const showReleaseControls = selectedTab === "overview" || selectedTab === "releases" || selectedTab === "reports";
@@ -397,7 +424,7 @@ export default function App() {
                   ))}
                 </select>
               </label>
-              <button type="button" className="details-link-button" onClick={() => setSelectedTab("reports")}>
+              <button type="button" className="details-link-button" onClick={handleOpenReleaseDetails}>
                 View details
               </button>
             </div>
@@ -407,7 +434,7 @@ export default function App() {
         <main className={selectedTab === "overview" ? "overview-grid" : "dashboard-grid detail-dashboard-grid"}>
           {errorMessage && selectedTab !== "admin" ? <div className="panel error-panel">{errorMessage}</div> : null}
 
-          {selectedTab !== "overview" ? renderDetailHeader(selectedTab, selectedRelease) : null}
+          {selectedTab !== "overview" && selectedTab !== "admin" ? renderDetailHeader(selectedTab, selectedRelease) : null}
 
           {!isLoadingReleases &&
           releases.length === 0 &&
@@ -426,6 +453,7 @@ export default function App() {
               signal={signal}
               isLoading={isLoadingDetails}
               onOpenReports={() => setSelectedTab("reports")}
+              onOpenReleaseMetric={handleOpenReleaseMetric}
             />
           ) : null}
 
@@ -442,6 +470,7 @@ export default function App() {
               charts={charts}
               isLoading={isLoadingDetails}
               onSelectIssue={setSelectedIssueKey}
+              focusedMetricName={focusedReleaseMetricName}
             />
           </>
         ) : null}
@@ -507,9 +536,6 @@ export default function App() {
           <footer className="overview-bottom-bar">
             <span className="bottom-bulb" aria-hidden="true" />
             <p>Focus on the top recommended actions to improve your release confidence.</p>
-            <button type="button" className="bottom-minimize-button">
-              Minimize
-            </button>
           </footer>
         ) : null}
       </div>

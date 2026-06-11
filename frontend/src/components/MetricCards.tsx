@@ -4,9 +4,11 @@ export type MetricStatus = "good" | "warning" | "critical" | "neutral";
 export type MetricImpact = "positive" | "negative" | "neutral" | "unknown";
 
 interface MetricStatusCardProps {
+  id?: string;
   title: string;
   value: string;
   status: MetricStatus;
+  isHighlighted?: boolean;
   comparison?: string | null;
   comparisonImpact?: MetricImpact;
   details?: string[];
@@ -28,9 +30,11 @@ const statusLabels: Record<MetricStatus, string> = {
 };
 
 export function MetricStatusCard({
+  id,
   title,
   value,
   status,
+  isHighlighted = false,
   comparison,
   comparisonImpact = "unknown",
   details = [],
@@ -38,7 +42,10 @@ export function MetricStatusCard({
   children,
 }: MetricStatusCardProps) {
   return (
-    <article className={`metric-card metric-status-card metric-status-${status}`}>
+    <article
+      id={id}
+      className={`metric-card metric-status-card metric-status-${status} ${isHighlighted ? "metric-card-highlighted" : ""}`}
+    >
       <div className="metric-status-heading">
         <span className="metric-status-dot" aria-hidden="true" />
         <h3>{title}</h3>

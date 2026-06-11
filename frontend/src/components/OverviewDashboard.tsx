@@ -27,6 +27,7 @@ interface OverviewDashboardProps {
   signal: ReleaseSignalResponse | null;
   isLoading: boolean;
   onOpenReports: () => void;
+  onOpenReleaseMetric: (metricName: keyof MetricValues) => void;
 }
 
 type RiskDriver = {
@@ -207,7 +208,7 @@ function getRiskAgingPercent(group: SignalRiskAgingGroup) {
 
 function renderAgingCard(title: string, group: SignalRiskAgingGroup, noun: string) {
   return (
-    <article className="overview-aging-card">
+    <article className={`overview-aging-card ${group.count === 0 ? "is-zero" : ""}`}>
       <div>
         <strong>{group.count}</strong>
         <span>{noun}</span>
@@ -243,6 +244,7 @@ export function OverviewDashboard({
   signal,
   isLoading,
   onOpenReports,
+  onOpenReleaseMetric,
 }: OverviewDashboardProps) {
   const confidenceScore = getConfidenceScore(signal, charts);
   const tone = getSignalTone(signal);
@@ -295,7 +297,12 @@ export function OverviewDashboard({
       </section>
 
       <section className="overview-card trend-card">
-        <p className="overview-card-kicker">Confidence Trend</p>
+        <div className="trend-card-header">
+          <p className="overview-card-kicker">Confidence Trend</p>
+          {confidenceScore !== null && confidenceScore !== undefined ? (
+            <span className="trend-current-label">{formatPercentage(confidenceScore)}</span>
+          ) : null}
+        </div>
         <div className="overview-trend-chart">
           {trendRows.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
@@ -325,9 +332,6 @@ export function OverviewDashboard({
             <p className="muted">No confidence history available yet.</p>
           )}
         </div>
-        {confidenceScore !== null && confidenceScore !== undefined ? (
-          <span className="trend-current-label">{formatPercentage(confidenceScore)}</span>
-        ) : null}
         {delta !== null ? (
           <p className={`trend-delta ${delta < 0 ? "negative" : "positive"}`}>
             {Math.abs(Math.round(delta))}% {delta < 0 ? "decrease" : "increase"} since first snapshot
@@ -388,7 +392,11 @@ export function OverviewDashboard({
                     <small>{action.impact}</small>
                   </div>
                   <span className="action-impact">+{Math.round(driver.contributionPct)}%</span>
-                  <button type="button" className="outline-action-button" onClick={onOpenReports}>
+                  <button
+                    type="button"
+                    className="outline-action-button"
+                    onClick={() => onOpenReleaseMetric(driver.metricName as keyof MetricValues)}
+                  >
                     {action.button}
                   </button>
                 </article>

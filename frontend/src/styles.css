@@ -1905,18 +1905,29 @@ select {
   overflow: hidden;
 }
 
+.trend-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.trend-card-header .overview-card-kicker {
+  margin-bottom: 0;
+}
+
 .overview-trend-chart {
   min-height: 220px;
-  margin: 8px -10px 0 -16px;
+  margin: 0 -10px 0 -16px;
 }
 
 .trend-current-label {
-  position: absolute;
-  right: 32px;
-  top: 138px;
   color: #4b22d4;
   font-size: 1.34rem;
   font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .trend-delta {
@@ -1999,6 +2010,10 @@ select {
   color: #e42d39;
   font-size: 2.35rem;
   line-height: 1;
+}
+
+.overview-aging-card.is-zero strong {
+  color: #09984f;
 }
 
 .overview-aging-card span {
@@ -2447,6 +2462,11 @@ select {
   box-shadow: 0 8px 20px rgba(15, 20, 60, 0.035);
 }
 
+.detail-dashboard-grid .metric-card-highlighted {
+  border-color: #8d6bf0;
+  box-shadow: 0 0 0 3px rgba(75, 34, 212, 0.14), 0 10px 24px rgba(15, 20, 60, 0.08);
+}
+
 .detail-dashboard-grid .metric-status-heading h3,
 .detail-dashboard-grid .confidence-component h4,
 .detail-dashboard-grid .confidence-callout h3,
@@ -2623,5 +2643,48 @@ select {
   .admin-status-grid,
   .product-info-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+.intelligence-shell .workspace-header h1 {
+  font-size: 1.845rem;
+}
+
+.intelligence-shell .page-header h1 {
+  font-size: 2.125rem;
+}
+
+.intelligence-shell .detail-hero h2 {
+  font-size: 1.675rem;
+}
+
+.intelligence-shell .overview-card h2 {
+  font-size: 1.205rem;
+}
+
+.intelligence-shell .panel-heading h2,
+.intelligence-shell .detail-dashboard-grid .panel-heading h2 {
+  font-size: 1.145rem;
+}
+
+.intelligence-shell .signal-readiness-section h3,
+.intelligence-shell .focus-areas-section h3,
+.intelligence-shell .metric-category-section > h3,
+.intelligence-shell .confidence-section-heading h3,
+.intelligence-shell .confidence-callout h3,
+.intelligence-shell .chart-section-heading h3,
+.intelligence-shell .product-info-card h3,
+.intelligence-shell .about-product-summary h3,
+.intelligence-shell .metric-card h3 {
+  font-size: 1.125rem;
+}
+
+.intelligence-shell .confidence-component h4 {
+  font-size: 1.105rem;
+}
+
+@media (max-width: 560px) {
+  .intelligence-shell .workspace-header h1 {
+    font-size: 1.72rem;
   }
 }
