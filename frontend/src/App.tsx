@@ -222,11 +222,6 @@ export default function App() {
               isLoading={isLoadingDetails}
               onSelectIssue={setSelectedIssueKey}
             />
-            <IssuesPanel
-              releaseId={selectedReleaseId}
-              refreshNonce={dashboardRefreshNonce}
-              onSelectIssue={setSelectedIssueKey}
-            />
             <ChartsPanel
               charts={charts}
               signal={signal}
@@ -239,15 +234,24 @@ export default function App() {
         ) : null}
 
         {selectedTab === "dashboard" ? (
-          <ReleaseSelector
-            releases={releases}
-            selectedReleaseId={selectedReleaseId}
-            selectedRelease={selectedRelease}
-            isLoading={isLoadingReleases}
-            isRecomputing={isRecomputingRelease}
-            onChange={setSelectedReleaseId}
-            onRecompute={handleRecomputeRelease}
-          />
+          <>
+            <ReleaseSelector
+              releases={releases}
+              selectedReleaseId={selectedReleaseId}
+              selectedRelease={selectedRelease}
+              isLoading={isLoadingReleases}
+              isRecomputing={isRecomputingRelease}
+              onChange={setSelectedReleaseId}
+              onRecompute={handleRecomputeRelease}
+            />
+            {selectedReleaseId ? (
+              <IssuesPanel
+                releaseId={selectedReleaseId}
+                refreshNonce={dashboardRefreshNonce}
+                onSelectIssue={setSelectedIssueKey}
+              />
+            ) : null}
+          </>
         ) : null}
 
         {selectedTab === "sprints" ? (
