@@ -17,6 +17,7 @@ interface MetricsPanelProps {
   charts: ReleaseChartsResponse | null;
   isLoading: boolean;
   onSelectIssue: (issueKey: string) => void;
+  focusedMetricName?: keyof MetricValues | null;
 }
 
 const metricLabels: Record<keyof MetricValues, string> = {
@@ -211,7 +212,7 @@ function renderMetricIssueKeys(
   );
 }
 
-export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue }: MetricsPanelProps) {
+export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focusedMetricName = null }: MetricsPanelProps) {
   const metricIssueKeys = useMemo(() => {
     if (!metrics) {
       return [];
@@ -233,10 +234,12 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue }: Metr
     const comparison = buildComparison(charts, metricName);
     return (
       <MetricStatusCard
+        id={`release-metric-${metricName}`}
         key={metricName}
         title={metricLabels[metricName]}
         value={formatMetricValue(metricName, value)}
         status={getReleaseMetricStatus(metricName, value, metrics)}
+        isHighlighted={focusedMetricName === metricName}
         comparison={comparison.text}
         comparisonImpact={comparison.impact}
         details={options?.details}
