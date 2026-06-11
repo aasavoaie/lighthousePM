@@ -1460,10 +1460,11 @@ select {
   min-height: calc(100vh - 24px);
   display: grid;
   grid-template-columns: 250px minmax(0, 1fr);
+  align-items: start;
   gap: 0;
   margin: 12px auto;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   color: #080d2d;
   background: #fbfcff;
   border: 1px solid #dfe4f0;
@@ -1472,11 +1473,16 @@ select {
 }
 
 .sidebar-shell {
-  min-height: 100%;
+  position: sticky;
+  top: 12px;
+  min-height: 0;
+  height: calc(100vh - 24px);
   display: flex;
   flex-direction: column;
   padding: 36px 14px 26px;
+  overflow-y: auto;
   background: linear-gradient(180deg, #1c1769 0%, #11145d 100%);
+  border-radius: 7px 0 0 7px;
   color: #ffffff;
 }
 
@@ -2199,8 +2205,12 @@ select {
   }
 
   .sidebar-shell {
+    position: static;
     min-height: auto;
+    height: auto;
     padding: 16px;
+    overflow: visible;
+    border-radius: 0;
   }
 
   .brand-mark {
