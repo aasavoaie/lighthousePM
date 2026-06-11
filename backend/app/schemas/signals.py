@@ -21,6 +21,10 @@ class SignalThresholds(BaseModel):
     reopen_rate_pct_red: float
     reopen_rate_pct_yellow: float
     median_cycle_time_days_yellow: float
+    confidence_score_red_max: float
+    confidence_score_yellow_min: float
+    confidence_score_yellow_max: float
+    confidence_score_green_min: float
 
 
 class SignalGate(BaseModel):

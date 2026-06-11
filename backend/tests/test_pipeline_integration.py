@@ -175,7 +175,7 @@ def test_pipeline_baseline_green_empty_release(db_session: Session) -> None:
 def test_pipeline_red_from_open_blocker(db_session: Session) -> None:
     """
     Scenario: Release has one open blocker issue.
-    Expected: open_blockers=1; signal RED with blocker reason.
+    Expected: open_blockers=1; signal YELLOW by confidence score band with blocker reason.
     """
     # Setup
     make_release(db_session, release_id="REL-1")
@@ -195,14 +195,14 @@ def test_pipeline_red_from_open_blocker(db_session: Session) -> None:
     snapshot = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").one()
     assert snapshot.open_blockers == 1
 
-    assert signal.signal == "RED"
+    assert signal.signal == "YELLOW"
     assert any("blocker" in reason.lower() for reason in signal.reasons)
 
 
 def test_pipeline_red_from_high_severity_bugs(db_session: Session) -> None:
     """
     Scenario: Release has 2 high-severity bugs.
-    Expected: open_high_severity_bugs=2; signal RED (threshold is >1).
+    Expected: open_high_severity_bugs=2; signal YELLOW by confidence score band.
     """
     # Setup
     make_release(db_session, release_id="REL-1")
@@ -231,14 +231,14 @@ def test_pipeline_red_from_high_severity_bugs(db_session: Session) -> None:
     snapshot = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").one()
     assert snapshot.open_high_severity_bugs == 2
 
-    assert signal.signal == "RED"
+    assert signal.signal == "YELLOW"
     assert any("high-severity" in reason.lower() for reason in signal.reasons)
 
 
 def test_pipeline_yellow_from_scope_churn(db_session: Session) -> None:
     """
     Scenario: Issue's fix version is changed within 7 days.
-    Expected: scope_churn_7d_pct>0; signal YELLOW when churn 10-20%.
+    Expected: scope_churn_7d_pct>0; signal GREEN by confidence score band.
     """
     # Setup
     now = datetime.now(UTC)
@@ -271,15 +271,15 @@ def test_pipeline_yellow_from_scope_churn(db_session: Session) -> None:
     snapshot = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").order_by(MetricSnapshot.id.desc()).first()
     # 1 churned issue / 1 total = 100%
     assert snapshot.scope_churn_7d_pct == 100.0
-    # 100% > 20% triggers RED, not YELLOW; let's verify this is RED instead
-    assert signal.signal == "RED"
+    # 100% > 20% creates a reason, but the 8-point deduction leaves confidence in GREEN.
+    assert signal.signal == "GREEN"
     assert any("churn" in reason.lower() for reason in signal.reasons)
 
 
 def test_pipeline_yellow_from_elevated_cycle_time(db_session: Session) -> None:
     """
     Scenario: Issue takes 10 days from In Progress to Done.
-    Expected: median_cycle_time_days=10; signal YELLOW (threshold >7 days).
+    Expected: median_cycle_time_days=10; signal GREEN by confidence score band.
     """
     # Setup
     now = datetime.now(UTC)
@@ -322,14 +322,14 @@ def test_pipeline_yellow_from_elevated_cycle_time(db_session: Session) -> None:
     assert snapshot.median_cycle_time_days is not None
     assert snapshot.median_cycle_time_days >= 10.0
 
-    assert signal.signal == "YELLOW"
+    assert signal.signal == "GREEN"
     assert any("cycle" in reason.lower() for reason in signal.reasons)
 
 
 def test_pipeline_yellow_from_reopened_issues(db_session: Session) -> None:
     """
     Scenario: One out of ten issues has been reopened (Done -> In Progress).
-    Expected: reopen_rate_pct = 10%; signal YELLOW (10% < reopen < 15%).
+    Expected: reopen_rate_pct = 50%; signal GREEN by confidence score band.
     """
     # Setup
     now = datetime.now(UTC)
@@ -367,8 +367,8 @@ def test_pipeline_yellow_from_reopened_issues(db_session: Session) -> None:
     snapshot = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").order_by(MetricSnapshot.id.desc()).first()
     assert snapshot.reopen_rate_pct == 50.0  # 1 reopened / 2 total
 
-    # 50% > 15% triggers RED
-    assert signal.signal == "RED"
+    # 50% > 15% creates a reason, but the 6-point deduction leaves confidence in GREEN.
+    assert signal.signal == "GREEN"
     assert any("reopen" in reason.lower() for reason in signal.reasons)
 
 
@@ -482,7 +482,7 @@ def test_pipeline_idempotency_same_signal(db_session: Session) -> None:
     assert snapshot2.open_blockers == 1
 
     # Signals should have identical information
-    assert signal2.signal == "RED"
+    assert signal2.signal == "YELLOW"
     assert signal2.reasons == signal1.reasons
 
 
@@ -513,8 +513,8 @@ def test_pipeline_case_insensitive_priority_matching(db_session: Session) -> Non
     snapshot = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").order_by(MetricSnapshot.id.desc()).first()
     assert snapshot.open_high_severity_bugs == 3
 
-    # 3 > 1 triggers RED
-    assert signal.signal == "RED"
+    # 3 > 1 creates a reason, but the score remains in the YELLOW band.
+    assert signal.signal == "YELLOW"
 
 
 def test_pipeline_data_consistency_metrics_signal_link(db_session: Session) -> None:
@@ -545,5 +545,5 @@ def test_pipeline_data_consistency_metrics_signal_link(db_session: Session) -> N
     assert snapshot.open_blockers == 2
 
     # Reason text should reference the actual metric value
-    assert signal.signal == "RED"
+    assert signal.signal == "YELLOW"
     assert any("2" in reason and "blocker" in reason.lower() for reason in signal.reasons)

@@ -1840,7 +1840,7 @@ select {
 .risk-driver-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 22px minmax(112px, 1fr) minmax(72px, 104px) 46px;
+  grid-template-columns: 22px minmax(112px, 1fr) minmax(72px, 104px);
   align-items: center;
   gap: 12px;
   color: #17203d;
@@ -2067,7 +2067,7 @@ select {
 .overview-action-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) 76px minmax(112px, 140px);
+  grid-template-columns: 26px minmax(0, 1fr) minmax(112px, 140px);
   align-items: center;
   gap: 14px;
   padding: 19px 0;
@@ -2091,13 +2091,6 @@ select {
 .overview-action-row small {
   margin-top: 6px;
   color: #495a7a;
-}
-
-.action-impact {
-  color: #0a9c51;
-  font-size: 1.12rem;
-  font-weight: 900;
-  text-align: center;
 }
 
 .outline-action-button,
@@ -2267,7 +2260,6 @@ select {
     grid-template-columns: 26px minmax(0, 1fr);
   }
 
-  .action-impact,
   .outline-action-button {
     grid-column: 2;
     justify-self: start;
@@ -2290,7 +2282,7 @@ select {
   }
 
   .risk-driver-row {
-    grid-template-columns: 22px minmax(0, 1fr) 42px;
+    grid-template-columns: 22px minmax(0, 1fr);
   }
 
   .risk-driver-meter {

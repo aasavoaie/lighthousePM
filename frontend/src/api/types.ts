@@ -201,6 +201,10 @@ export interface SignalThresholds {
   reopen_rate_pct_red: number;
   reopen_rate_pct_yellow: number;
   median_cycle_time_days_yellow: number;
+  confidence_score_red_max: number;
+  confidence_score_yellow_min: number;
+  confidence_score_yellow_max: number;
+  confidence_score_green_min: number;
 }
 
 export interface SignalGate {

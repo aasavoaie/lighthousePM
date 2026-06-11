@@ -286,7 +286,6 @@ export function OverviewDashboard({
                   style={{ "--driver-width": `${clampPercentage(driver.contributionPct)}%` } as CSSProperties}
                   aria-hidden="true"
                 />
-                <strong>-{Math.round(driver.contributionPct)}%</strong>
               </div>
             ))
           ) : (
@@ -391,7 +390,6 @@ export function OverviewDashboard({
                     <strong>{action.title}</strong>
                     <small>{action.impact}</small>
                   </div>
-                  <span className="action-impact">+{Math.round(driver.contributionPct)}%</span>
                   <button
                     type="button"
                     className="outline-action-button"

@@ -40,13 +40,13 @@ function signalClassName(signalValue: string | null) {
 
 function signalDescription(signalValue: string | null) {
   if (signalValue === "RED") {
-    return "Current release has significant delivery and quality risks.";
+    return "Current release confidence is in the red band.";
   }
   if (signalValue === "YELLOW") {
-    return "Current release has warnings that should be reviewed before release.";
+    return "Current release confidence is in the yellow band.";
   }
   if (signalValue === "GREEN") {
-    return "Current release is within configured delivery and quality gates.";
+    return "Current release confidence is in the green band.";
   }
   return "Signal not computed yet for this release snapshot.";
 }

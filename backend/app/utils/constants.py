@@ -12,6 +12,14 @@ HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD = 0
 REOPEN_RATE_YELLOW_THRESHOLD = 0.10
 CYCLE_TIME_YELLOW_THRESHOLD_DAYS = 7.0
 
+# Confidence score bands. The release signal status is derived from the
+# computed confidence score using these inclusive ranges:
+# RED: 0-60, YELLOW: 61-90, GREEN: 91-100.
+CONFIDENCE_SCORE_RED_MAX = 60.0
+CONFIDENCE_SCORE_YELLOW_MIN = 61.0
+CONFIDENCE_SCORE_YELLOW_MAX = 90.0
+CONFIDENCE_SCORE_GREEN_MIN = 91.0
+
 # ---------------------------------------------------------------------------
 # Jira field value mappings
 # All status/priority comparisons are case-insensitive (use .casefold()).
