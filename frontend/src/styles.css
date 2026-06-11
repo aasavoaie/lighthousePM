@@ -1212,8 +1212,111 @@ select {
   margin: 0;
 }
 
+.chart-section-subtitle {
+  margin: 4px 0 0;
+  color: #58677c;
+}
+
 .chart-section-heading.first {
   margin-top: 0;
+}
+
+.chart-section-hero {
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: #f8fbfe;
+  border: 1px solid #dbe7f2;
+}
+
+.chart-heading-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chart-delta-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #1d3959;
+  background: #ffffff;
+  border: 1px solid #b9c9da;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.chart-empty-note {
+  margin: 8px 0 0;
+}
+
+.risk-heatmap {
+  display: grid;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.risk-heatmap-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 128px) repeat(var(--heatmap-columns, 5), minmax(112px, 1fr));
+  gap: 6px;
+  min-width: 620px;
+}
+
+.risk-heatmap-header span {
+  color: #58677c;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.risk-heatmap-group,
+.risk-heatmap-cell {
+  border-radius: 8px;
+  padding: 9px 10px;
+  border: 1px solid #dbe7f2;
+  background: #f8fbfe;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.risk-heatmap-group {
+  color: #334155;
+}
+
+.risk-heatmap-cell {
+  text-align: center;
+}
+
+.heatmap-healthy {
+  color: #237445;
+  background: #eef8f2;
+  border-color: #b8dec9;
+}
+
+.heatmap-watch {
+  color: #8a5b00;
+  background: #fff8e8;
+  border-color: #ead188;
+}
+
+.heatmap-risk {
+  color: #9f5c00;
+  background: #fff0db;
+  border-color: #efc28e;
+}
+
+.heatmap-critical {
+  color: #a63124;
+  background: #fff2f1;
+  border-color: #efb9b4;
+}
+
+.heatmap-neutral {
+  color: #58677c;
+  background: #f8fbfe;
 }
 
 .chart-legend-note {

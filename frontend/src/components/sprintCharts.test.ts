@@ -1,0 +1,199 @@
+import type { SprintMetricsResponse } from "../api/types";
+import {
+  buildRiskHeatmapRows,
+  buildSprintChartHistory,
+  calculateMovingAverage,
+  calculateReliabilityPct,
+  getRiskHeatmapCellStatus,
+  hasChartData,
+  normalizeQualityTrend,
+  normalizeScopeChange,
+} from "./sprintCharts";
+
+function assertEqual<T>(actual: T, expected: T, message: string) {
+  if (actual !== expected) {
+    throw new Error(`${message}: expected ${String(expected)}, received ${String(actual)}`);
+  }
+}
+
+function assertDeepEqual<T>(actual: T, expected: T, message: string) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${message}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`);
+  }
+}
+
+function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): SprintMetricsResponse {
+  return {
+    sprint_id: "sprint-1",
+    snapshot_at: "2026-06-01T10:00:00Z",
+    is_computed: true,
+    snapshot_age_hours: 1,
+    metric_names: [],
+    metric_issue_keys: {
+      open_blockers: [],
+      open_high_severity_bugs: [],
+      bugs_created_during_sprint: [],
+    },
+    metrics: {
+      committed_scope: 10,
+      completed_scope_pct: 70,
+      open_blockers: 0,
+      open_high_severity_bugs: 1,
+      bugs_created_during_sprint: 2,
+      in_progress_count: 3,
+      not_started_count: 2,
+      rollover_count: 0,
+      median_cycle_time_days: 6,
+      reopen_rate_pct: 12,
+      delivery_confidence_score: 72,
+    },
+    delivery_confidence: {
+      score: 72,
+      weights: {
+        progress_alignment: 0.35,
+        velocity_fit: 0.25,
+        blocker_penalty: 0.2,
+        scope_stability: 0.2,
+      },
+      components: {
+        progress_alignment: 70,
+        velocity_fit: 65,
+        blocker_penalty: 100,
+        scope_stability: 75,
+      },
+      inputs: {
+        committed_issue_count: 10,
+        initial_commitment_count: 8,
+        committed_effective_points: 20,
+        completed_effective_points: 14,
+        remaining_effective_points: 6,
+        completed_scope_pct: 70,
+        time_elapsed_pct: 60,
+        historical_velocity: 18,
+        baseline_sprint_count: 3,
+        remaining_capacity_points: 8,
+        blocked_issue_ratio: 0,
+        scope_change_count: 3,
+        scope_added_count: 4,
+        scope_removed_count: 1,
+        scope_stability_index: 0.15,
+        scope_change_issue_keys: [],
+        scope_added_issue_keys: [],
+        scope_removed_issue_keys: [],
+      },
+    },
+    ...overrides,
+  };
+}
+
+assertEqual(calculateReliabilityPct(20, 14), 70, "reliability divides completed by committed");
+assertEqual(calculateReliabilityPct(0, 14), null, "reliability is unavailable with no commitment");
+assertDeepEqual(
+  calculateMovingAverage([80, 90, 100, null, 70], 3),
+  [null, null, 90, null, null],
+  "moving average requires a full numeric window"
+);
+
+const normalizedScope = normalizeScopeChange(metricsResponse().delivery_confidence!);
+assertDeepEqual(
+  normalizedScope,
+  {
+    scope_change_count: 3,
+    scope_creep_pct: 15,
+    scope_added_count: 4,
+    scope_removed_count: 1,
+    net_scope_change: 3,
+  },
+  "scope trend normalizes creep, added, removed and net change"
+);
+assertDeepEqual(
+  normalizeQualityTrend(metricsResponse().metrics),
+  {
+    open_high_severity_bugs: 1,
+    bugs_created_during_sprint: 2,
+    reopen_rate_pct: 12,
+  },
+  "quality trend keeps available quality fields"
+);
+
+const history = buildSprintChartHistory([
+  { sprint_id: "1", name: "Sprint 1", is_not_closed: false, metrics: metricsResponse({ sprint_id: "1" }) },
+  {
+    sprint_id: "2",
+    name: "Sprint 2",
+    is_not_closed: false,
+    metrics: metricsResponse({
+      sprint_id: "2",
+      delivery_confidence: {
+        ...metricsResponse().delivery_confidence!,
+        score: 82,
+        inputs: {
+          ...metricsResponse().delivery_confidence!.inputs,
+          committed_effective_points: 20,
+          completed_effective_points: 16,
+        },
+      },
+    }),
+  },
+  {
+    sprint_id: "current",
+    name: "Current",
+    is_not_closed: true,
+    metrics: metricsResponse({
+      sprint_id: "current",
+      delivery_confidence: {
+        ...metricsResponse().delivery_confidence!,
+        score: 92,
+        inputs: {
+          ...metricsResponse().delivery_confidence!.inputs,
+          committed_effective_points: 20,
+          completed_effective_points: 18,
+        },
+      },
+    }),
+  },
+  {
+    sprint_id: "3",
+    name: "Sprint 3",
+    is_not_closed: false,
+    metrics: metricsResponse({
+      sprint_id: "3",
+      delivery_confidence: {
+        ...metricsResponse().delivery_confidence!,
+        score: 62,
+        inputs: {
+          ...metricsResponse().delivery_confidence!.inputs,
+          committed_effective_points: 20,
+          completed_effective_points: 20,
+        },
+      },
+    }),
+  },
+]);
+
+assertEqual(history[1].confidence_delta, 10, "confidence delta uses previous sprint");
+assertEqual(history[2].predictability_avg, null, "predictability average is not shown on current sprints");
+assertEqual(history[3].predictability_avg, 83.33, "predictability average uses last three closed sprint reliability values");
+assertEqual(history[0].blocker_health, 100, "blocker penalty is exposed as blocker health");
+assertEqual(hasChartData(history, ["median_cycle_time_days"]), true, "chart data detector finds available fields");
+assertEqual(hasChartData([{ median_cycle_time_days: null }], ["median_cycle_time_days"]), false, "chart data detector rejects all-empty fields");
+
+const heatmap = buildRiskHeatmapRows(history);
+assertEqual(heatmap.length, 16, "heatmap produces one cell per group per sprint");
+assertEqual(getRiskHeatmapCellStatus("Quality", history[0]), "watch", "quality heatmap status is deterministic");
+
+const partialHistory = buildSprintChartHistory([
+  {
+    sprint_id: "partial",
+    name: "Partial",
+    is_not_closed: false,
+    metrics: metricsResponse({
+      sprint_id: "partial",
+      delivery_confidence: null,
+    }),
+  },
+]);
+assertEqual(partialHistory.length, 1, "computed sprint metrics render without delivery confidence details");
+assertEqual(partialHistory[0].delivery_confidence, null, "missing delivery confidence stays unavailable");
+assertEqual(partialHistory[0].open_high_severity_bugs, 1, "quality data is preserved without delivery confidence");
+assertEqual(partialHistory[0].quality_status, "watch", "quality heatmap can render from metric data only");
