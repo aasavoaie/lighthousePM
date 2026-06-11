@@ -22,7 +22,16 @@ import type {
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, options);
+  const url = `${API_BASE_URL}${path}`;
+  let response: Response;
+
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    const method = options?.method ?? "GET";
+    const reason = error instanceof Error ? error.message : "Network request failed";
+    throw new Error(`Could not reach API (${method} ${url}). Check that the backend is running and CORS allows this UI origin. ${reason}`);
+  }
 
   if (!response.ok) {
     const fallback = `Request failed with status ${response.status}`;

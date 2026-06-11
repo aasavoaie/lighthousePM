@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     app_env: Literal["dev", "test", "prod"] = "dev"
     app_port: int = 8000
     log_level: str = "INFO"
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/lighthouse"
     database_echo: bool = False
     database_pool_size: int = 5
