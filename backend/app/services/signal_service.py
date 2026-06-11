@@ -12,6 +12,8 @@ from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
 from app.services.jira_field_mapper import JiraFieldMapper
 from app.utils.constants import (
+    CONFIDENCE_SCORE_RED_MAX,
+    CONFIDENCE_SCORE_YELLOW_MAX,
     CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
     HIGH_SEVERITY_BUGS_RED_THRESHOLD,
     HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
@@ -33,15 +35,16 @@ def _coerce_utc(value: datetime) -> datetime:
 
 class SignalService:
     """
-    Rule-based deterministic release signal computation.
+    Score-band deterministic release signal computation.
 
-    Evaluates metric snapshots against centralized thresholds to produce RED/YELLOW/GREEN
-    signals. All thresholds are explicit, testable, and documented.
+    Evaluates metric snapshots against centralized thresholds to produce risk points,
+    computes a confidence score, then maps that score to RED/YELLOW/GREEN bands.
+    All thresholds are explicit, testable, and documented.
 
     Signal Levels:
-    - RED: High-risk conditions that typically block or delay release.
-    - YELLOW: Moderate-risk conditions that warrant attention before release.
-    - GREEN: No significant risk indicators; release readiness nominal.
+    - RED: confidence score 0-60.
+    - YELLOW: confidence score 61-90.
+    - GREEN: confidence score 91-100.
 
     Thresholds are defined in constants.py and include:
     - RED triggers: open blockers, critical bugs, scope churn, quality concerns
@@ -120,6 +123,14 @@ class SignalService:
             median_cycle_time_days=median_cycle_time_days,
         )
         return round(max(0.0, 100.0 - sum(risk_points.values())), 1)
+
+    @staticmethod
+    def _signal_from_confidence_score(confidence_score: float) -> str:
+        if confidence_score <= CONFIDENCE_SCORE_RED_MAX:
+            return "RED"
+        if confidence_score <= CONFIDENCE_SCORE_YELLOW_MAX:
+            return "YELLOW"
+        return "GREEN"
 
     def recompute_release_signal(self, session: Session, release_id: str):
         logger.info("signal_recompute_started release_id=%s", release_id)
@@ -232,9 +243,6 @@ class SignalService:
                 }
             )
 
-        if red_reasons:
-            return "RED", red_reasons, red_details
-
         yellow_reasons: list[str] = []
         yellow_details: list[dict[str, str | int | float]] = []
 
@@ -300,10 +308,20 @@ class SignalService:
                 }
             )
 
-        if yellow_reasons:
-            return "YELLOW", yellow_reasons, yellow_details
+        confidence_score = SignalService._compute_release_confidence_score(
+            open_blockers=open_blockers,
+            open_high_severity_bugs=open_high_severity_bugs,
+            scope_churn_7d_pct=scope_churn_7d_pct,
+            reopen_rate_pct=reopen_rate_pct,
+            median_cycle_time_days=median_cycle_time_days,
+        )
+        signal = SignalService._signal_from_confidence_score(confidence_score)
+        reasons = [*red_reasons, *yellow_reasons]
+        details = [*red_details, *yellow_details]
+        if not reasons:
+            reasons = ["No major risk indicators"]
 
-        return "GREEN", ["No major risk indicators"], []
+        return signal, reasons, details
 
     @staticmethod
     def _build_release_readiness_details(
@@ -467,6 +485,7 @@ class SignalService:
             reopen_rate_pct=reopen_rate_pct,
             median_cycle_time_days=median_cycle_time_days,
         )
+        computed_signal = SignalService._signal_from_confidence_score(confidence_score)
         contribution_by_metric = {
             metric_name: round((points / total_risk_points) * 100, 1)
             for metric_name, points in risk_points.items()
@@ -501,15 +520,16 @@ class SignalService:
             "GREEN": "READY FOR RELEASE",
         }
         summaries = {
-            "RED": "Current release has significant delivery and quality risks.",
-            "YELLOW": "Current release has warnings that should be reviewed before release.",
-            "GREEN": "Current release is within configured delivery and quality gates.",
+            "RED": "Current release confidence is in the red band.",
+            "YELLOW": "Current release confidence is in the yellow band.",
+            "GREEN": "Current release confidence is in the green band.",
         }
 
         return {
-            "status_label": status_labels.get(signal or "", "NOT COMPUTED"),
+            "signal": computed_signal,
+            "status_label": status_labels[computed_signal],
             "confidence_score": confidence_score,
-            "summary": summaries.get(signal or "", "Signal has not been computed yet for this release snapshot."),
+            "summary": summaries[computed_signal],
             "release_gates": gates,
             "critical_risks": critical_risks,
             "warnings": warnings,
@@ -737,11 +757,10 @@ class SignalService:
         median_cycle_time_days: float | None,
     ) -> tuple[str, list[str]]:
         """
-        Apply deterministic RED/YELLOW/GREEN rules and return reasons.
+        Apply deterministic confidence-score bands and return threshold reasons.
 
-        Rules are evaluated in priority order (RED before YELLOW). If any RED condition
-        is triggered, signal is RED and all RED reasons are returned. If no RED conditions
-        but YELLOW conditions exist, signal is YELLOW. Otherwise, signal is GREEN.
+        Metric thresholds determine risk points and reasons. The final signal is mapped
+        from the computed confidence score: 0-60 RED, 61-90 YELLOW, 91-100 GREEN.
 
         Reason messages follow format: "{metric_name}: {value} {comparison} {threshold}".
         This makes thresholds explicit and reproducible.

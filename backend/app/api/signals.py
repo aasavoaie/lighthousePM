@@ -8,6 +8,10 @@ from app.repositories.signal_repository import SignalRepository
 from app.schemas.signals import ReleaseSignalResponse, SignalReasonDetail, SignalThresholds
 from app.services.signal_service import SignalService
 from app.utils.constants import (
+    CONFIDENCE_SCORE_GREEN_MIN,
+    CONFIDENCE_SCORE_RED_MAX,
+    CONFIDENCE_SCORE_YELLOW_MAX,
+    CONFIDENCE_SCORE_YELLOW_MIN,
     CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
     HIGH_SEVERITY_BUGS_RED_THRESHOLD,
     HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
@@ -40,6 +44,10 @@ def _build_thresholds() -> SignalThresholds:
         reopen_rate_pct_red=REOPEN_RATE_RED_THRESHOLD * 100,
         reopen_rate_pct_yellow=REOPEN_RATE_YELLOW_THRESHOLD * 100,
         median_cycle_time_days_yellow=CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
+        confidence_score_red_max=CONFIDENCE_SCORE_RED_MAX,
+        confidence_score_yellow_min=CONFIDENCE_SCORE_YELLOW_MIN,
+        confidence_score_yellow_max=CONFIDENCE_SCORE_YELLOW_MAX,
+        confidence_score_green_min=CONFIDENCE_SCORE_GREEN_MIN,
     )
 
 
@@ -113,7 +121,7 @@ def get_release_signal(
 
     return ReleaseSignalResponse(
         release_id=signal_row.release_id,
-        signal=signal_row.signal,
+        signal=readiness_details.get("signal", signal_row.signal),
         status_label=readiness_details.get("status_label"),
         confidence_score=readiness_details.get("confidence_score"),
         summary=readiness_details.get("summary"),

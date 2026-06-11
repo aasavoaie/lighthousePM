@@ -169,21 +169,25 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
             "as_of": None,
         },
         "last_24_hours": {"as_of": None, "baseline_at": None, "has_baseline": False, "items": []},
-        "thresholds": {
-            "open_blockers_red": 0,
-            "open_high_severity_bugs_red": 1,
-            "open_high_severity_bugs_yellow": 0,
-            "scope_churn_7d_pct_red": 20.0,
-            "scope_churn_7d_pct_yellow": 10.0,
-            "reopen_rate_pct_red": 15.0,
-            "reopen_rate_pct_yellow": 10.0,
-            "median_cycle_time_days_yellow": 7.0,
-        },
-        "updated_at": None,
-    }
+            "thresholds": {
+                "open_blockers_red": 0,
+                "open_high_severity_bugs_red": 1,
+                "open_high_severity_bugs_yellow": 0,
+                "scope_churn_7d_pct_red": 20.0,
+                "scope_churn_7d_pct_yellow": 10.0,
+                "reopen_rate_pct_red": 15.0,
+                "reopen_rate_pct_yellow": 10.0,
+                "median_cycle_time_days_yellow": 7.0,
+                "confidence_score_red_max": 60.0,
+                "confidence_score_yellow_min": 61.0,
+                "confidence_score_yellow_max": 90.0,
+                "confidence_score_green_min": 91.0,
+            },
+            "updated_at": None,
+        }
 
 
-def test_get_release_signal_after_metrics_recompute_returns_red(client: TestClient) -> None:
+def test_get_release_signal_after_metrics_recompute_uses_confidence_band(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")
         _seed_issue(session, issue_key="LHPM-1", release_id="REL-1", status="In Progress", is_blocker=True)
@@ -195,14 +199,15 @@ def test_get_release_signal_after_metrics_recompute_returns_red(client: TestClie
     assert response.status_code == 200
     payload = response.json()
     assert payload["release_id"] == "REL-1"
-    assert payload["signal"] == "RED"
-    assert payload["status_label"] == "NOT READY FOR RELEASE"
-    assert payload["confidence_score"] is not None
+    assert payload["signal"] == "YELLOW"
+    assert payload["status_label"] == "RELEASE NEEDS ATTENTION"
+    assert payload["confidence_score"] == 72.0
     assert any(gate["metric_name"] == "open_blockers" and not gate["passed"] for gate in payload["release_gates"])
     assert any(risk["metric_name"] == "open_blockers" for risk in payload["critical_risks"])
     assert payload["risk_aging"]["blockers"]["count"] == 1
     assert any("blocker" in reason.lower() for reason in payload["reasons"])
     assert payload["thresholds"]["open_blockers_red"] == 0
+    assert payload["thresholds"]["confidence_score_yellow_max"] == 90.0
     assert any(detail["metric_name"] == "open_blockers" for detail in payload["reason_details"])
     assert all(detail["message"] in payload["reasons"] for detail in payload["reason_details"])
 
