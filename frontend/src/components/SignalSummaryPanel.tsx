@@ -426,13 +426,13 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
           </button>
         </div>
       </div>
+      {!isLoading && signal?.confidence_breakdown ? (
+        <ConfidenceBreakdownCard breakdown={signal.confidence_breakdown} />
+      ) : null}
       {isSignalExpanded ? (
         <>
           <p className="signal-description">{summary}</p>
           {isLoading ? <p className="muted">Loading signal...</p> : null}
-          {!isLoading && signal?.confidence_breakdown ? (
-            <ConfidenceBreakdownCard breakdown={signal.confidence_breakdown} />
-          ) : null}
           {!isLoading && signal ? (
             <div className="signal-two-column-section">
               {renderLast24HoursSection(signal)}
