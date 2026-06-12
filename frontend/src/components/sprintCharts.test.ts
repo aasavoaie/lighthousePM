@@ -49,6 +49,7 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
     },
     confidence_breakdown: null,
     biggest_driver: null,
+    recommendations: [],
     delivery_confidence: {
       score: 72,
       weights: {

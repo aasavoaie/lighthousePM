@@ -860,6 +860,141 @@ select {
   color: #1f3654;
 }
 
+.recommendations-panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.recommendations-heading {
+  display: grid;
+  gap: 12px;
+}
+
+.recommendations-heading h3 {
+  margin: 0;
+  color: #111832;
+}
+
+.recommendation-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recommendation-filters button {
+  min-height: 34px;
+  border: 1px solid #cfd7e6;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #253757;
+  background: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.recommendation-filters button:hover,
+.recommendation-filters button:focus-visible,
+.recommendation-filters button.active {
+  border-color: #4b22d4;
+  color: #4b22d4;
+  outline: none;
+}
+
+.recommendation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.recommendation-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+  border: 1px solid #dbe3f0;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.recommendation-priority {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #253757;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.recommendation-content {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.recommendation-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recommendation-title-row strong {
+  min-width: 0;
+  color: #111832;
+}
+
+.recommendation-impact {
+  flex: 0 0 auto;
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: #14633a;
+  background: #e8f6ee;
+  font-weight: 900;
+}
+
+.recommendation-content p {
+  margin: 0;
+  color: #33506f;
+  line-height: 1.5;
+}
+
+.recommendation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.recommendation-meta div {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: #f4f6fb;
+}
+
+.recommendation-meta dt,
+.recommendation-meta dd {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+.recommendation-meta dt {
+  color: #667494;
+  font-weight: 800;
+}
+
+.recommendation-meta dd {
+  color: #1f3654;
+  font-weight: 900;
+}
+
 .confidence-breakdown-card-heading {
   display: flex;
   align-items: center;

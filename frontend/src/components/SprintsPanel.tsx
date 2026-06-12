@@ -17,6 +17,7 @@ import {
 } from "./ChartComponents";
 import { BiggestDriverCard } from "./BiggestDriverCard";
 import { ConfidenceBreakdownCard } from "./ConfidenceBreakdownCard";
+import { RecommendationsPanel } from "./RecommendationsPanel";
 import {
   MetricCategorySection,
   MetricStatusCard,
@@ -1006,6 +1007,12 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         {!isLoadingDetails && metrics?.biggest_driver ? (
           <BiggestDriverCard driver={metrics.biggest_driver} heading="Biggest Delivery Drag" />
         ) : null}
+        {!isLoadingDetails && metrics ? (
+          <RecommendationsPanel
+            recommendations={metrics.recommendations}
+            title="Sprint Recommended Actions"
+          />
+        ) : null}
         {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
           ? renderDeliveryConfidence(metrics.delivery_confidence)
           : null}
@@ -1155,6 +1162,12 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
 
             {metrics?.biggest_driver ? (
               <BiggestDriverCard driver={metrics.biggest_driver} heading="Biggest Delivery Drag" />
+            ) : null}
+            {metrics ? (
+              <RecommendationsPanel
+                recommendations={metrics.recommendations}
+                title="Report Recommendations"
+              />
             ) : null}
 
             <div id="delivery-confidence-history" className="chart-section-heading chart-section-hero">
