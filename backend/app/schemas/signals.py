@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.confidence import ConfidenceBreakdown
+
 
 class SignalReasonDetail(BaseModel):
     metric_name: str
@@ -96,6 +98,7 @@ class ReleaseSignalResponse(BaseModel):
     signal: str | None
     status_label: str | None = None
     confidence_score: float | None = None
+    confidence_breakdown: ConfidenceBreakdown | None = None
     summary: str | None = None
     reasons: list[str]
     reason_details: list[SignalReasonDetail]

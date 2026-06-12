@@ -137,6 +137,16 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     assert payload["metrics"]["committed_scope"] == 1
     assert payload["metrics"]["delivery_confidence_score"] == 100.0
     assert payload["delivery_confidence"]["score"] == 100.0
+    assert payload["confidence_breakdown"]["totalScore"] == 100.0
+    assert [component["id"] for component in payload["confidence_breakdown"]["components"]] == [
+        "progress_alignment",
+        "velocity_fit",
+        "scope_stability",
+        "blocker_health",
+    ]
+    assert all(component["score"] == 100.0 for component in payload["confidence_breakdown"]["components"])
+    assert all(component["maxScore"] == 100.0 for component in payload["confidence_breakdown"]["components"])
+    assert all(component["status"] == "good" for component in payload["confidence_breakdown"]["components"])
     assert payload["delivery_confidence"]["inputs"]["initial_commitment_count"] == 1
     assert payload["delivery_confidence"]["inputs"]["scope_stability_index"] == 0.0
     assert payload["delivery_confidence"]["inputs"]["committed_effective_points"] == 1.0

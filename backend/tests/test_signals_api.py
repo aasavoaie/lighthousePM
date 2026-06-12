@@ -156,6 +156,7 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
         "signal": None,
         "status_label": "NOT COMPUTED",
         "confidence_score": None,
+        "confidence_breakdown": None,
         "summary": "Signal has not been computed yet for this release snapshot.",
         "reasons": [],
         "reason_details": [],
@@ -202,6 +203,13 @@ def test_get_release_signal_after_metrics_recompute_uses_confidence_band(client:
     assert payload["signal"] == "YELLOW"
     assert payload["status_label"] == "RELEASE NEEDS ATTENTION"
     assert payload["confidence_score"] == 72.0
+    assert payload["confidence_breakdown"]["totalScore"] == 72.0
+    assert [component["name"] for component in payload["confidence_breakdown"]["components"]] == [
+        "Delivery",
+        "Quality",
+        "Flow",
+        "Risk",
+    ]
     assert any(gate["metric_name"] == "open_blockers" and not gate["passed"] for gate in payload["release_gates"])
     assert any(risk["metric_name"] == "open_blockers" for risk in payload["critical_risks"])
     assert payload["risk_aging"]["blockers"]["count"] == 1
@@ -234,6 +242,8 @@ def test_get_release_signal_after_metrics_recompute_returns_green(client: TestCl
     assert payload["signal"] == "GREEN"
     assert payload["status_label"] == "READY FOR RELEASE"
     assert payload["confidence_score"] == 100.0
+    assert payload["confidence_breakdown"]["totalScore"] == 100.0
+    assert all(component["status"] == "good" for component in payload["confidence_breakdown"]["components"])
     assert all(gate["passed"] for gate in payload["release_gates"])
     assert payload["critical_risks"] == []
     assert payload["warnings"] == []

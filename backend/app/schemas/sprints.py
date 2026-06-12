@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.schemas.confidence import ConfidenceBreakdown
+
 
 class SprintResponse(BaseModel):
     sprint_id: str
@@ -97,6 +99,7 @@ class SprintMetricsResponse(BaseModel):
     metric_issue_keys: SprintMetricIssueKeys
     metric_names: list[str]
     delivery_confidence: DeliveryConfidenceDetail | None
+    confidence_breakdown: ConfidenceBreakdown | None
     is_computed: bool
     snapshot_age_hours: float | None
 

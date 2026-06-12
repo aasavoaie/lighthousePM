@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.schemas.confidence import ConfidenceBreakdown
+
 
 class MetricValues(BaseModel):
     open_blockers: int | None
@@ -38,6 +40,7 @@ class ReleaseMetricsResponse(BaseModel):
     metric_issue_keys: MetricIssueKeys
     metric_names: list[str]
     metric_thresholds: MetricThresholds | None
+    confidence_breakdown: ConfidenceBreakdown | None
     is_computed: bool
     snapshot_age_hours: float | None
 

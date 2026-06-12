@@ -104,6 +104,22 @@ export interface DeliveryConfidenceDetail {
   inputs: DeliveryConfidenceInputs;
 }
 
+export type ConfidenceBreakdownStatus = "good" | "warning" | "critical";
+
+export interface ConfidenceBreakdownComponent {
+  id: string;
+  name: string;
+  score: number;
+  maxScore: number;
+  status: ConfidenceBreakdownStatus;
+  explanation: string;
+}
+
+export interface ConfidenceBreakdown {
+  totalScore: number;
+  components: ConfidenceBreakdownComponent[];
+}
+
 export interface SprintMetricsResponse {
   sprint_id: string;
   snapshot_at: string | null;
@@ -111,6 +127,7 @@ export interface SprintMetricsResponse {
   metric_issue_keys: MetricIssueKeys;
   metric_names: string[];
   delivery_confidence: DeliveryConfidenceDetail | null;
+  confidence_breakdown: ConfidenceBreakdown | null;
   is_computed: boolean;
   snapshot_age_hours: number | null;
 }
@@ -151,6 +168,7 @@ export interface ReleaseMetricsResponse {
   metric_issue_keys: MetricIssueKeys;
   metric_names: string[];
   metric_thresholds: MetricThresholds | null;
+  confidence_breakdown: ConfidenceBreakdown | null;
   is_computed: boolean;
   snapshot_age_hours: number | null;
 }
@@ -264,6 +282,7 @@ export interface ReleaseSignalResponse {
   signal: string | null;
   status_label: string | null;
   confidence_score: number | null;
+  confidence_breakdown: ConfidenceBreakdown | null;
   summary: string | null;
   reasons: string[];
   reason_details: SignalReasonDetail[];

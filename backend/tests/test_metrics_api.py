@@ -176,6 +176,7 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
         "reopen_rate_pct",
     ]
     assert payload["metric_thresholds"] is None
+    assert payload["confidence_breakdown"] is None
     assert payload["is_computed"] is False
     assert payload["snapshot_age_hours"] is None
     assert payload["metric_issue_keys"] == {
@@ -268,6 +269,43 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
         "reopen_rate_pct_red": 15.0,
         "reopen_rate_pct_yellow": 10.0,
         "median_cycle_time_days_yellow": 7.0,
+    }
+    assert metrics["confidence_breakdown"] == {
+        "totalScore": 55.0,
+        "components": [
+            {
+                "id": "delivery",
+                "name": "Delivery",
+                "score": 14.0,
+                "maxScore": 30.0,
+                "status": "critical",
+                "explanation": "Open blockers and red-level scope churn are reducing delivery confidence.",
+            },
+            {
+                "id": "quality",
+                "name": "Quality",
+                "score": 21.0,
+                "maxScore": 30.0,
+                "status": "critical",
+                "explanation": "1 open high-severity bug is reducing quality confidence.",
+            },
+            {
+                "id": "flow",
+                "name": "Flow",
+                "score": 20.0,
+                "maxScore": 20.0,
+                "status": "good",
+                "explanation": "Median cycle time is within the flow confidence threshold.",
+            },
+            {
+                "id": "risk",
+                "name": "Risk",
+                "score": 0.0,
+                "maxScore": 20.0,
+                "status": "critical",
+                "explanation": "1 open blocker issue is consuming release risk capacity.",
+            },
+        ],
     }
     assert metrics["metrics"]["open_blockers"] == 1
     assert metrics["metrics"]["open_high_severity_bugs"] == 1
