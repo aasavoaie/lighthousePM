@@ -407,6 +407,67 @@ def test_get_release_charts_limit_param(client: TestClient) -> None:
     assert [point["value"] for point in points] == [2, 3]
 
 
+def test_get_release_snapshot_comparison_uses_previous_snapshot(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_snapshot(session, "REL-1", base, open_blockers=1, completed_tickets=2)
+        _seed_snapshot(session, "REL-1", base + timedelta(hours=1), open_blockers=0, completed_tickets=4)
+        session.commit()
+
+    response = client.get("/releases/REL-1/snapshot-comparison?baseline=previous")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entity_id"] == "REL-1"
+    assert payload["baseline"] == "previous"
+    assert payload["has_baseline"] is True
+    assert payload["comparison"]["confidenceDelta"] == 37.0
+    assert payload["comparison"]["contributors"][0] == {
+        "metric": "open_blockers",
+        "delta": -1.0,
+        "impact": 28.0,
+        "direction": "down",
+    }
+
+
+def test_get_release_snapshot_comparison_supports_24h_baseline(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, 12, tzinfo=UTC)
+        _seed_snapshot(session, "REL-1", base - timedelta(hours=25), open_blockers=1)
+        _seed_snapshot(session, "REL-1", base - timedelta(hours=2), open_blockers=2)
+        _seed_snapshot(session, "REL-1", base, open_blockers=0)
+        session.commit()
+
+    response = client.get("/releases/REL-1/snapshot-comparison?baseline=24h")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["baseline"] == "24h"
+    assert payload["has_baseline"] is True
+    assert payload["comparison"]["confidenceDelta"] == 37.0
+
+
+def test_get_release_snapshot_change_history_returns_primary_driver(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_snapshot(session, "REL-1", base, open_blockers=1)
+        _seed_snapshot(session, "REL-1", base + timedelta(hours=1), open_blockers=0)
+        session.commit()
+
+    response = client.get("/releases/REL-1/snapshot-change-history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entity_id"] == "REL-1"
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["primary_driver"] == "Baseline snapshot"
+    assert payload["items"][1]["delta"] == 37.0
+    assert payload["items"][1]["primary_driver"] == "open_blockers"
+
+
 def test_get_release_charts_from_to_params(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")

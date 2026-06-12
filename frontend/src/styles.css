@@ -1306,6 +1306,92 @@ select {
   font-weight: 700;
 }
 
+.snapshot-change-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.baseline-segmented-control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #cbd8e6;
+  border-radius: 8px;
+  background: #f8fbfe;
+}
+
+.baseline-segmented-control button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #33506f;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 700;
+  padding: 6px 9px;
+}
+
+.baseline-segmented-control button.active {
+  background: #0b6bcb;
+  color: #ffffff;
+}
+
+.snapshot-change-summary {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #dbe7f2;
+}
+
+.snapshot-change-summary > strong {
+  color: #122033;
+  font-size: 1.15rem;
+}
+
+.snapshot-change-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.snapshot-change-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  color: #334155;
+  font-weight: 700;
+}
+
+.snapshot-change-item.positive {
+  color: #1f6b3a;
+}
+
+.snapshot-change-item.negative {
+  color: #9f2f24;
+}
+
+.snapshot-change-item.neutral {
+  color: #58677c;
+}
+
+.snapshot-change-arrow {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.snapshot-history-heading {
+  margin-top: 2px;
+}
+
+.snapshot-history-table th,
+.snapshot-history-table td {
+  white-space: nowrap;
+}
+
 .chart-empty-note {
   margin: 8px 0 0;
 }

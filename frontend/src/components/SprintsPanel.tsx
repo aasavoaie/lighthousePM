@@ -6,6 +6,9 @@ import type {
   SprintIssue,
   SprintMetricValues,
   SprintMetricsResponse,
+  SnapshotBaseline,
+  SnapshotChangeHistoryResponse,
+  SnapshotComparisonResponse,
 } from "../api/types";
 import {
   MetricColors,
@@ -48,6 +51,7 @@ import {
   type RiskHeatmapStatus,
   type SprintChartHistoryPoint,
 } from "./sprintCharts";
+import { SnapshotChangePanel } from "./SnapshotChangePanel";
 
 type SprintOption = {
   label: string;
@@ -519,6 +523,11 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   const [isDeliveryConfidenceExpanded, setIsDeliveryConfidenceExpanded] = useState(true);
   const [isSprintMetricsExpanded, setIsSprintMetricsExpanded] = useState(true);
   const [isSprintChartsExpanded, setIsSprintChartsExpanded] = useState(true);
+  const [snapshotBaseline, setSnapshotBaseline] = useState<SnapshotBaseline>("previous");
+  const [snapshotComparison, setSnapshotComparison] = useState<SnapshotComparisonResponse | null>(null);
+  const [snapshotHistory, setSnapshotHistory] = useState<SnapshotChangeHistoryResponse | null>(null);
+  const [isLoadingSnapshotChanges, setIsLoadingSnapshotChanges] = useState(false);
+  const [snapshotChangeError, setSnapshotChangeError] = useState<string | null>(null);
   const [sprintChartRows, setSprintChartRows] = useState<SprintChartHistoryPoint[]>([]);
   const [sprintChartRefreshNonce, setSprintChartRefreshNonce] = useState(0);
   const [isLoadingSprintConfidence, setIsLoadingSprintConfidence] = useState(false);
@@ -830,6 +839,48 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   }, [selectedSprintId]);
 
   useEffect(() => {
+    if (mode !== "reports" || !selectedSprintId) {
+      setSnapshotComparison(null);
+      setSnapshotHistory(null);
+      return;
+    }
+
+    const sprintId = selectedSprintId;
+    let isActive = true;
+
+    async function loadSnapshotChanges() {
+      setIsLoadingSnapshotChanges(true);
+      setSnapshotChangeError(null);
+      try {
+        const [comparison, history] = await Promise.all([
+          apiClient.getSprintSnapshotComparison(sprintId, snapshotBaseline),
+          apiClient.getSprintSnapshotChangeHistory(sprintId),
+        ]);
+        if (isActive) {
+          setSnapshotComparison(comparison);
+          setSnapshotHistory(history);
+        }
+      } catch (error) {
+        if (isActive) {
+          setSnapshotChangeError(error instanceof Error ? error.message : "Failed to load snapshot changes.");
+          setSnapshotComparison(null);
+          setSnapshotHistory(null);
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingSnapshotChanges(false);
+        }
+      }
+    }
+
+    void loadSnapshotChanges();
+
+    return () => {
+      isActive = false;
+    };
+  }, [mode, selectedSprintId, snapshotBaseline, refreshNonce, sprintChartRefreshNonce]);
+
+  useEffect(() => {
     if (recentSprints.length === 0) {
       setSprintChartRows([]);
       return;
@@ -1088,7 +1139,17 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         </div>
         {isSprintChartsExpanded ? (
           <>
-            <div id="delivery-confidence-history" className="chart-section-heading first chart-section-hero">
+            <SnapshotChangePanel
+              context="sprint"
+              comparison={snapshotComparison}
+              history={snapshotHistory}
+              baseline={snapshotBaseline}
+              isLoading={isLoadingSnapshotChanges}
+              error={snapshotChangeError}
+              onBaselineChange={setSnapshotBaseline}
+            />
+
+            <div id="delivery-confidence-history" className="chart-section-heading chart-section-hero">
               <div>
                 <h3>Delivery Confidence Trend</h3>
                 <p className="chart-section-subtitle">
