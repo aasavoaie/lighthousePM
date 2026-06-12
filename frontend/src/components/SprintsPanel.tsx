@@ -12,6 +12,7 @@ import {
   MetricLineChart,
   MetricMultiBarChart,
 } from "./ChartComponents";
+import { ConfidenceBreakdownCard } from "./ConfidenceBreakdownCard";
 import {
   MetricCategorySection,
   MetricStatusCard,
@@ -22,7 +23,6 @@ import {
   calculateExpectedVsActualProgress,
   formatConfidencePercent,
   getBiggestDrag,
-  getConfidenceComponentDetails,
   getConfidenceStatus,
   getDeliveryConfidenceSummary,
   getRiskDrivers,
@@ -304,7 +304,6 @@ function buildBaseMetricEvaluation(
 }
 
 function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail) {
-  const componentDetails = getConfidenceComponentDetails(confidence.components);
   const biggestDrag = getBiggestDrag(confidence.components);
   const progress = calculateExpectedVsActualProgress(confidence.inputs);
   const riskDrivers = getRiskDrivers(confidence.components);
@@ -327,28 +326,6 @@ function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail) {
 
   return (
     <div className="confidence-decision-layout">
-      <section className="confidence-section">
-        <div className="confidence-section-heading">
-          <h3>Confidence Breakdown</h3>
-        </div>
-        <div className="confidence-breakdown-grid">
-          {componentDetails.map((component) => (
-            <article className={`metric-card confidence-component status-${component.status.level}`} key={component.key}>
-              <div className="confidence-component-heading">
-                <h4>{component.label}</h4>
-                <span className={`confidence-status-pill confidence-status-${component.status.level}`}>
-                  {component.status.label}
-                </span>
-              </div>
-              <strong className={`confidence-status-text-${component.status.level}`}>
-                {formatConfidencePercent(component.score)}
-              </strong>
-              <p>{component.explanation}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <article className={`confidence-callout confidence-callout-${biggestDrag.status.level}`}>
         <h3>Biggest Drag</h3>
         <p>{biggestDrag.label} is the largest contributor to reduced confidence.</p>
@@ -970,6 +947,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
           <p className="delivery-confidence-summary">
             {getDeliveryConfidenceSummary(metrics.delivery_confidence.components)}
           </p>
+        ) : null}
+        {!isLoadingDetails && metrics?.confidence_breakdown ? (
+          <ConfidenceBreakdownCard breakdown={metrics.confidence_breakdown} />
         ) : null}
         {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
           ? renderDeliveryConfidence(metrics.delivery_confidence)

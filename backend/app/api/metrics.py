@@ -22,6 +22,7 @@ from app.schemas.metrics import (
     ReleaseMetricsResponse,
 )
 from app.services.analytics_service import AnalyticsService
+from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 from app.services.signal_service import SignalService
 from app.utils.constants import (
     CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
@@ -129,6 +130,7 @@ def get_release_metrics(
             ),
             metric_names=METRIC_NAMES,
             metric_thresholds=None,
+            confidence_breakdown=None,
             is_computed=False,
             snapshot_age_hours=None,
         )
@@ -164,6 +166,7 @@ def get_release_metrics(
         ),
         metric_names=METRIC_NAMES,
         metric_thresholds=_build_metric_thresholds(),
+        confidence_breakdown=ConfidenceBreakdownService.build_release_breakdown(snapshot),
         is_computed=True,
         snapshot_age_hours=snapshot_age_hours,
     )

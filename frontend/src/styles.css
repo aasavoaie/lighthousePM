@@ -761,6 +761,28 @@ select {
   gap: 12px;
 }
 
+.confidence-breakdown-card {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+
+.confidence-breakdown-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.confidence-breakdown-card-heading h3 {
+  margin: 0;
+}
+
+.confidence-breakdown-card-heading strong {
+  color: #1f3654;
+  font-size: 1.35rem;
+}
+
 .confidence-component {
   display: grid;
   gap: 10px;
@@ -770,6 +792,13 @@ select {
 .confidence-component-heading {
   display: grid;
   gap: 8px;
+}
+
+.confidence-component-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .confidence-component h4 {
@@ -797,6 +826,35 @@ select {
   padding: 4px 9px;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.confidence-breakdown-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.confidence-breakdown-status-good {
+  color: #1f6b3b;
+  background: #e8f5ee;
+  border: 1px solid #b8dec9;
+}
+
+.confidence-breakdown-status-warning {
+  color: #7a5a00;
+  background: #fff7df;
+  border: 1px solid #ead188;
+}
+
+.confidence-breakdown-status-critical {
+  color: #a63124;
+  background: #ffe9e6;
+  border: 1px solid #efb4ad;
 }
 
 .confidence-status-healthy {

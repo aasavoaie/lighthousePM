@@ -21,6 +21,7 @@ from app.schemas.sprints import (
     SprintResponse,
 )
 from app.services.analytics_service import DELIVERY_CONFIDENCE_WEIGHTS, AnalyticsService
+from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 
 router = APIRouter(prefix="/sprints", tags=["sprints"])
 
@@ -51,6 +52,20 @@ def _build_delivery_confidence(snapshot) -> DeliveryConfidenceDetail | None:
         weights=DeliveryConfidenceWeights(**DELIVERY_CONFIDENCE_WEIGHTS),
         components=DeliveryConfidenceComponents(**snapshot.delivery_confidence_components),
         inputs=DeliveryConfidenceInputs(**snapshot.delivery_confidence_inputs),
+    )
+
+
+def _build_sprint_confidence_breakdown(snapshot):
+    if (
+        snapshot.delivery_confidence_score is None
+        or snapshot.delivery_confidence_components is None
+        or snapshot.delivery_confidence_inputs is None
+    ):
+        return None
+    return ConfidenceBreakdownService.build_sprint_breakdown(
+        score=snapshot.delivery_confidence_score,
+        components=snapshot.delivery_confidence_components,
+        inputs=snapshot.delivery_confidence_inputs,
     )
 
 
@@ -152,6 +167,7 @@ def get_sprint_metrics(
             ),
             metric_names=SPRINT_METRIC_NAMES,
             delivery_confidence=None,
+            confidence_breakdown=None,
             is_computed=False,
             snapshot_age_hours=None,
         )
@@ -185,6 +201,7 @@ def get_sprint_metrics(
         ),
         metric_names=SPRINT_METRIC_NAMES,
         delivery_confidence=_build_delivery_confidence(snapshot),
+        confidence_breakdown=_build_sprint_confidence_breakdown(snapshot),
         is_computed=True,
         snapshot_age_hours=round((datetime.now(UTC) - snapshot_at).total_seconds() / 3600.0, 3),
     )
