@@ -120,6 +120,15 @@ export interface ConfidenceBreakdown {
   components: ConfidenceBreakdownComponent[];
 }
 
+export interface DriverAnalysis {
+  title: string;
+  category: string;
+  impact: number;
+  contributionPercent: number;
+  explanation: string;
+  recommendation: string;
+}
+
 export interface SprintMetricsResponse {
   sprint_id: string;
   snapshot_at: string | null;
@@ -128,6 +137,7 @@ export interface SprintMetricsResponse {
   metric_names: string[];
   delivery_confidence: DeliveryConfidenceDetail | null;
   confidence_breakdown: ConfidenceBreakdown | null;
+  biggest_driver: DriverAnalysis | null;
   is_computed: boolean;
   snapshot_age_hours: number | null;
 }
@@ -169,6 +179,7 @@ export interface ReleaseMetricsResponse {
   metric_names: string[];
   metric_thresholds: MetricThresholds | null;
   confidence_breakdown: ConfidenceBreakdown | null;
+  biggest_driver: DriverAnalysis | null;
   is_computed: boolean;
   snapshot_age_hours: number | null;
 }
@@ -318,6 +329,7 @@ export interface ReleaseSignalResponse {
   status_label: string | null;
   confidence_score: number | null;
   confidence_breakdown: ConfidenceBreakdown | null;
+  biggest_driver: DriverAnalysis | null;
   summary: string | null;
   reasons: string[];
   reason_details: SignalReasonDetail[];

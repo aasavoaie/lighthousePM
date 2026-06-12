@@ -177,6 +177,7 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
     ]
     assert payload["metric_thresholds"] is None
     assert payload["confidence_breakdown"] is None
+    assert payload["biggest_driver"] is None
     assert payload["is_computed"] is False
     assert payload["snapshot_age_hours"] is None
     assert payload["metric_issue_keys"] == {
@@ -306,6 +307,14 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
                 "explanation": "1 open blocker issue is consuming release risk capacity.",
             },
         ],
+    }
+    assert metrics["biggest_driver"] == {
+        "title": "Open Blockers",
+        "category": "Risk",
+        "impact": -28.0,
+        "contributionPercent": 62.2,
+        "explanation": "Open blockers are consuming the largest share of release confidence.",
+        "recommendation": "Resolve or explicitly de-scope blocker tickets before moving the release forward.",
     }
     assert metrics["metrics"]["open_blockers"] == 1
     assert metrics["metrics"]["open_high_severity_bugs"] == 1

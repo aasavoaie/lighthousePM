@@ -767,6 +767,99 @@ select {
   margin: 14px 0 18px;
 }
 
+.biggest-driver-card {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 18px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #dbe7f2;
+  background: #f8fbfe;
+}
+
+.biggest-driver-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.biggest-driver-heading span {
+  display: block;
+  color: #58677c;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.biggest-driver-heading h3 {
+  margin: 2px 0 0;
+  color: #1f3654;
+  font-size: 1.1rem;
+}
+
+.biggest-driver-category {
+  border-radius: 999px;
+  padding: 4px 9px;
+  border: 1px solid #b9c9da;
+  background: #ffffff;
+  color: #33506f !important;
+  text-transform: none !important;
+}
+
+.biggest-driver-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.biggest-driver-stats div {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid #dbe7f2;
+  background: #ffffff;
+}
+
+.biggest-driver-stats dt {
+  color: #58677c;
+  font-size: 0.82rem;
+}
+
+.biggest-driver-stats dd {
+  margin: 2px 0 0;
+  color: #1f3654;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.driver-impact-negative .biggest-driver-stats div:first-child dd {
+  color: #a63124;
+}
+
+.driver-impact-positive .biggest-driver-stats div:first-child dd {
+  color: #237445;
+}
+
+.biggest-driver-card p {
+  margin: 0;
+  color: #33506f;
+}
+
+.biggest-driver-action {
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #dbe7f2;
+  background: #ffffff;
+}
+
+.biggest-driver-action strong {
+  color: #1f3654;
+}
+
 .confidence-breakdown-card-heading {
   display: flex;
   align-items: center;
@@ -1587,7 +1680,8 @@ select {
   .scope-stability-inputs,
   .confidence-breakdown-grid,
   .confidence-progress-grid,
-  .confidence-inputs {
+  .confidence-inputs,
+  .biggest-driver-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2502,6 +2596,14 @@ select {
 }
 
 @media (max-width: 560px) {
+  .biggest-driver-heading {
+    flex-direction: column;
+  }
+
+  .biggest-driver-stats {
+    grid-template-columns: 1fr;
+  }
+
   .overview-card {
     padding: 20px;
   }

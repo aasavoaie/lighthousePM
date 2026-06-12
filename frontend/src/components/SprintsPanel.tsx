@@ -15,6 +15,7 @@ import {
   MetricLineChart,
   MetricMultiBarChart,
 } from "./ChartComponents";
+import { BiggestDriverCard } from "./BiggestDriverCard";
 import { ConfidenceBreakdownCard } from "./ConfidenceBreakdownCard";
 import {
   MetricCategorySection,
@@ -1002,6 +1003,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         {!isLoadingDetails && metrics?.confidence_breakdown ? (
           <ConfidenceBreakdownCard breakdown={metrics.confidence_breakdown} />
         ) : null}
+        {!isLoadingDetails && metrics?.biggest_driver ? (
+          <BiggestDriverCard driver={metrics.biggest_driver} heading="Biggest Delivery Drag" />
+        ) : null}
         {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
           ? renderDeliveryConfidence(metrics.delivery_confidence)
           : null}
@@ -1148,6 +1152,10 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
               error={snapshotChangeError}
               onBaselineChange={setSnapshotBaseline}
             />
+
+            {metrics?.biggest_driver ? (
+              <BiggestDriverCard driver={metrics.biggest_driver} heading="Biggest Delivery Drag" />
+            ) : null}
 
             <div id="delivery-confidence-history" className="chart-section-heading chart-section-hero">
               <div>

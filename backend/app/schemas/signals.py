@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.schemas.confidence import ConfidenceBreakdown
+from app.schemas.drivers import DriverAnalysis
 
 
 class SignalReasonDetail(BaseModel):
@@ -99,6 +100,7 @@ class ReleaseSignalResponse(BaseModel):
     status_label: str | None = None
     confidence_score: float | None = None
     confidence_breakdown: ConfidenceBreakdown | None = None
+    biggest_driver: DriverAnalysis | None = None
     summary: str | None = None
     reasons: list[str]
     reason_details: list[SignalReasonDetail]

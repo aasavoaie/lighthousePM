@@ -177,6 +177,14 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     assert payload["metrics"]["delivery_confidence_score"] == 100.0
     assert payload["delivery_confidence"]["score"] == 100.0
     assert payload["confidence_breakdown"]["totalScore"] == 100.0
+    assert payload["biggest_driver"] == {
+        "title": "No Delivery Drag",
+        "category": "None",
+        "impact": 0.0,
+        "contributionPercent": 0.0,
+        "explanation": "No delivery confidence component is currently reducing the sprint score.",
+        "recommendation": "Maintain the current delivery posture and continue monitoring progress, velocity, blockers, and scope stability.",
+    }
     assert [component["id"] for component in payload["confidence_breakdown"]["components"]] == [
         "progress_alignment",
         "velocity_fit",

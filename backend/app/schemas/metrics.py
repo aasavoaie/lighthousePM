@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.schemas.confidence import ConfidenceBreakdown
+from app.schemas.drivers import DriverAnalysis
 
 
 class MetricValues(BaseModel):
@@ -41,6 +42,7 @@ class ReleaseMetricsResponse(BaseModel):
     metric_names: list[str]
     metric_thresholds: MetricThresholds | None
     confidence_breakdown: ConfidenceBreakdown | None
+    biggest_driver: DriverAnalysis | None
     is_computed: bool
     snapshot_age_hours: float | None
 
