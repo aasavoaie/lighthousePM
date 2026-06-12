@@ -178,6 +178,7 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
     assert payload["metric_thresholds"] is None
     assert payload["confidence_breakdown"] is None
     assert payload["biggest_driver"] is None
+    assert payload["recommendations"] == []
     assert payload["is_computed"] is False
     assert payload["snapshot_age_hours"] is None
     assert payload["metric_issue_keys"] == {
@@ -316,6 +317,32 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
         "explanation": "Open blockers are consuming the largest share of release confidence.",
         "recommendation": "Resolve or explicitly de-scope blocker tickets before moving the release forward.",
     }
+    assert metrics["recommendations"] == [
+        {
+            "title": "Resolve blockers",
+            "description": "Resolve or explicitly de-scope open blocker tickets before moving the release forward.",
+            "priority": 1,
+            "confidenceImpact": 10,
+            "effort": "high",
+            "category": "Risk",
+        },
+        {
+            "title": "Resolve critical defects",
+            "description": "Prioritize high-severity defect fixes and verify them before release approval.",
+            "priority": 2,
+            "confidenceImpact": 8,
+            "effort": "medium",
+            "category": "Quality",
+        },
+        {
+            "title": "Stabilize release scope",
+            "description": "Stop non-critical fix-version movement and defer new scope to a later release.",
+            "priority": 3,
+            "confidenceImpact": 7,
+            "effort": "medium",
+            "category": "Delivery",
+        },
+    ]
     assert metrics["metrics"]["open_blockers"] == 1
     assert metrics["metrics"]["open_high_severity_bugs"] == 1
     assert metrics["metrics"]["scope_completed_pct"] == 50.0

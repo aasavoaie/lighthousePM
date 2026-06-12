@@ -19,6 +19,7 @@ import type {
   SignalRiskAgingGroup,
   SignalRiskItem,
 } from "../api/types";
+import { RecommendationsPanel } from "./RecommendationsPanel";
 
 interface OverviewDashboardProps {
   release: Release | null;
@@ -43,14 +44,6 @@ const riskLabels: Record<string, string> = {
   scope_churn_7d_pct: "Scope Churn",
   reopen_rate_pct: "Reopen Rate",
   median_cycle_time_days: "Cycle Time",
-};
-
-const actionLabels: Record<string, { title: string; button: string; impact: string }> = {
-  open_blockers: { title: "Resolve all blockers", button: "View blockers", impact: "Most impact" },
-  open_high_severity_bugs: { title: "Resolve high severity bugs", button: "View bugs", impact: "High impact" },
-  scope_churn_7d_pct: { title: "Reduce scope churn to target", button: "View scope", impact: "Medium impact" },
-  reopen_rate_pct: { title: "Lower reopen rate", button: "View reopens", impact: "Medium impact" },
-  median_cycle_time_days: { title: "Reduce cycle time", button: "View flow", impact: "Medium impact" },
 };
 
 function clampPercentage(value: number) {
@@ -244,7 +237,6 @@ export function OverviewDashboard({
   signal,
   isLoading,
   onOpenReports,
-  onOpenReleaseMetric,
 }: OverviewDashboardProps) {
   const confidenceScore = getConfidenceScore(signal, charts);
   const tone = getSignalTone(signal);
@@ -374,36 +366,7 @@ export function OverviewDashboard({
       </section>
 
       <section className="overview-card actions-card">
-        <p className="overview-card-kicker">Recommended Actions</p>
-        <div className="overview-action-list">
-          {riskDrivers.length > 0 ? (
-            riskDrivers.slice(0, 3).map((driver) => {
-              const action = actionLabels[driver.metricName] ?? {
-                title: `Address ${driver.label.toLowerCase()}`,
-                button: "View details",
-                impact: "Measured impact",
-              };
-              return (
-                <article className="overview-action-row" key={driver.metricName}>
-                  <span className={`risk-driver-icon risk-${driver.level.toLowerCase()}`} aria-hidden="true" />
-                  <div>
-                    <strong>{action.title}</strong>
-                    <small>{action.impact}</small>
-                  </div>
-                  <button
-                    type="button"
-                    className="outline-action-button"
-                    onClick={() => onOpenReleaseMetric(driver.metricName as keyof MetricValues)}
-                  >
-                    {action.button}
-                  </button>
-                </article>
-              );
-            })
-          ) : (
-            <p className="muted">No recommended actions at this confidence level.</p>
-          )}
-        </div>
+        <RecommendationsPanel recommendations={metrics?.recommendations ?? []} />
         <p className="overview-footnote">Actions are prioritized by confidence impact.</p>
       </section>
 

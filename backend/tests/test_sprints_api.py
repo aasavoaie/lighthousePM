@@ -185,6 +185,7 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
         "explanation": "No delivery confidence component is currently reducing the sprint score.",
         "recommendation": "Maintain the current delivery posture and continue monitoring progress, velocity, blockers, and scope stability.",
     }
+    assert payload["recommendations"] == []
     assert [component["id"] for component in payload["confidence_breakdown"]["components"]] == [
         "progress_alignment",
         "velocity_fit",

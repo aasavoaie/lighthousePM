@@ -20,11 +20,13 @@ import {
   formatPercentage,
 } from "./ChartComponents";
 import { BiggestDriverCard } from "./BiggestDriverCard";
+import { RecommendationsPanel } from "./RecommendationsPanel";
 import { SnapshotChangePanel } from "./SnapshotChangePanel";
 
 interface ChartsPanelProps {
   charts: ReleaseChartsResponse | null;
   signal: ReleaseSignalResponse | null;
+  metrics: ReleaseMetricsResponse | null;
   releases: Release[];
   selectedReleaseName: string | null;
   refreshNonce: number;
@@ -227,6 +229,7 @@ async function loadReleaseComparisonRow(release: Release): Promise<ReleaseCompar
 export function ChartsPanel({
   charts,
   signal,
+  metrics,
   releases,
   selectedReleaseName,
   refreshNonce,
@@ -358,6 +361,12 @@ export function ChartsPanel({
 
           {signal?.biggest_driver ? (
             <BiggestDriverCard driver={signal.biggest_driver} heading="Biggest Confidence Drag" />
+          ) : null}
+          {metrics ? (
+            <RecommendationsPanel
+              recommendations={metrics.recommendations}
+              title="Report Recommendations"
+            />
           ) : null}
 
           <div className="chart-section-heading">

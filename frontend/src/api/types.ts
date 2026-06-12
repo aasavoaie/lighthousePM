@@ -129,6 +129,17 @@ export interface DriverAnalysis {
   recommendation: string;
 }
 
+export type RecommendationEffort = "low" | "medium" | "high";
+
+export interface RecommendationAction {
+  title: string;
+  description: string;
+  priority: number;
+  confidenceImpact: number;
+  effort: RecommendationEffort;
+  category: string;
+}
+
 export interface SprintMetricsResponse {
   sprint_id: string;
   snapshot_at: string | null;
@@ -138,6 +149,7 @@ export interface SprintMetricsResponse {
   delivery_confidence: DeliveryConfidenceDetail | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;
+  recommendations: RecommendationAction[];
   is_computed: boolean;
   snapshot_age_hours: number | null;
 }
@@ -180,6 +192,7 @@ export interface ReleaseMetricsResponse {
   metric_thresholds: MetricThresholds | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;
+  recommendations: RecommendationAction[];
   is_computed: boolean;
   snapshot_age_hours: number | null;
 }

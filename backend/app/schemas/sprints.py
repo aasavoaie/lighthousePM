@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.confidence import ConfidenceBreakdown
 from app.schemas.drivers import DriverAnalysis
+from app.schemas.recommendations import RecommendationAction
 
 
 class SprintResponse(BaseModel):
@@ -102,6 +103,7 @@ class SprintMetricsResponse(BaseModel):
     delivery_confidence: DeliveryConfidenceDetail | None
     confidence_breakdown: ConfidenceBreakdown | None
     biggest_driver: DriverAnalysis | None
+    recommendations: list[RecommendationAction]
     is_computed: bool
     snapshot_age_hours: float | None
 

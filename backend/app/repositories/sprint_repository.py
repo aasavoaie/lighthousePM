@@ -69,6 +69,16 @@ class SprintRepository:
         return issues, int(total)
 
     @staticmethod
+    def list_all_sprint_issues(session: Session, sprint_id: str) -> list[Issue]:
+        query = (
+            select(Issue)
+            .join(IssueSprint, IssueSprint.issue_key == Issue.issue_key)
+            .where(IssueSprint.sprint_id == sprint_id)
+            .order_by(Issue.issue_key)
+        )
+        return list(session.scalars(query).all())
+
+    @staticmethod
     def get_latest_metric_snapshot(session: Session, sprint_id: str) -> SprintMetricSnapshot | None:
         query = (
             select(SprintMetricSnapshot)

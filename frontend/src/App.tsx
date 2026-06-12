@@ -541,6 +541,7 @@ export default function App() {
             <ChartsPanel
               charts={charts}
               signal={signal}
+              metrics={metrics}
               releases={releases}
               selectedReleaseName={selectedRelease?.name ?? null}
               refreshNonce={dashboardRefreshNonce}

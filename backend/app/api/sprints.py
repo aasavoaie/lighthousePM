@@ -30,6 +30,7 @@ from app.schemas.sprints import (
 from app.services.analytics_service import DELIVERY_CONFIDENCE_WEIGHTS, AnalyticsService
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 from app.services.driver_analysis_service import DriverAnalysisService
+from app.services.recommendation_engine import RecommendationEngine
 from app.services.snapshot_comparison_service import SnapshotComparisonService
 
 router = APIRouter(prefix="/sprints", tags=["sprints"])
@@ -250,6 +251,7 @@ def get_sprint_metrics(
             delivery_confidence=None,
             confidence_breakdown=None,
             biggest_driver=None,
+            recommendations=[],
             is_computed=False,
             snapshot_age_hours=None,
         )
@@ -259,6 +261,7 @@ def get_sprint_metrics(
         snapshot_at = snapshot_at.replace(tzinfo=UTC)
     else:
         snapshot_at = snapshot_at.astimezone(UTC)
+    sprint_issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint_id)
 
     return SprintMetricsResponse(
         sprint_id=sprint_id,
@@ -285,6 +288,7 @@ def get_sprint_metrics(
         delivery_confidence=_build_delivery_confidence(snapshot),
         confidence_breakdown=_build_sprint_confidence_breakdown(snapshot),
         biggest_driver=_build_sprint_biggest_driver(snapshot),
+        recommendations=RecommendationEngine.build_sprint_recommendations(snapshot, sprint_issues=sprint_issues),
         is_computed=True,
         snapshot_age_hours=round((datetime.now(UTC) - snapshot_at).total_seconds() / 3600.0, 3),
     )

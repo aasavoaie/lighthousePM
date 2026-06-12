@@ -81,6 +81,12 @@ Jira → Ingestion → Database → Metrics → Signals → API
 - Reopen rate
 - Bug trend
 
+### Recommended Actions
+- RecommendationEngine maps current release or sprint metrics to deterministic actions.
+- Actions include title, description, priority, expected confidence gain, effort, and category.
+- Actions are sorted by expected confidence gain, with stable rule order for ties.
+- No AI, ML, or inferred recommendations are used.
+
 ---
 
 ## 🚦 Release Signals
