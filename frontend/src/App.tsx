@@ -19,7 +19,15 @@ import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
 import { getCurrentReleaseId } from "./releaseSelection";
 
-type AppTab = "overview" | "releases" | "sprints" | "reports" | "admin" | "settings" | "about";
+type AppTab =
+  | "overview"
+  | "release-command"
+  | "release-reports"
+  | "sprint-intelligence"
+  | "sprint-reports"
+  | "admin"
+  | "settings"
+  | "about";
 
 const tabContent: Record<AppTab, { title: string; subtitle: string; kicker: string }> = {
   overview: {
@@ -27,20 +35,25 @@ const tabContent: Record<AppTab, { title: string; subtitle: string; kicker: stri
     subtitle: "Intelligent insights to help you ship with confidence.",
     kicker: "Overview",
   },
-  releases: {
+  "release-command": {
     title: "Release Command Center",
     subtitle: "Review readiness, metrics, and release tickets in one operational view.",
     kicker: "Release Health",
   },
-  sprints: {
+  "release-reports": {
+    title: "Reports & Evidence",
+    subtitle: "Inspect confidence history, risk contribution, blocker aging, and ticket detail.",
+    kicker: "Release Reports",
+  },
+  "sprint-intelligence": {
     title: "Sprint Intelligence",
     subtitle: "Track delivery confidence, sprint flow, scope movement, and active work.",
     kicker: "Sprint Health",
   },
-  reports: {
+  "sprint-reports": {
     title: "Reports & Evidence",
-    subtitle: "Inspect confidence history, risk contribution, blocker aging, and ticket detail.",
-    kicker: "Release Reports",
+    subtitle: "Inspect sprint confidence history, reliability, scope movement, quality, flow, and risk heatmaps.",
+    kicker: "Sprint Reports",
   },
   admin: {
     title: "Operations Console",
@@ -61,6 +74,7 @@ const tabContent: Record<AppTab, { title: string; subtitle: string; kicker: stri
 
 function renderDetailHeader(tab: AppTab, selectedRelease: Release | null) {
   const content = tabContent[tab];
+  const isReleaseTab = tab === "release-reports";
   return (
     <section className="detail-hero">
       <div>
@@ -68,7 +82,7 @@ function renderDetailHeader(tab: AppTab, selectedRelease: Release | null) {
         <h2>{content.title}</h2>
         <p>{content.subtitle}</p>
       </div>
-      {selectedRelease && (tab === "releases" || tab === "reports") ? (
+      {selectedRelease && isReleaseTab ? (
         <dl className="detail-release-meta" aria-label="Selected release summary">
           <div>
             <dt>Project</dt>
@@ -257,12 +271,12 @@ export default function App() {
 
   function handleOpenReleaseDetails() {
     setFocusedReleaseMetricName(null);
-    setSelectedTab("releases");
+    setSelectedTab("release-command");
   }
 
   function handleOpenReleaseMetric(metricName: keyof MetricValues) {
     setFocusedReleaseMetricName(metricName);
-    setSelectedTab("releases");
+    setSelectedTab("release-command");
   }
 
   useEffect(() => {
@@ -314,7 +328,7 @@ export default function App() {
   }, [selectedReleaseId, dashboardRefreshNonce]);
 
   useEffect(() => {
-    if (selectedTab !== "releases" || !focusedReleaseMetricName) {
+    if (selectedTab !== "release-command" || !focusedReleaseMetricName) {
       return;
     }
 
@@ -329,7 +343,8 @@ export default function App() {
   }, [focusedReleaseMetricName, selectedTab]);
 
   const currentReleaseId = getCurrentReleaseId(releases);
-  const showReleaseControls = selectedTab === "overview" || selectedTab === "releases" || selectedTab === "reports";
+  const showReleaseControls =
+    selectedTab === "overview" || selectedTab === "release-command" || selectedTab === "release-reports";
   const workspaceContent = tabContent[selectedTab];
 
   return (
@@ -348,30 +363,50 @@ export default function App() {
             <span className="nav-icon nav-overview" aria-hidden="true" />
             Overview
           </button>
-          <button
-            type="button"
-            className={`sidebar-link ${selectedTab === "releases" ? "active" : ""}`}
-            onClick={() => setSelectedTab("releases")}
-          >
-            <span className="nav-icon nav-releases" aria-hidden="true" />
-            Releases
-          </button>
-          <button
-            type="button"
-            className={`sidebar-link ${selectedTab === "sprints" ? "active" : ""}`}
-            onClick={() => setSelectedTab("sprints")}
-          >
-            <span className="nav-icon nav-sprints" aria-hidden="true" />
-            Sprints
-          </button>
-          <button
-            type="button"
-            className={`sidebar-link ${selectedTab === "reports" ? "active" : ""}`}
-            onClick={() => setSelectedTab("reports")}
-          >
-            <span className="nav-icon nav-reports" aria-hidden="true" />
-            Reports
-          </button>
+          <div className="sidebar-menu-group">
+            <div className="sidebar-group-label">
+              <span className="nav-icon nav-releases" aria-hidden="true" />
+              Releases
+            </div>
+            <div className="sidebar-submenu">
+              <button
+                type="button"
+                className={`sidebar-sublink ${selectedTab === "release-command" ? "active" : ""}`}
+                onClick={() => setSelectedTab("release-command")}
+              >
+                Command Center
+              </button>
+              <button
+                type="button"
+                className={`sidebar-sublink ${selectedTab === "release-reports" ? "active" : ""}`}
+                onClick={() => setSelectedTab("release-reports")}
+              >
+                Reports &amp; Evidence
+              </button>
+            </div>
+          </div>
+          <div className="sidebar-menu-group">
+            <div className="sidebar-group-label">
+              <span className="nav-icon nav-sprints" aria-hidden="true" />
+              Sprints
+            </div>
+            <div className="sidebar-submenu">
+              <button
+                type="button"
+                className={`sidebar-sublink ${selectedTab === "sprint-intelligence" ? "active" : ""}`}
+                onClick={() => setSelectedTab("sprint-intelligence")}
+              >
+                Sprint Intelligence
+              </button>
+              <button
+                type="button"
+                className={`sidebar-sublink ${selectedTab === "sprint-reports" ? "active" : ""}`}
+                onClick={() => setSelectedTab("sprint-reports")}
+              >
+                Reports &amp; Evidence
+              </button>
+            </div>
+          </div>
           <button
             type="button"
             className={`sidebar-link ${selectedTab === "admin" ? "active" : ""}`}
@@ -434,11 +469,13 @@ export default function App() {
         <main className={selectedTab === "overview" ? "overview-grid" : "dashboard-grid detail-dashboard-grid"}>
           {errorMessage && selectedTab !== "admin" ? <div className="panel error-panel">{errorMessage}</div> : null}
 
-          {selectedTab !== "overview" && selectedTab !== "admin" ? renderDetailHeader(selectedTab, selectedRelease) : null}
+          {selectedTab !== "overview" && selectedTab !== "admin" && selectedTab !== "release-command"
+            ? renderDetailHeader(selectedTab, selectedRelease)
+            : null}
 
           {!isLoadingReleases &&
           releases.length === 0 &&
-          (selectedTab === "overview" || selectedTab === "releases" || selectedTab === "reports") ? (
+          (selectedTab === "overview" || selectedTab === "release-command" || selectedTab === "release-reports") ? (
             <section className="panel empty-panel">
               <h2>No releases</h2>
               <p className="muted">Seed data or sync Jira to populate the dashboard.</p>
@@ -452,12 +489,12 @@ export default function App() {
               charts={charts}
               signal={signal}
               isLoading={isLoadingDetails}
-              onOpenReports={() => setSelectedTab("reports")}
+              onOpenReports={() => setSelectedTab("release-reports")}
               onOpenReleaseMetric={handleOpenReleaseMetric}
             />
           ) : null}
 
-        {selectedReleaseId && selectedTab === "releases" ? (
+        {selectedReleaseId && selectedTab === "release-command" ? (
           <>
             <SignalSummaryPanel
               signal={signal}
@@ -475,7 +512,7 @@ export default function App() {
           </>
         ) : null}
 
-        {selectedTab === "releases" ? (
+        {selectedTab === "release-command" ? (
           <>
             <ReleaseSelector
               releases={releases}
@@ -496,7 +533,7 @@ export default function App() {
           </>
         ) : null}
 
-        {selectedReleaseId && selectedTab === "reports" ? (
+        {selectedReleaseId && selectedTab === "release-reports" ? (
           <>
             <ChartsPanel
               charts={charts}
@@ -514,8 +551,12 @@ export default function App() {
           </>
         ) : null}
 
-        {selectedTab === "sprints" ? (
-          <SprintsPanel refreshNonce={dashboardRefreshNonce} onSelectIssue={setSelectedIssueKey} />
+        {selectedTab === "sprint-intelligence" ? (
+          <SprintsPanel refreshNonce={dashboardRefreshNonce} onSelectIssue={setSelectedIssueKey} mode="intelligence" />
+        ) : null}
+
+        {selectedTab === "sprint-reports" ? (
+          <SprintsPanel refreshNonce={dashboardRefreshNonce} onSelectIssue={setSelectedIssueKey} mode="reports" />
         ) : null}
 
         {selectedTab === "admin" ? (

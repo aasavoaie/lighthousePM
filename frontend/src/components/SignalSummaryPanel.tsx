@@ -400,7 +400,7 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
   return (
     <section className="panel signal-panel">
       <div className="panel-heading">
-        <h2>Signal</h2>
+        <h2>Release Confidence Signal</h2>
         <div className="panel-heading-actions">
           <div className="signal-value-group">
             <span className={signalClassName(signal?.signal ?? null)}>{statusLabel}</span>
