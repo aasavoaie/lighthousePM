@@ -52,12 +52,14 @@ Jira → Ingestion → Database → Metrics → Signals → API
 - % of release scope completed
 - Scope creep (last 7 days): percent of release scope touched by fix-version churn, with added and removed issue counts
 - Confidence breakdown: deterministic Delivery, Quality, Flow, and Risk contributors exposed on release metrics and signal payloads
+- Biggest driver analysis: deterministic largest confidence drag from release risk points, including impact, contribution percent, explanation, and recommended action
 
 ### Sprint Confidence
 - Delivery confidence: a deterministic sprint-level score
 - Components: progress alignment, velocity fit, blocker penalty, scope stability
 - Weighted 40/30/20/10 and stored on sprint snapshots
 - Confidence breakdown: deterministic Progress Alignment, Velocity Fit, Scope Stability, and Blocker Health contributors exposed on sprint metrics payloads
+- Biggest driver analysis: deterministic largest delivery drag from weighted delivery confidence component losses
 - Bugs created during sprint: linked sprint bug issues whose Jira creation time falls inside the sprint window
 - Velocity health: current completed effective points divided by historical velocity from the sprint baseline
 - Team predictability: average completed effective points divided by committed effective points across recent closed sprints

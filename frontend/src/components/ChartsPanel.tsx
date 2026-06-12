@@ -19,6 +19,7 @@ import {
   MetricLineChart,
   formatPercentage,
 } from "./ChartComponents";
+import { BiggestDriverCard } from "./BiggestDriverCard";
 import { SnapshotChangePanel } from "./SnapshotChangePanel";
 
 interface ChartsPanelProps {
@@ -354,6 +355,10 @@ export function ChartsPanel({
             error={snapshotChangeError}
             onBaselineChange={setSnapshotBaseline}
           />
+
+          {signal?.biggest_driver ? (
+            <BiggestDriverCard driver={signal.biggest_driver} heading="Biggest Confidence Drag" />
+          ) : null}
 
           <div className="chart-section-heading">
             <div>

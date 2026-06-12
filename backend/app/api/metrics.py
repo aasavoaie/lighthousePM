@@ -30,6 +30,7 @@ from app.schemas.deltas import (
 )
 from app.services.analytics_service import AnalyticsService
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
+from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.signal_service import SignalService
 from app.services.snapshot_comparison_service import SnapshotComparisonService
 from app.utils.constants import (
@@ -202,6 +203,7 @@ def get_release_metrics(
             metric_names=METRIC_NAMES,
             metric_thresholds=None,
             confidence_breakdown=None,
+            biggest_driver=None,
             is_computed=False,
             snapshot_age_hours=None,
         )
@@ -238,6 +240,7 @@ def get_release_metrics(
         metric_names=METRIC_NAMES,
         metric_thresholds=_build_metric_thresholds(),
         confidence_breakdown=ConfidenceBreakdownService.build_release_breakdown(snapshot),
+        biggest_driver=DriverAnalysisService.build_release_driver(snapshot),
         is_computed=True,
         snapshot_age_hours=snapshot_age_hours,
     )

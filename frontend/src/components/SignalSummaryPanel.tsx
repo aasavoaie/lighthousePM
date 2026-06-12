@@ -10,6 +10,7 @@ import type {
   SignalRiskAgingGroup,
   SignalRiskItem,
 } from "../api/types";
+import { BiggestDriverCard } from "./BiggestDriverCard";
 import { ConfidenceBreakdownCard } from "./ConfidenceBreakdownCard";
 
 interface SignalSummaryPanelProps {
@@ -428,6 +429,9 @@ export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }
       </div>
       {!isLoading && signal?.confidence_breakdown ? (
         <ConfidenceBreakdownCard breakdown={signal.confidence_breakdown} />
+      ) : null}
+      {!isLoading && signal?.biggest_driver ? (
+        <BiggestDriverCard driver={signal.biggest_driver} heading="Biggest Confidence Drag" />
       ) : null}
       {isSignalExpanded ? (
         <>

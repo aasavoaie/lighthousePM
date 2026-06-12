@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.schemas.confidence import ConfidenceBreakdown
+from app.schemas.drivers import DriverAnalysis
 
 
 class SprintResponse(BaseModel):
@@ -100,6 +101,7 @@ class SprintMetricsResponse(BaseModel):
     metric_names: list[str]
     delivery_confidence: DeliveryConfidenceDetail | None
     confidence_breakdown: ConfidenceBreakdown | None
+    biggest_driver: DriverAnalysis | None
     is_computed: bool
     snapshot_age_hours: float | None
 

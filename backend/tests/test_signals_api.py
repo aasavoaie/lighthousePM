@@ -157,6 +157,7 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
         "status_label": "NOT COMPUTED",
         "confidence_score": None,
         "confidence_breakdown": None,
+        "biggest_driver": None,
         "summary": "Signal has not been computed yet for this release snapshot.",
         "reasons": [],
         "reason_details": [],
@@ -191,7 +192,15 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
 def test_get_release_signal_after_metrics_recompute_uses_confidence_band(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")
-        _seed_issue(session, issue_key="LHPM-1", release_id="REL-1", status="In Progress", is_blocker=True)
+        _seed_issue(
+            session,
+            issue_key="LHPM-1",
+            release_id="REL-1",
+            status="In Progress",
+            is_blocker=True,
+            issue_type="Story",
+            priority="Medium",
+        )
 
     recompute = client.post("/releases/REL-1/recompute")
     assert recompute.status_code == 200
@@ -204,6 +213,14 @@ def test_get_release_signal_after_metrics_recompute_uses_confidence_band(client:
     assert payload["status_label"] == "RELEASE NEEDS ATTENTION"
     assert payload["confidence_score"] == 72.0
     assert payload["confidence_breakdown"]["totalScore"] == 72.0
+    assert payload["biggest_driver"] == {
+        "title": "Open Blockers",
+        "category": "Risk",
+        "impact": -28.0,
+        "contributionPercent": 100.0,
+        "explanation": "Open blockers are consuming the largest share of release confidence.",
+        "recommendation": "Resolve or explicitly de-scope blocker tickets before moving the release forward.",
+    }
     assert [component["name"] for component in payload["confidence_breakdown"]["components"]] == [
         "Delivery",
         "Quality",
@@ -243,6 +260,14 @@ def test_get_release_signal_after_metrics_recompute_returns_green(client: TestCl
     assert payload["status_label"] == "READY FOR RELEASE"
     assert payload["confidence_score"] == 100.0
     assert payload["confidence_breakdown"]["totalScore"] == 100.0
+    assert payload["biggest_driver"] == {
+        "title": "No Confidence Drag",
+        "category": "None",
+        "impact": 0.0,
+        "contributionPercent": 0.0,
+        "explanation": "No active release risk points are reducing confidence.",
+        "recommendation": "Maintain release readiness by keeping blockers, quality risk, scope churn, and flow within thresholds.",
+    }
     assert all(component["status"] == "good" for component in payload["confidence_breakdown"]["components"])
     assert all(gate["passed"] for gate in payload["release_gates"])
     assert payload["critical_risks"] == []

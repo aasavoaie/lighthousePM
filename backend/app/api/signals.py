@@ -7,6 +7,7 @@ from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
 from app.schemas.signals import ReleaseSignalResponse, SignalReasonDetail, SignalThresholds
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
+from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.signal_service import SignalService
 from app.utils.constants import (
     CONFIDENCE_SCORE_GREEN_MIN,
@@ -69,6 +70,7 @@ def get_release_signal(
             status_label="NOT COMPUTED",
             confidence_score=None,
             confidence_breakdown=None,
+            biggest_driver=None,
             summary="Signal has not been computed yet for this release snapshot.",
             reasons=[],
             reason_details=[],
@@ -83,6 +85,7 @@ def get_release_signal(
     risk_aging: dict[str, object] = _empty_risk_aging()
     last_24_hours: dict[str, object] = _empty_last_24_hours()
     confidence_breakdown = None
+    biggest_driver = None
     latest_snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
     if latest_snapshot is not None:
         _, _, details = SignalService._evaluate_signal_with_details(
@@ -122,6 +125,7 @@ def get_release_signal(
             latest_snapshot=latest_snapshot,
         )
         confidence_breakdown = ConfidenceBreakdownService.build_release_breakdown(latest_snapshot)
+        biggest_driver = DriverAnalysisService.build_release_driver(latest_snapshot)
 
     return ReleaseSignalResponse(
         release_id=signal_row.release_id,
@@ -129,6 +133,7 @@ def get_release_signal(
         status_label=readiness_details.get("status_label"),
         confidence_score=readiness_details.get("confidence_score"),
         confidence_breakdown=confidence_breakdown,
+        biggest_driver=biggest_driver,
         summary=readiness_details.get("summary"),
         reasons=signal_row.reasons,
         reason_details=reason_details,
