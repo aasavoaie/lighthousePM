@@ -1379,20 +1379,24 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                 ))}
               </select>
               {selectedSprint ? (
-                <div className="sprint-meta">
-                  <p>
-                    <strong>State:</strong> {selectedSprint.state}
-                  </p>
-                  <p>
-                    <strong>Start:</strong> {formatDate(selectedSprint.start_date)}
-                  </p>
-                  <p>
-                    <strong>End:</strong> {formatDate(selectedSprint.end_date)}
-                  </p>
-                  <p>
-                    <strong>Completed:</strong> {formatDate(selectedSprint.complete_date)}
-                  </p>
-                </div>
+                <dl className="release-health-card-grid" aria-label="Selected sprint summary">
+                  <div>
+                    <dt>State</dt>
+                    <dd>{selectedSprint.state}</dd>
+                  </div>
+                  <div>
+                    <dt>Start Date</dt>
+                    <dd>{formatDate(selectedSprint.start_date)}</dd>
+                  </div>
+                  <div>
+                    <dt>End Date</dt>
+                    <dd>{formatDate(selectedSprint.end_date)}</dd>
+                  </div>
+                  <div>
+                    <dt>Completed</dt>
+                    <dd>{formatDate(selectedSprint.complete_date)}</dd>
+                  </div>
+                </dl>
               ) : null}
             </div>
             <div className="sprint-control-block sprint-recompute-block">
