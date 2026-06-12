@@ -1565,6 +1565,54 @@ select {
   min-height: 48px;
 }
 
+.sidebar-menu-group {
+  display: grid;
+  gap: 8px;
+}
+
+.sidebar-group-label {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  color: #f6f4ff;
+  font-weight: 900;
+}
+
+.sidebar-submenu {
+  display: grid;
+  gap: 6px;
+  padding-left: 42px;
+}
+
+.sidebar-sublink {
+  min-height: 38px;
+  border: 0;
+  border-left: 2px solid rgba(255, 255, 255, 0.24);
+  border-radius: 0 8px 8px 0;
+  padding: 0 12px;
+  color: rgba(246, 244, 255, 0.82);
+  background: transparent;
+  font-size: 0.94rem;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-sublink:hover,
+.sidebar-sublink:focus-visible {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+}
+
+.sidebar-sublink.active {
+  color: #ffffff;
+  border-left-color: #ffffff;
+  background: rgba(125, 56, 242, 0.42);
+}
+
 .nav-icon {
   position: relative;
   width: 22px;
@@ -2223,6 +2271,33 @@ select {
     overflow-x: auto;
   }
 
+  .sidebar-menu-group {
+    min-width: max-content;
+  }
+
+  .sidebar-group-label {
+    min-height: 42px;
+    padding: 0 12px;
+  }
+
+  .sidebar-submenu {
+    display: flex;
+    gap: 6px;
+    padding-left: 0;
+  }
+
+  .sidebar-sublink {
+    min-width: max-content;
+    min-height: 36px;
+    border-left: 0;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.24);
+    border-radius: 8px;
+  }
+
+  .sidebar-sublink.active {
+    border-bottom-color: #ffffff;
+  }
+
   .sidebar-footer {
     margin-top: 10px;
   }
@@ -2380,6 +2455,36 @@ select {
 
 .detail-release-meta dd {
   margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  color: #101733;
+  font-weight: 900;
+}
+
+.release-health-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.release-health-card-grid div {
+  min-width: 0;
+  min-height: 86px;
+  padding: 14px;
+  border: 1px solid #e0e4ef;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.release-health-card-grid dt {
+  color: #5a6684;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.release-health-card-grid dd {
+  margin: 8px 0 0;
   overflow-wrap: anywhere;
   color: #101733;
   font-weight: 900;
@@ -2624,6 +2729,7 @@ select {
   }
 
   .detail-release-meta,
+  .release-health-card-grid,
   .admin-status-grid,
   .product-info-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2642,6 +2748,7 @@ select {
   }
 
   .detail-release-meta,
+  .release-health-card-grid,
   .admin-status-grid,
   .product-info-grid {
     grid-template-columns: 1fr;

@@ -54,6 +54,14 @@ type SprintOption = {
   sprint: Sprint;
 };
 
+type SprintsPanelMode = "intelligence" | "reports";
+
+interface SprintsPanelProps {
+  refreshNonce: number;
+  onSelectIssue: (issueKey: string) => void;
+  mode?: SprintsPanelMode;
+}
+
 type SprintCommitmentReliabilityRow = {
   [key: string]: string | number | boolean | null | undefined;
   sprint_id: string;
@@ -521,12 +529,7 @@ async function loadAllSprintIssues(sprintId: string) {
   return items;
 }
 
-interface SprintsPanelProps {
-  refreshNonce: number;
-  onSelectIssue: (issueKey: string) => void;
-}
-
-export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps) {
+export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence" }: SprintsPanelProps) {
   const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
   const [closedSprints, setClosedSprints] = useState<Sprint[]>([]);
   const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
@@ -920,6 +923,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
     <div className="sprints-panel">
       {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
 
+      {mode === "intelligence" ? (
       <section className="panel delivery-confidence-panel">
         <div className="panel-heading">
           <div className="delivery-confidence-heading">
@@ -971,7 +975,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           ? renderDeliveryConfidence(metrics.delivery_confidence)
           : null}
       </section>
+      ) : null}
 
+      {mode === "intelligence" ? (
       <section className="panel metrics-panel">
         <div className="panel-heading">
           <h2>Metrics</h2>
@@ -1083,7 +1089,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           </>
         ) : null}
       </section>
+      ) : null}
 
+      {mode === "reports" ? (
       <section className="panel charts-panel">
         <div className="panel-heading">
           <h2>Charts</h2>
@@ -1353,7 +1361,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           </>
         ) : null}
       </section>
+      ) : null}
 
+      {mode === "intelligence" ? (
       <section className="panel sprint-controls-panel">
         <div className="panel-heading">
           <h2>Sprint Health Stats</h2>
@@ -1421,7 +1431,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           </div>
         ) : null}
       </section>
+      ) : null}
 
+      {mode === "intelligence" ? (
       <section className="panel issues-panel">
         <div className="panel-heading">
           <h2>Ticket Situation</h2>
@@ -1480,6 +1492,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue }: SprintsPanelProps)
           </>
         ) : null}
       </section>
+      ) : null}
     </div>
   );
 }

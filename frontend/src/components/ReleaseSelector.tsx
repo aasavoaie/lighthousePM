@@ -70,20 +70,24 @@ export function ReleaseSelector({
               ))}
             </select>
             {selectedRelease ? (
-              <div className="release-meta">
-                <p>
-                  <strong>Project:</strong> {selectedRelease.project_key}
-                </p>
-                <p>
-                  <strong>Status:</strong> {selectedRelease.status ?? "Unknown"}
-                </p>
-                <p>
-                  <strong>Start:</strong> {formatDate(selectedRelease.start_date)}
-                </p>
-                <p>
-                  <strong>Release:</strong> {formatDate(selectedRelease.release_date)}
-                </p>
-              </div>
+              <dl className="release-health-card-grid" aria-label="Selected release summary">
+                <div>
+                  <dt>Project</dt>
+                  <dd>{selectedRelease.project_key}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd>{selectedRelease.status ?? "Unknown"}</dd>
+                </div>
+                <div>
+                  <dt>Start Date</dt>
+                  <dd>{formatDate(selectedRelease.start_date)}</dd>
+                </div>
+                <div>
+                  <dt>Release</dt>
+                  <dd>{formatDate(selectedRelease.release_date)}</dd>
+                </div>
+              </dl>
             ) : null}
           </div>
           <div className="release-control-block release-recompute-block">
