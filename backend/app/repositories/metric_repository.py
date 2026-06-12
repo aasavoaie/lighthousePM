@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import MetricSnapshot
@@ -30,6 +30,27 @@ class MetricRepository:
             .where(
                 MetricSnapshot.release_id == release_id,
                 MetricSnapshot.snapshot_at <= snapshot_at,
+            )
+            .order_by(desc(MetricSnapshot.snapshot_at), desc(MetricSnapshot.id))
+            .limit(1)
+        )
+        return session.scalar(query)
+
+    @staticmethod
+    def get_previous_snapshot(
+        session: Session,
+        release_id: str,
+        snapshot_at: datetime,
+        snapshot_id: int,
+    ) -> MetricSnapshot | None:
+        query = (
+            select(MetricSnapshot)
+            .where(
+                MetricSnapshot.release_id == release_id,
+                or_(
+                    MetricSnapshot.snapshot_at < snapshot_at,
+                    (MetricSnapshot.snapshot_at == snapshot_at) & (MetricSnapshot.id < snapshot_id),
+                ),
             )
             .order_by(desc(MetricSnapshot.snapshot_at), desc(MetricSnapshot.id))
             .limit(1)

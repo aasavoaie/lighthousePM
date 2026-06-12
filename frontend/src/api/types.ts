@@ -201,6 +201,41 @@ export interface ReleaseChartsResponse {
   release_gates_total: number;
 }
 
+export type SnapshotBaseline = "previous" | "24h" | "7d";
+
+export interface SnapshotDeltaContributor {
+  metric: string;
+  delta: number;
+  impact: number;
+  direction: "up" | "down";
+}
+
+export interface SnapshotDeltaComparison {
+  confidenceDelta: number;
+  contributors: SnapshotDeltaContributor[];
+}
+
+export interface SnapshotComparisonResponse {
+  entity_id: string;
+  baseline: SnapshotBaseline;
+  current_snapshot_at: string | null;
+  baseline_snapshot_at: string | null;
+  has_baseline: boolean;
+  comparison: SnapshotDeltaComparison;
+}
+
+export interface SnapshotChangeHistoryItem {
+  date: string;
+  confidence: number | null;
+  delta: number | null;
+  primary_driver: string;
+}
+
+export interface SnapshotChangeHistoryResponse {
+  entity_id: string;
+  items: SnapshotChangeHistoryItem[];
+}
+
 export interface SignalReasonDetail {
   metric_name: string;
   level: string;

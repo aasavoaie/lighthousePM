@@ -1,5 +1,5 @@
-from datetime import datetime
 from datetime import UTC
+from datetime import datetime, timedelta
 import logging
 from time import perf_counter
 
@@ -21,9 +21,17 @@ from app.schemas.metrics import (
     ReleaseChartsResponse,
     ReleaseMetricsResponse,
 )
+from app.schemas.deltas import (
+    SnapshotBaseline,
+    SnapshotChangeHistoryItem,
+    SnapshotChangeHistoryResponse,
+    SnapshotComparisonResponse,
+    SnapshotDeltaComparison,
+)
 from app.services.analytics_service import AnalyticsService
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 from app.services.signal_service import SignalService
+from app.services.snapshot_comparison_service import SnapshotComparisonService
 from app.utils.constants import (
     CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
     HIGH_SEVERITY_BUGS_RED_THRESHOLD,
@@ -97,6 +105,69 @@ def _release_gates_total() -> int:
 
     _, total, _ = _build_release_gate_values(EmptySnapshot())
     return total
+
+
+def _empty_snapshot_comparison(entity_id: str, baseline: SnapshotBaseline, current_snapshot_at) -> SnapshotComparisonResponse:
+    return SnapshotComparisonResponse(
+        entity_id=entity_id,
+        baseline=baseline,
+        current_snapshot_at=current_snapshot_at,
+        baseline_snapshot_at=None,
+        has_baseline=False,
+        comparison=SnapshotDeltaComparison(confidence_delta=0.0, contributors=[]),
+    )
+
+
+def _select_release_baseline_snapshot(session: Session, release_id: str, current_snapshot, baseline: SnapshotBaseline):
+    if baseline == "previous":
+        return MetricRepository.get_previous_snapshot(
+            session=session,
+            release_id=release_id,
+            snapshot_at=current_snapshot.snapshot_at,
+            snapshot_id=current_snapshot.id,
+        )
+    hours = 24 if baseline == "24h" else 24 * 7
+    snapshot_at = current_snapshot.snapshot_at
+    if snapshot_at.tzinfo is None:
+        snapshot_at = snapshot_at.replace(tzinfo=UTC)
+    else:
+        snapshot_at = snapshot_at.astimezone(UTC)
+    return MetricRepository.get_latest_snapshot_at_or_before(
+        session=session,
+        release_id=release_id,
+        snapshot_at=snapshot_at - timedelta(hours=hours),
+    )
+
+
+def _build_release_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
+    items: list[SnapshotChangeHistoryItem] = []
+    previous_snapshot = None
+    for snapshot in snapshots:
+        confidence = SignalService._confidence_score_for_snapshot(snapshot)
+        if previous_snapshot is None:
+            items.append(
+                SnapshotChangeHistoryItem(
+                    date=snapshot.snapshot_at,
+                    confidence=confidence,
+                    delta=None,
+                    primary_driver="Baseline snapshot",
+                )
+            )
+        else:
+            comparison = SnapshotComparisonService.compare_release_snapshots(
+                current_snapshot=snapshot,
+                previous_snapshot=previous_snapshot,
+            )
+            items.append(
+                SnapshotChangeHistoryItem(
+                    date=snapshot.snapshot_at,
+                    confidence=confidence,
+                    delta=comparison.confidence_delta,
+                    primary_driver=SnapshotComparisonService.primary_driver(comparison),
+                )
+            )
+        previous_snapshot = snapshot
+    return items
 
 
 @router.get("/{release_id}/metrics", response_model=ReleaseMetricsResponse)
@@ -257,6 +328,60 @@ def get_release_charts(
         point_count=len(snapshots),
         release_gates_total=_release_gates_total(),
     )
+
+
+@router.get("/{release_id}/snapshot-comparison", response_model=SnapshotComparisonResponse)
+def get_release_snapshot_comparison(
+    release_id: str,
+    baseline: SnapshotBaseline = Query(default="previous"),
+    session: Session = Depends(get_db_session),
+) -> SnapshotComparisonResponse:
+    release = ReleaseRepository.get_release_by_id(session=session, release_id=release_id)
+    if release is None:
+        raise HTTPException(status_code=404, detail=f"Release '{release_id}' not found")
+
+    current_snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
+    if current_snapshot is None:
+        return _empty_snapshot_comparison(release_id, baseline, None)
+
+    baseline_snapshot = _select_release_baseline_snapshot(
+        session=session,
+        release_id=release_id,
+        current_snapshot=current_snapshot,
+        baseline=baseline,
+    )
+    if baseline_snapshot is None:
+        return _empty_snapshot_comparison(release_id, baseline, current_snapshot.snapshot_at)
+
+    return SnapshotComparisonResponse(
+        entity_id=release_id,
+        baseline=baseline,
+        current_snapshot_at=current_snapshot.snapshot_at,
+        baseline_snapshot_at=baseline_snapshot.snapshot_at,
+        has_baseline=True,
+        comparison=SnapshotComparisonService.compare_release_snapshots(
+            current_snapshot=current_snapshot,
+            previous_snapshot=baseline_snapshot,
+        ),
+    )
+
+
+@router.get("/{release_id}/snapshot-change-history", response_model=SnapshotChangeHistoryResponse)
+def get_release_snapshot_change_history(
+    release_id: str,
+    limit: int = Query(default=100, ge=1, le=5000),
+    session: Session = Depends(get_db_session),
+) -> SnapshotChangeHistoryResponse:
+    release = ReleaseRepository.get_release_by_id(session=session, release_id=release_id)
+    if release is None:
+        raise HTTPException(status_code=404, detail=f"Release '{release_id}' not found")
+
+    snapshots = MetricRepository.list_snapshots_for_release(
+        session=session,
+        release_id=release_id,
+        limit=limit,
+    )
+    return SnapshotChangeHistoryResponse(entity_id=release_id, items=_build_release_history_items(snapshots))
 
 
 @router.post("/{release_id}/recompute", response_model=RecomputeMetricsResponse)

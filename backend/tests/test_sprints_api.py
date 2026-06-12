@@ -11,7 +11,7 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import Issue, IssueHistory, IssueSprint, Sprint
+from app.models import Issue, IssueHistory, IssueSprint, Sprint, SprintMetricSnapshot
 
 
 @pytest.fixture
@@ -96,6 +96,45 @@ def _seed_issue(
     )
     session.add(IssueSprint(issue_key=issue_key, sprint_id=sprint_id))
     session.commit()
+
+
+def _seed_sprint_snapshot(
+    session: Session,
+    sprint_id: str,
+    snapshot_at: datetime,
+    confidence: float,
+    progress_alignment: float,
+    velocity_fit: float,
+    blocker_penalty: float = 100.0,
+    scope_stability: float = 100.0,
+) -> None:
+    session.add(
+        SprintMetricSnapshot(
+            sprint_id=sprint_id,
+            snapshot_at=snapshot_at,
+            committed_scope=10,
+            completed_scope_pct=progress_alignment,
+            open_blockers=0,
+            open_high_severity_bugs=0,
+            bugs_created_during_sprint=0,
+            open_blocker_issue_keys=[],
+            open_high_severity_bug_issue_keys=[],
+            bugs_created_during_sprint_issue_keys=[],
+            in_progress_count=0,
+            not_started_count=0,
+            rollover_count=0,
+            median_cycle_time_days=None,
+            reopen_rate_pct=0.0,
+            delivery_confidence_score=confidence,
+            delivery_confidence_components={
+                "progress_alignment": progress_alignment,
+                "velocity_fit": velocity_fit,
+                "blocker_penalty": blocker_penalty,
+                "scope_stability": scope_stability,
+            },
+            delivery_confidence_inputs={},
+        )
+    )
 
 
 def test_get_current_sprint_returns_active_sprint(client: TestClient) -> None:
@@ -232,3 +271,40 @@ def test_get_current_sprint_not_found(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["item"] is None
+
+
+def test_get_sprint_snapshot_comparison_uses_previous_snapshot(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
+        _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
+        session.commit()
+
+    response = client.get("/sprints/12/snapshot-comparison?baseline=previous")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entity_id"] == "12"
+    assert payload["has_baseline"] is True
+    assert payload["comparison"]["confidenceDelta"] == 12.0
+    assert payload["comparison"]["contributors"][0]["metric"] == "progress_alignment"
+    assert payload["comparison"]["contributors"][0]["impact"] == 8.0
+
+
+def test_get_sprint_snapshot_change_history_returns_primary_driver(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
+        _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
+        session.commit()
+
+    response = client.get("/sprints/12/snapshot-change-history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["primary_driver"] == "Baseline snapshot"
+    assert payload["items"][1]["delta"] == 12.0
+    assert payload["items"][1]["primary_driver"] == "progress_alignment"

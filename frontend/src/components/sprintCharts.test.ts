@@ -47,6 +47,7 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
       reopen_rate_pct: 12,
       delivery_confidence_score: 72,
     },
+    confidence_breakdown: null,
     delivery_confidence: {
       score: 72,
       weights: {

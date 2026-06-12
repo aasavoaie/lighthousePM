@@ -1,4 +1,6 @@
-from sqlalchemy import func, select
+from datetime import datetime
+
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Issue, IssueSprint, Sprint, SprintMetricSnapshot
@@ -75,3 +77,57 @@ class SprintRepository:
             .limit(1)
         )
         return session.scalar(query)
+
+    @staticmethod
+    def get_latest_metric_snapshot_at_or_before(
+        session: Session,
+        sprint_id: str,
+        snapshot_at: datetime,
+    ) -> SprintMetricSnapshot | None:
+        query = (
+            select(SprintMetricSnapshot)
+            .where(
+                SprintMetricSnapshot.sprint_id == sprint_id,
+                SprintMetricSnapshot.snapshot_at <= snapshot_at,
+            )
+            .order_by(desc(SprintMetricSnapshot.snapshot_at), desc(SprintMetricSnapshot.id))
+            .limit(1)
+        )
+        return session.scalar(query)
+
+    @staticmethod
+    def get_previous_metric_snapshot(
+        session: Session,
+        sprint_id: str,
+        snapshot_at: datetime,
+        snapshot_id: int,
+    ) -> SprintMetricSnapshot | None:
+        query = (
+            select(SprintMetricSnapshot)
+            .where(
+                SprintMetricSnapshot.sprint_id == sprint_id,
+                or_(
+                    SprintMetricSnapshot.snapshot_at < snapshot_at,
+                    (SprintMetricSnapshot.snapshot_at == snapshot_at) & (SprintMetricSnapshot.id < snapshot_id),
+                ),
+            )
+            .order_by(desc(SprintMetricSnapshot.snapshot_at), desc(SprintMetricSnapshot.id))
+            .limit(1)
+        )
+        return session.scalar(query)
+
+    @staticmethod
+    def list_metric_snapshots_for_sprint(
+        session: Session,
+        sprint_id: str,
+        limit: int = 500,
+    ) -> list[SprintMetricSnapshot]:
+        query = (
+            select(SprintMetricSnapshot)
+            .where(SprintMetricSnapshot.sprint_id == sprint_id)
+            .order_by(SprintMetricSnapshot.snapshot_at.desc(), SprintMetricSnapshot.id.desc())
+            .limit(limit)
+        )
+        snapshots = list(session.scalars(query).all())
+        snapshots.reverse()
+        return snapshots

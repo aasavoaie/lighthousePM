@@ -8,6 +8,9 @@ import type {
   ReleaseMetricsResponse,
   ReleaseSignalResponse,
   SignalRiskAgingGroup,
+  SnapshotBaseline,
+  SnapshotChangeHistoryResponse,
+  SnapshotComparisonResponse,
 } from "../api/types";
 import {
   MetricBarChart,
@@ -16,6 +19,7 @@ import {
   MetricLineChart,
   formatPercentage,
 } from "./ChartComponents";
+import { SnapshotChangePanel } from "./SnapshotChangePanel";
 
 interface ChartsPanelProps {
   charts: ReleaseChartsResponse | null;
@@ -233,10 +237,58 @@ export function ChartsPanel({
   const riskContributionRows = useMemo(() => buildRiskContributionRows(signal), [signal]);
   const blockerAgingRows = useMemo(() => buildBlockerAgingRows(signal?.risk_aging.blockers), [signal]);
   const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
+  const [snapshotBaseline, setSnapshotBaseline] = useState<SnapshotBaseline>("previous");
+  const [snapshotComparison, setSnapshotComparison] = useState<SnapshotComparisonResponse | null>(null);
+  const [snapshotHistory, setSnapshotHistory] = useState<SnapshotChangeHistoryResponse | null>(null);
+  const [isLoadingSnapshotChanges, setIsLoadingSnapshotChanges] = useState(false);
+  const [snapshotChangeError, setSnapshotChangeError] = useState<string | null>(null);
   const [comparisonRows, setComparisonRows] = useState<ReleaseComparisonRow[]>([]);
   const [isLoadingComparison, setIsLoadingComparison] = useState(false);
   const [comparisonError, setComparisonError] = useState<string | null>(null);
   const [isChartsExpanded, setIsChartsExpanded] = useState(true);
+
+  useEffect(() => {
+    const releaseId = charts?.release_id;
+    if (!releaseId) {
+      setSnapshotComparison(null);
+      setSnapshotHistory(null);
+      return;
+    }
+    const activeReleaseId = releaseId;
+
+    let isActive = true;
+
+    async function loadSnapshotChanges() {
+      setIsLoadingSnapshotChanges(true);
+      setSnapshotChangeError(null);
+      try {
+        const [comparison, history] = await Promise.all([
+          apiClient.getReleaseSnapshotComparison(activeReleaseId, snapshotBaseline),
+          apiClient.getReleaseSnapshotChangeHistory(activeReleaseId),
+        ]);
+        if (isActive) {
+          setSnapshotComparison(comparison);
+          setSnapshotHistory(history);
+        }
+      } catch (error) {
+        if (isActive) {
+          setSnapshotChangeError(error instanceof Error ? error.message : "Failed to load snapshot changes.");
+          setSnapshotComparison(null);
+          setSnapshotHistory(null);
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingSnapshotChanges(false);
+        }
+      }
+    }
+
+    void loadSnapshotChanges();
+
+    return () => {
+      isActive = false;
+    };
+  }, [charts?.release_id, snapshotBaseline, refreshNonce]);
 
   useEffect(() => {
     if (recentReleases.length === 0) {
@@ -293,7 +345,17 @@ export function ChartsPanel({
         <>
           {isLoading ? <p className="muted">Loading charts...</p> : null}
 
-          <div className="chart-section-heading first">
+          <SnapshotChangePanel
+            context="release"
+            comparison={snapshotComparison}
+            history={snapshotHistory}
+            baseline={snapshotBaseline}
+            isLoading={isLoadingSnapshotChanges}
+            error={snapshotChangeError}
+            onBaselineChange={setSnapshotBaseline}
+          />
+
+          <div className="chart-section-heading">
             <div>
               <h3>Confidence Evolution</h3>
               <p className="chart-section-subtitle">

@@ -16,6 +16,9 @@ import type {
   SprintIssueListResponse,
   SprintListResponse,
   SprintMetricsResponse,
+  SnapshotBaseline,
+  SnapshotChangeHistoryResponse,
+  SnapshotComparisonResponse,
   SyncJiraResponse,
 } from "./types";
 
@@ -68,6 +71,12 @@ export const apiClient = {
   getSprintMetrics(sprintId: string): Promise<SprintMetricsResponse> {
     return request<SprintMetricsResponse>(`/sprints/${sprintId}/metrics`);
   },
+  getSprintSnapshotComparison(sprintId: string, baseline: SnapshotBaseline): Promise<SnapshotComparisonResponse> {
+    return request<SnapshotComparisonResponse>(`/sprints/${sprintId}/snapshot-comparison?baseline=${baseline}`);
+  },
+  getSprintSnapshotChangeHistory(sprintId: string): Promise<SnapshotChangeHistoryResponse> {
+    return request<SnapshotChangeHistoryResponse>(`/sprints/${sprintId}/snapshot-change-history`);
+  },
   recomputeSprint(sprintId: string): Promise<RecomputeSprintMetricsResponse> {
     return request<RecomputeSprintMetricsResponse>(`/sprints/${sprintId}/recompute`, { method: "POST" });
   },
@@ -79,6 +88,12 @@ export const apiClient = {
   },
   getCharts(releaseId: string): Promise<ReleaseChartsResponse> {
     return request<ReleaseChartsResponse>(`/releases/${releaseId}/charts?limit=30`);
+  },
+  getReleaseSnapshotComparison(releaseId: string, baseline: SnapshotBaseline): Promise<SnapshotComparisonResponse> {
+    return request<SnapshotComparisonResponse>(`/releases/${releaseId}/snapshot-comparison?baseline=${baseline}`);
+  },
+  getReleaseSnapshotChangeHistory(releaseId: string): Promise<SnapshotChangeHistoryResponse> {
+    return request<SnapshotChangeHistoryResponse>(`/releases/${releaseId}/snapshot-change-history`);
   },
   getSignal(releaseId: string): Promise<ReleaseSignalResponse> {
     return request<ReleaseSignalResponse>(`/releases/${releaseId}/signal`);
