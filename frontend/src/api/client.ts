@@ -6,6 +6,7 @@ import type {
   IssueListResponse,
   RecomputeAllMetricsResponse,
   RecomputeMetricsResponse,
+  ReportDepth,
   Release,
   ReleaseChartsResponse,
   ReleaseListResponse,
@@ -49,6 +50,31 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function requestBlob(path: string, options?: RequestInit): Promise<Blob> {
+  const url = `${API_BASE_URL}${path}`;
+  let response: Response;
+
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    const method = options?.method ?? "GET";
+    const reason = error instanceof Error ? error.message : "Network request failed";
+    throw new Error(`Could not reach API (${method} ${url}). Check that the backend is running and CORS allows this UI origin. ${reason}`);
+  }
+
+  if (!response.ok) {
+    const fallback = `Request failed with status ${response.status}`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      throw new Error(payload.detail || fallback);
+    } catch {
+      throw new Error(fallback);
+    }
+  }
+
+  return response.blob();
+}
+
 export const apiClient = {
   getReleases(): Promise<ReleaseListResponse> {
     return request<ReleaseListResponse>("/releases");
@@ -70,6 +96,9 @@ export const apiClient = {
   },
   getSprintMetrics(sprintId: string): Promise<SprintMetricsResponse> {
     return request<SprintMetricsResponse>(`/sprints/${sprintId}/metrics`);
+  },
+  downloadSprintReport(sprintId: string, depth: ReportDepth): Promise<Blob> {
+    return requestBlob(`/sprints/${sprintId}/reports/${depth}.pdf`);
   },
   getSprintSnapshotComparison(sprintId: string, baseline: SnapshotBaseline): Promise<SnapshotComparisonResponse> {
     return request<SnapshotComparisonResponse>(`/sprints/${sprintId}/snapshot-comparison?baseline=${baseline}`);
@@ -97,6 +126,12 @@ export const apiClient = {
   },
   getSignal(releaseId: string): Promise<ReleaseSignalResponse> {
     return request<ReleaseSignalResponse>(`/releases/${releaseId}/signal`);
+  },
+  downloadReleaseReport(releaseId: string, depth: ReportDepth): Promise<Blob> {
+    return requestBlob(`/releases/${releaseId}/reports/${depth}.pdf`);
+  },
+  downloadOverviewReport(releaseId: string): Promise<Blob> {
+    return requestBlob(`/releases/${releaseId}/reports/overview.pdf`);
   },
   recomputeRelease(releaseId: string): Promise<RecomputeMetricsResponse> {
     return request<RecomputeMetricsResponse>(`/releases/${releaseId}/recompute`, { method: "POST" });
