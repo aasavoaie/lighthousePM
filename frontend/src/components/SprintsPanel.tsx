@@ -18,6 +18,7 @@ import {
 import { BiggestDriverCard } from "./BiggestDriverCard";
 import { ConfidenceBreakdownCard } from "./ConfidenceBreakdownCard";
 import { RecommendationsPanel } from "./RecommendationsPanel";
+import { ReportExportActions } from "./ReportExportActions";
 import {
   MetricCategorySection,
   MetricStatusCard,
@@ -952,6 +953,21 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   return (
     <div className="sprints-panel">
       {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
+
+      {mode === "intelligence" ? (
+        <section className="panel report-export-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Executive Reporting</h2>
+            </div>
+            <ReportExportActions
+              entity="sprint"
+              entityId={selectedSprintId}
+              filenameLabel={selectedSprint?.name ?? selectedSprintId ?? "sprint"}
+            />
+          </div>
+        </section>
+      ) : null}
 
       {mode === "intelligence" ? (
       <section className="panel delivery-confidence-panel">

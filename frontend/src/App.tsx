@@ -14,6 +14,7 @@ import { IssueDetailModal } from "./components/IssueDetailModal";
 import { IssuesPanel } from "./components/IssuesPanel";
 import { MetricsPanel } from "./components/MetricsPanel";
 import { OverviewDashboard } from "./components/OverviewDashboard";
+import { ReportExportActions } from "./components/ReportExportActions";
 import { ReleaseSelector } from "./components/ReleaseSelector";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
@@ -486,19 +487,50 @@ export default function App() {
           ) : null}
 
           {selectedReleaseId && selectedTab === "overview" ? (
-            <OverviewDashboard
-              release={selectedRelease}
-              metrics={metrics}
-              charts={charts}
-              signal={signal}
-              isLoading={isLoadingDetails}
-              onOpenReports={() => setSelectedTab("release-reports")}
-              onOpenReleaseMetric={handleOpenReleaseMetric}
-            />
+            <>
+              <section className="panel report-export-panel overview-export-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Executive Reporting</h2>
+                  </div>
+                  <ReportExportActions
+                    entity="overview"
+                    entityId={selectedReleaseId}
+                    filenameLabel={selectedRelease?.name ?? selectedReleaseId}
+                  />
+                </div>
+              </section>
+              <OverviewDashboard
+                release={selectedRelease}
+                metrics={metrics}
+                charts={charts}
+                signal={signal}
+                isLoading={isLoadingDetails}
+                onOpenReports={() => setSelectedTab("release-reports")}
+                onOpenReleaseMetric={handleOpenReleaseMetric}
+              />
+            </>
           ) : null}
 
         {selectedReleaseId && selectedTab === "release-command" ? (
           <>
+            <section className="panel report-export-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Executive Reporting</h2>
+                </div>
+                <ReportExportActions
+                  entity="release"
+                  entityId={selectedReleaseId}
+                  filenameLabel={selectedRelease?.name ?? selectedReleaseId}
+                />
+                <ReportExportActions
+                  entity="overview"
+                  entityId={selectedReleaseId}
+                  filenameLabel={selectedRelease?.name ?? selectedReleaseId}
+                />
+              </div>
+            </section>
             <SignalSummaryPanel
               signal={signal}
               isLoading={isLoadingDetails}

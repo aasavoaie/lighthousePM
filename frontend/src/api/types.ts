@@ -42,6 +42,8 @@ export interface CurrentSprintResponse {
   item: Sprint | null;
 }
 
+export type ReportDepth = "summary" | "full";
+
 export interface SprintMetricValues {
   committed_scope: number | null;
   completed_scope_pct: number | null;
