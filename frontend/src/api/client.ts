@@ -4,6 +4,7 @@ import type {
   HealthResponse,
   Issue,
   IssueListResponse,
+  JiraConnectionTestResponse,
   JiraConfigurationResponse,
   JiraConfigurationUpdate,
   RecomputeAllMetricsResponse,
@@ -170,6 +171,13 @@ export const apiClient = {
   updateJiraConfiguration(update: JiraConfigurationUpdate): Promise<JiraConfigurationResponse> {
     return request<JiraConfigurationResponse>("/config/jira", {
       method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
+  },
+  testJiraConfiguration(update: JiraConfigurationUpdate): Promise<JiraConnectionTestResponse> {
+    return request<JiraConnectionTestResponse>("/config/jira/test", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(update),
     });

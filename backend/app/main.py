@@ -9,6 +9,7 @@ from app.api.router import api_router
 from app.config import get_settings
 from app.db.init import init_db
 from app.jobs.scheduler import start_scheduler, stop_scheduler
+from app.security import enforce_local_api_auth
 
 
 def _configure_logging(level_name: str) -> None:
@@ -41,6 +42,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def local_api_auth_middleware(request, call_next):
+        auth_response = await enforce_local_api_auth(request=request, settings=settings)
+        if auth_response is not None:
+            return auth_response
+        return await call_next(request)
+
     app.include_router(api_router)
     return app
 

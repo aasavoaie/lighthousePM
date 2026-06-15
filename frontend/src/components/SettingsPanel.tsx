@@ -3,6 +3,10 @@ import { useEffect, useState } from "react";
 import { apiClient } from "../api/client";
 import type { JiraConfigurationResponse, JiraConfigurationUpdate } from "../api/types";
 
+interface SettingsPanelProps {
+  onConfigurationSaved?: (config: JiraConfigurationResponse) => void;
+}
+
 interface JiraSettingsForm {
   jira_base_url: string;
   jira_user_email: string;
@@ -61,12 +65,36 @@ function toUpdate(form: JiraSettingsForm): JiraConfigurationUpdate {
   return update;
 }
 
-export function SettingsPanel() {
+function setupItems(config: JiraConfigurationResponse | null) {
+  return [
+    {
+      label: "Connection details",
+      isDone: Boolean(config?.jira_base_url && config.jira_user_email),
+    },
+    {
+      label: "API token",
+      isDone: Boolean(config?.jira_api_token_configured),
+    },
+    {
+      label: "Project",
+      isDone: Boolean(config?.jira_project_key),
+    },
+    {
+      label: "Field mappings",
+      isDone: Boolean(config?.jira_field_severity && config.jira_field_release && config.jira_changelog_fix_version_fields),
+    },
+  ];
+}
+
+export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
   const [config, setConfig] = useState<JiraConfigurationResponse | null>(null);
   const [form, setForm] = useState<JiraSettingsForm | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [testMessage, setTestMessage] = useState<string | null>(null);
+  const [testSucceeded, setTestSucceeded] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function loadConfiguration() {
@@ -89,6 +117,8 @@ export function SettingsPanel() {
 
   function updateField<K extends keyof JiraSettingsForm>(field: K, value: JiraSettingsForm[K]) {
     setForm((current) => (current ? { ...current, [field]: value } : current));
+    setTestMessage(null);
+    setTestSucceeded(null);
   }
 
   async function handleSave() {
@@ -100,14 +130,41 @@ export function SettingsPanel() {
     setStatusMessage(null);
     setErrorMessage(null);
     try {
+      const token = form.jira_api_token.trim();
+      if (token && window.lighthouseDesktop?.storeJiraToken) {
+        await window.lighthouseDesktop.storeJiraToken(token);
+      }
       const response = await apiClient.updateJiraConfiguration(toUpdate(form));
       setConfig(response);
       setForm(toForm(response));
+      onConfigurationSaved?.(response);
       setStatusMessage("Settings saved.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to save settings.");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleTestConnection() {
+    if (!form || isTesting) {
+      return;
+    }
+
+    setIsTesting(true);
+    setStatusMessage(null);
+    setTestMessage(null);
+    setTestSucceeded(null);
+    setErrorMessage(null);
+    try {
+      const response = await apiClient.testJiraConfiguration(toUpdate(form));
+      setTestMessage(response.message);
+      setTestSucceeded(response.ok);
+    } catch (error) {
+      setTestMessage(error instanceof Error ? error.message : "Failed to test Jira connection.");
+      setTestSucceeded(false);
+    } finally {
+      setIsTesting(false);
     }
   }
 
@@ -125,10 +182,22 @@ export function SettingsPanel() {
 
       {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
       {statusMessage ? <p className="muted action-status">{statusMessage}</p> : null}
+      {testMessage ? (
+        <p className={testSucceeded ? "success-text action-status" : "error-text action-status"}>{testMessage}</p>
+      ) : null}
       {isLoading ? <p className="muted">Loading settings...</p> : null}
 
       {form ? (
         <form className="settings-form" onSubmit={(event) => event.preventDefault()}>
+          <div className="settings-checklist" aria-label="Setup status">
+            {setupItems(config).map((item) => (
+              <div key={item.label} className={item.isDone ? "settings-check done" : "settings-check"}>
+                <span aria-hidden="true">{item.isDone ? "OK" : "TODO"}</span>
+                <strong>{item.label}</strong>
+              </div>
+            ))}
+          </div>
+
           <fieldset className="settings-fieldset">
             <legend>Jira Connection</legend>
             <label className="settings-field">
@@ -237,6 +306,9 @@ export function SettingsPanel() {
           </fieldset>
 
           <div className="action-row">
+            <button type="button" className="secondary-button" disabled={isTesting || isSaving} onClick={() => void handleTestConnection()}>
+              {isTesting ? "Testing..." : "Test Jira Connection"}
+            </button>
             <button type="button" className="primary-button" disabled={isSaving} onClick={() => void handleSave()}>
               {isSaving ? "Saving..." : "Save Settings"}
             </button>

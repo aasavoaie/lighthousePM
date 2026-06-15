@@ -6,6 +6,7 @@ from dotenv import dotenv_values
 
 from app.config import get_settings
 from app.schemas.configuration import JiraConfigurationUpdate
+from app.services import configuration_service
 from app.services.configuration_service import (
     CONFIG_FILE_ENV_VAR,
     get_jira_configuration,
@@ -82,10 +83,12 @@ def test_update_jira_configuration_writes_env_and_refreshes_settings(
     config_values = dotenv_values(config_path)
     assert "DATABASE_URL=sqlite+pysqlite:///./data/lighthouse.db" in config_text
     assert config_values["JIRA_BASE_URL"] == "https://example.atlassian.net"
-    assert config_values["JIRA_API_TOKEN"] == "new-token"
+    assert "JIRA_API_TOKEN" not in config_values
+    assert os.environ["JIRA_API_TOKEN"] == "new-token"
     assert os.environ["JIRA_SYNC_ENABLED"] == "true"
     assert response.jira_base_url == "https://example.atlassian.net"
     assert response.jira_api_token_configured is True
+    assert response.is_complete is True
     assert refreshed_settings.jira_project_key == "LHPM"
     assert refreshed_settings.jira_field_story_points == "customfield_10016"
 
@@ -105,3 +108,70 @@ def test_update_jira_configuration_validates_sync_settings_before_writing(
         get_settings.cache_clear()
 
     assert config_path.read_text(encoding="utf-8") == "JIRA_SYNC_ENABLED=false\n"
+
+
+@pytest.mark.asyncio
+async def test_jira_connection_test_validates_required_values_without_sync_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "backend.env"
+    _isolate_jira_environment(monkeypatch, config_path)
+
+    try:
+        response = await configuration_service.test_jira_connection(JiraConfigurationUpdate(jira_base_url=""))
+    finally:
+        get_settings.cache_clear()
+
+    assert response.ok is False
+    assert "Missing required Jira startup settings" in response.message
+
+
+@pytest.mark.asyncio
+async def test_jira_connection_test_calls_jira_and_reports_project_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "backend.env"
+    _isolate_jira_environment(monkeypatch, config_path)
+
+    closed_services: list[FakeJiraService] = []
+
+    class FakeJiraService:
+        def __init__(self, *, settings):
+            self.settings = settings
+
+        async def validate_auth(self) -> dict[str, str]:
+            return {"accountId": "account-1", "displayName": "Ada Lovelace"}
+
+        async def get_project_versions(self, *, project_key: str):
+            assert project_key == "LHPM"
+            return [{"id": "10001"}, {"id": "10002"}]
+
+        async def aclose(self) -> None:
+            closed_services.append(self)
+
+    monkeypatch.setattr(configuration_service, "JiraService", FakeJiraService)
+
+    try:
+        response = await configuration_service.test_jira_connection(
+            JiraConfigurationUpdate(
+                jira_base_url="https://example.atlassian.net",
+                jira_user_email="user@example.com",
+                jira_api_token="token",
+                jira_project_key="LHPM",
+                jira_field_severity="priority",
+                jira_field_release="fixVersions",
+                jira_changelog_fix_version_fields="fix version,fixversion",
+            )
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert response.ok is True
+    assert response.account_id == "account-1"
+    assert response.display_name == "Ada Lovelace"
+    assert response.project_key == "LHPM"
+    assert response.project_accessible is True
+    assert "found 2 releases" in response.message
+    assert len(closed_services) == 1

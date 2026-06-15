@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     database_echo: bool = False
     database_pool_size: int = 5
     database_max_overflow: int = 10
+    lighthouse_api_token: str = ""
 
     # Jira Cloud connection
     jira_base_url: str = ""

@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local desktop shell for LighthousePM",
+  "author": "LighthousePM",
+  "license": "UNLICENSED",
   "main": "src/main.cjs",
   "scripts": {
     "build:backend": "node scripts/build-backend.cjs",
@@ -11,11 +13,14 @@
     "dev": "npm run build:backend && concurrently -k -s first \"cross-env VITE_API_BASE_URL=/api npm --prefix ../frontend run dev -- --host 127.0.0.1\" \"wait-on http-get://127.0.0.1:5173 && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron-forge start\"",
     "start": "npm run build:backend && npm run build:frontend && electron-forge start",
     "package": "npm run build:backend && npm run build:frontend && electron-forge package",
+    "make": "npm run build:backend && npm run build:frontend && electron-forge make",
     "lint": "node --check src/main.cjs && node --check src/preload.cjs && node --check scripts/build-backend.cjs && node --check forge.config.cjs",
     "test": "npm run lint"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
     "electron": "^42.4.0",

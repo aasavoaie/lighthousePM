@@ -5,7 +5,9 @@ from typing import Any
 from dotenv import set_key
 
 from app.config import BACKEND_DIR, Settings, get_settings
-from app.schemas.configuration import JiraConfigurationResponse, JiraConfigurationUpdate
+from app.schemas.configuration import JiraConfigurationResponse, JiraConfigurationUpdate, JiraConnectionTestResponse
+from app.services.jira_errors import JiraServiceError
+from app.services.jira_service import JiraService
 
 CONFIG_FILE_ENV_VAR = "LIGHTHOUSE_CONFIG_FILE"
 
@@ -77,6 +79,8 @@ def _write_configuration(*, config_path: Path, values: dict[str, Any]) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.touch(exist_ok=True)
     for field_name, value in values.items():
+        if field_name == "jira_api_token":
+            continue
         env_name = JIRA_FIELD_TO_ENV[field_name]
         set_key(
             dotenv_path=config_path,
@@ -114,4 +118,58 @@ def _build_response(*, settings: Settings, config_path: Path) -> JiraConfigurati
         jira_field_blocker=settings.jira_field_blocker,
         jira_changelog_fix_version_fields=settings.jira_changelog_fix_version_fields,
         jira_changelog_sprint_fields=settings.jira_changelog_sprint_fields,
+        is_complete=_is_complete(settings),
     )
+
+
+async def test_jira_connection(update: JiraConfigurationUpdate | None = None) -> JiraConnectionTestResponse:
+    current_settings = get_settings()
+    update_values = update.model_dump(exclude_unset=True) if update is not None else {}
+    normalized_values = _normalize_update_values(update_values)
+    candidate_settings = _build_candidate_settings(current_settings, normalized_values)
+
+    try:
+        _validate_jira_connection_settings(candidate_settings)
+    except ValueError as exc:
+        return JiraConnectionTestResponse(ok=False, message=str(exc), project_key=candidate_settings.jira_project_key)
+
+    jira_service = JiraService(settings=candidate_settings)
+    try:
+        myself = await jira_service.validate_auth()
+        versions = await jira_service.get_project_versions(project_key=candidate_settings.jira_project_key.strip())
+    except JiraServiceError as exc:
+        return JiraConnectionTestResponse(
+            ok=False,
+            message=str(exc),
+            project_key=candidate_settings.jira_project_key.strip() or None,
+        )
+    finally:
+        await jira_service.aclose()
+
+    return JiraConnectionTestResponse(
+        ok=True,
+        message=f"Connected to Jira and found {len(versions)} releases for project {candidate_settings.jira_project_key.strip()}.",
+        account_id=str(myself.get("accountId")) if myself.get("accountId") else None,
+        display_name=str(myself.get("displayName")) if myself.get("displayName") else None,
+        project_key=candidate_settings.jira_project_key.strip(),
+        project_accessible=True,
+    )
+
+
+def _is_complete(settings: Settings) -> bool:
+    return all(
+        [
+            settings.jira_base_url.strip(),
+            settings.jira_user_email.strip(),
+            settings.jira_api_token.strip(),
+            settings.jira_project_key.strip(),
+            settings.jira_field_severity.strip(),
+            settings.jira_field_release.strip(),
+            settings.changelog_fix_version_fields,
+        ]
+    )
+
+
+def _validate_jira_connection_settings(settings: Settings) -> None:
+    forced_sync_settings = _build_candidate_settings(settings, {"jira_sync_enabled": True})
+    forced_sync_settings.validate_startup_settings()

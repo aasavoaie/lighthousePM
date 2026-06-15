@@ -183,9 +183,15 @@ class JiraService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def validate_auth(self) -> None:
+    async def validate_auth(self) -> dict[str, Any]:
         """Verify the configured Jira credentials before running a sync."""
-        await self._request("GET", "/rest/api/3/myself")
+        return await self._request("GET", "/rest/api/3/myself")
+
+    async def aclose(self) -> None:
+        """Close the owned HTTP client, if this service created one."""
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+            self._owned_client = None
 
     async def search_issues(
         self,

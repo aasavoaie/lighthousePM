@@ -1,5 +1,6 @@
-const { app, BrowserWindow, dialog, session, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
@@ -30,6 +31,7 @@ const CONTENT_TYPES = new Map([
 let mainWindow = null;
 let backendOrigin = null;
 let backendProcess = null;
+let localApiToken = null;
 let rendererServer = null;
 let rendererOrigin = null;
 let isQuitting = false;
@@ -63,6 +65,99 @@ function getBackendEnvFile() {
     return fs.existsSync(sidecarConfigPath) ? sidecarConfigPath : userConfigPath;
   }
   return path.resolve(__dirname, "../../backend/.env");
+}
+
+function getEncryptedJiraTokenPath() {
+  return path.join(app.getPath("userData"), "secrets", "jira-token.bin");
+}
+
+function readEnvValue(envFilePath, key) {
+  if (!fs.existsSync(envFilePath)) {
+    return null;
+  }
+
+  const keyPattern = new RegExp(`^\\s*${key}\\s*=\\s*(.*)\\s*$`);
+  const lines = fs.readFileSync(envFilePath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.trim() || line.trimStart().startsWith("#")) {
+      continue;
+    }
+    const match = line.match(keyPattern);
+    if (!match) {
+      continue;
+    }
+    const rawValue = match[1].trim();
+    if (
+      (rawValue.startsWith("\"") && rawValue.endsWith("\"")) ||
+      (rawValue.startsWith("'") && rawValue.endsWith("'"))
+    ) {
+      return rawValue.slice(1, -1);
+    }
+    return rawValue;
+  }
+  return null;
+}
+
+function removeEnvValue(envFilePath, key) {
+  if (!fs.existsSync(envFilePath)) {
+    return;
+  }
+
+  const keyPattern = new RegExp(`^\\s*${key}\\s*=`);
+  const lines = fs.readFileSync(envFilePath, "utf8").split(/\r?\n/);
+  const filteredLines = lines.filter((line) => !keyPattern.test(line));
+  fs.writeFileSync(envFilePath, filteredLines.join("\n"), "utf8");
+}
+
+function ensureSafeStorageAvailable() {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("Secure credential storage is not available on this machine.");
+  }
+}
+
+function storeEncryptedJiraToken(token) {
+  ensureSafeStorageAvailable();
+  const tokenPath = getEncryptedJiraTokenPath();
+  fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+  fs.writeFileSync(tokenPath, safeStorage.encryptString(token).toString("base64"), "utf8");
+}
+
+function storeJiraTokenFromRenderer(token) {
+  const normalizedToken = typeof token === "string" ? token.trim() : "";
+  if (!normalizedToken) {
+    throw new Error("Jira API token is required.");
+  }
+  storeEncryptedJiraToken(normalizedToken);
+  return { ok: true };
+}
+
+function readEncryptedJiraToken() {
+  const tokenPath = getEncryptedJiraTokenPath();
+  if (!fs.existsSync(tokenPath)) {
+    return null;
+  }
+
+  ensureSafeStorageAvailable();
+  const encryptedValue = fs.readFileSync(tokenPath, "utf8").trim();
+  if (!encryptedValue) {
+    return null;
+  }
+  return safeStorage.decryptString(Buffer.from(encryptedValue, "base64"));
+}
+
+function getJiraTokenForBackend(envFilePath) {
+  const encryptedToken = readEncryptedJiraToken();
+  if (encryptedToken) {
+    return encryptedToken;
+  }
+
+  const plaintextToken = readEnvValue(envFilePath, "JIRA_API_TOKEN");
+  if (!plaintextToken) {
+    return null;
+  }
+  storeEncryptedJiraToken(plaintextToken);
+  removeEnvValue(envFilePath, "JIRA_API_TOKEN");
+  return plaintextToken;
 }
 
 function copyLegacyDatabase(databasePath) {
@@ -162,8 +257,17 @@ async function startBackend() {
     args.push("--env-file", envFile);
   }
 
+  localApiToken = crypto.randomBytes(32).toString("hex");
+  const jiraToken = getJiraTokenForBackend(envFile);
   const childEnvironment = { ...process.env };
   delete childEnvironment.ELECTRON_RUN_AS_NODE;
+  childEnvironment.LIGHTHOUSE_API_TOKEN = localApiToken;
+  if (jiraToken) {
+    childEnvironment.JIRA_API_TOKEN = jiraToken;
+  } else if (app.isPackaged) {
+    delete childEnvironment.JIRA_API_TOKEN;
+  }
+
   const logDescriptor = fs.openSync(logPath, "w");
   try {
     backendProcess = spawn(executablePath, args, {
@@ -254,7 +358,11 @@ function proxyApiRequest(request, response) {
 
   const requestUrl = new URL(request.url ?? "/api", "http://127.0.0.1");
   const backendPath = `${requestUrl.pathname.replace(/^\/api/, "") || "/"}${requestUrl.search}`;
-  const headers = { ...request.headers, host: new URL(backendOrigin).host };
+  const headers = {
+    ...request.headers,
+    authorization: `Bearer ${localApiToken}`,
+    host: new URL(backendOrigin).host,
+  };
   delete headers.origin;
   delete headers.referer;
 
@@ -284,7 +392,61 @@ function proxyApiRequest(request, response) {
     response.end(JSON.stringify({ detail: "Could not reach the local LighthousePM backend." }));
   });
 
+  if (request.method === "PUT" && backendPath.split("?")[0] === "/config/jira") {
+    readRequestBody(request)
+      .then((body) => {
+        maybeStoreJiraTokenFromConfigBody(body);
+        proxyRequest.end(body);
+      })
+      .catch((error) => {
+        proxyRequest.destroy();
+        writeJsonError(response, 400, error.message);
+      });
+    return;
+  }
+
   request.pipe(proxyRequest);
+}
+
+function readRequestBody(request) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let byteLength = 0;
+    request.on("data", (chunk) => {
+      byteLength += chunk.length;
+      if (byteLength > 1024 * 1024) {
+        reject(new Error("Request body is too large."));
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => resolve(Buffer.concat(chunks)));
+    request.on("error", reject);
+  });
+}
+
+function maybeStoreJiraTokenFromConfigBody(body) {
+  if (body.length === 0) {
+    return;
+  }
+
+  const payload = JSON.parse(body.toString("utf8"));
+  const token = typeof payload.jira_api_token === "string" ? payload.jira_api_token.trim() : "";
+  if (token) {
+    storeEncryptedJiraToken(token);
+  }
+}
+
+function writeJsonError(response, statusCode, detail) {
+  if (response.headersSent) {
+    response.destroy();
+    return;
+  }
+  response.statusCode = statusCode;
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  response.setHeader("Cache-Control", "no-store");
+  response.end(JSON.stringify({ detail }));
 }
 
 function startRendererServer() {
@@ -374,9 +536,36 @@ function configureSession() {
   appSession.setPermissionCheckHandler(() => false);
   appSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
 
+  appSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    if (!localApiToken || !DEV_RENDERER_URL) {
+      callback({ requestHeaders: details.requestHeaders });
+      return;
+    }
+
+    try {
+      const targetUrl = new URL(details.url);
+      if (targetUrl.origin === DEV_RENDERER_ORIGIN && targetUrl.pathname.startsWith("/api")) {
+        callback({
+          requestHeaders: {
+            ...details.requestHeaders,
+            Authorization: `Bearer ${localApiToken}`,
+          },
+        });
+        return;
+      }
+    } catch {
+      // Ignore invalid URLs and keep the request unchanged.
+    }
+    callback({ requestHeaders: details.requestHeaders });
+  });
+
   if (typeof appSession.setDevicePermissionHandler === "function") {
     appSession.setDevicePermissionHandler(() => false);
   }
+}
+
+function configureIpcHandlers() {
+  ipcMain.handle("jira-token:store", (_event, token) => storeJiraTokenFromRenderer(token));
 }
 
 function createMainWindow() {
@@ -430,6 +619,7 @@ function createMainWindow() {
 
 async function startApplication() {
   configureSession();
+  configureIpcHandlers();
   await startBackend();
   rendererOrigin = getDevRendererOrigin() ?? (await startRendererServer());
   createMainWindow();

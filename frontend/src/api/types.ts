@@ -435,6 +435,7 @@ export interface JiraConfigurationResponse {
   jira_field_blocker: string;
   jira_changelog_fix_version_fields: string;
   jira_changelog_sprint_fields: string;
+  is_complete: boolean;
 }
 
 export interface JiraConfigurationUpdate {
@@ -452,6 +453,15 @@ export interface JiraConfigurationUpdate {
   jira_field_blocker: string;
   jira_changelog_fix_version_fields: string;
   jira_changelog_sprint_fields: string;
+}
+
+export interface JiraConnectionTestResponse {
+  ok: boolean;
+  message: string;
+  account_id: string | null;
+  display_name: string | null;
+  project_key: string | null;
+  project_accessible: boolean;
 }
 
 export interface SyncJiraResponse {

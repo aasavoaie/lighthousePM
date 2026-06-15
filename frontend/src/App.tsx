@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiClient } from "./api/client";
 import type {
   MetricValues,
+  JiraConfigurationResponse,
   Release,
   ReleaseChartsResponse,
   ReleaseMetricsResponse,
@@ -146,6 +147,10 @@ function renderAboutPanel() {
   );
 }
 
+function isJiraConfigurationComplete(config: JiraConfigurationResponse) {
+  return config.is_complete;
+}
+
 export default function App() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [selectedReleaseId, setSelectedReleaseId] = useState<string | null>(null);
@@ -163,6 +168,27 @@ export default function App() {
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
   const [focusedReleaseMetricName, setFocusedReleaseMetricName] = useState<keyof MetricValues | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadJiraSetupState() {
+      try {
+        const config = await apiClient.getJiraConfiguration();
+        if (isActive && !isJiraConfigurationComplete(config)) {
+          setSelectedTab("settings");
+        }
+      } catch {
+        // Keep the dashboard usable if setup state cannot be loaded.
+      }
+    }
+
+    void loadJiraSetupState();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -578,7 +604,15 @@ export default function App() {
           />
         ) : null}
 
-        {selectedTab === "settings" ? <SettingsPanel /> : null}
+        {selectedTab === "settings" ? (
+          <SettingsPanel
+            onConfigurationSaved={(config) => {
+              if (isJiraConfigurationComplete(config)) {
+                setErrorMessage(null);
+              }
+            }}
+          />
+        ) : null}
 
         {selectedTab === "about" ? renderAboutPanel() : null}
         </main>

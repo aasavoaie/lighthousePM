@@ -269,6 +269,10 @@ input {
   color: #a63124;
 }
 
+.success-text {
+  color: #19733b;
+}
+
 .action-status {
   margin: 12px 0 0;
 }
@@ -3094,6 +3098,42 @@ input {
   gap: 16px;
 }
 
+.settings-checklist {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-check {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #e0e4ef;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.settings-check span {
+  width: fit-content;
+  border-radius: 6px;
+  padding: 3px 7px;
+  color: #7a4b14;
+  background: #fff3d8;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.settings-check.done span {
+  color: #19733b;
+  background: #dcf7e7;
+}
+
+.settings-check strong {
+  color: #101733;
+  overflow-wrap: anywhere;
+}
+
 .settings-fieldset {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3226,6 +3266,7 @@ input {
   .detail-release-meta,
   .release-health-card-grid,
   .admin-status-grid,
+  .settings-checklist,
   .settings-fieldset,
   .product-info-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3246,6 +3287,7 @@ input {
   .detail-release-meta,
   .release-health-card-grid,
   .admin-status-grid,
+  .settings-checklist,
   .settings-fieldset,
   .product-info-grid {
     grid-template-columns: 1fr;

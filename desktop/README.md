@@ -42,12 +42,25 @@ The unpacked Windows application is generated under:
 desktop/out/LighthousePM-win32-x64/
 ```
 
-This is not yet an installer. Installer generation belongs to a later desktop
-milestone.
-
 The packaged directory includes the Python runtime and all backend
 dependencies. Running `LighthousePM.exe` starts and stops the backend
 automatically.
+
+## Create Windows Distribution Artifacts
+
+```bash
+npm run make
+```
+
+This builds the backend, builds the frontend, packages Electron, and creates:
+
+```text
+desktop/out/make/squirrel.windows/x64/LighthousePM-Setup.exe
+desktop/out/make/zip/win32/x64/
+```
+
+Use the setup EXE for a normal Windows installation. Use the zip artifact when
+the app should be distributed as an unpack-and-run folder.
 
 ## Local Data
 
