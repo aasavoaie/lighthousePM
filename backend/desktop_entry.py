@@ -35,6 +35,8 @@ def main() -> None:
     _load_optional_env_file(args.env_file)
 
     args.database_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.env_file is not None:
+        os.environ["LIGHTHOUSE_CONFIG_FILE"] = str(args.env_file.expanduser().resolve())
     os.environ["APP_ENV"] = args.app_env
     os.environ["APP_PORT"] = str(args.port)
     os.environ["DATABASE_URL"] = _sqlite_url(args.database_path)

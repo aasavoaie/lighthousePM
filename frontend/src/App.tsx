@@ -16,6 +16,7 @@ import { MetricsPanel } from "./components/MetricsPanel";
 import { OverviewDashboard } from "./components/OverviewDashboard";
 import { ReportExportActions } from "./components/ReportExportActions";
 import { ReleaseSelector } from "./components/ReleaseSelector";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
 import { getCurrentReleaseId, resolveSelectedReleaseId } from "./releaseSelection";
@@ -62,8 +63,8 @@ const tabContent: Record<AppTab, { title: string; subtitle: string; kicker: stri
     kicker: "Admin",
   },
   settings: {
-    title: "Settings - WIP",
-    subtitle: "Workspace preferences and product controls are being prepared.",
+    title: "Settings",
+    subtitle: "Configure Jira sync for the local workspace.",
     kicker: "Configuration",
   },
   about: {
@@ -99,33 +100,6 @@ function renderDetailHeader(tab: AppTab, selectedRelease: Release | null) {
           </div>
         </dl>
       ) : null}
-    </section>
-  );
-}
-
-function renderSettingsPanel() {
-  return (
-    <section className="panel product-info-panel">
-      <div className="panel-heading">
-        <h2>Settings - WIP</h2>
-      </div>
-      <div className="product-info-grid">
-        <article className="product-info-card">
-          <span className="product-info-icon nav-settings" aria-hidden="true" />
-          <h3>Workspace Preferences</h3>
-          <p>Release defaults, team views, and notification preferences will live here.</p>
-        </article>
-        <article className="product-info-card">
-          <span className="product-info-icon nav-admin" aria-hidden="true" />
-          <h3>Risk Thresholds</h3>
-          <p>Future controls will make signal thresholds visible and adjustable by authorized users.</p>
-        </article>
-        <article className="product-info-card">
-          <span className="product-info-icon nav-reports" aria-hidden="true" />
-          <h3>Reporting Views</h3>
-          <p>Saved report layouts and preferred operational views are planned for this area.</p>
-        </article>
-      </div>
     </section>
   );
 }
@@ -424,7 +398,7 @@ export default function App() {
             onClick={() => setSelectedTab("settings")}
           >
             <span className="nav-icon nav-settings" aria-hidden="true" />
-            Settings - WIP
+            Settings
           </button>
           <button
             type="button"
@@ -604,7 +578,7 @@ export default function App() {
           />
         ) : null}
 
-        {selectedTab === "settings" ? renderSettingsPanel() : null}
+        {selectedTab === "settings" ? <SettingsPanel /> : null}
 
         {selectedTab === "about" ? renderAboutPanel() : null}
         </main>

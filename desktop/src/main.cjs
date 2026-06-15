@@ -57,14 +57,12 @@ function getBackendExecutable() {
 }
 
 function getBackendEnvFile() {
-  const candidates = app.isPackaged
-    ? [
-        path.join(app.getPath("userData"), "backend.env"),
-        path.join(path.dirname(app.getPath("exe")), "backend.env"),
-      ]
-    : [path.resolve(__dirname, "../../backend/.env")];
-
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  if (app.isPackaged) {
+    const userConfigPath = path.join(app.getPath("userData"), "backend.env");
+    const sidecarConfigPath = path.join(path.dirname(app.getPath("exe")), "backend.env");
+    return fs.existsSync(sidecarConfigPath) ? sidecarConfigPath : userConfigPath;
+  }
+  return path.resolve(__dirname, "../../backend/.env");
 }
 
 function copyLegacyDatabase(databasePath) {
