@@ -18,7 +18,7 @@ import { ReportExportActions } from "./components/ReportExportActions";
 import { ReleaseSelector } from "./components/ReleaseSelector";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
-import { getCurrentReleaseId } from "./releaseSelection";
+import { getCurrentReleaseId, resolveSelectedReleaseId } from "./releaseSelection";
 
 type AppTab =
   | "overview"
@@ -202,7 +202,7 @@ export default function App() {
           return;
         }
         setReleases(response.items);
-        setSelectedReleaseId((current) => current ?? getCurrentReleaseId(response.items));
+        setSelectedReleaseId((current) => resolveSelectedReleaseId(response.items, current));
       } catch (error) {
         if (!isActive) {
           return;
@@ -220,7 +220,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [dashboardRefreshNonce]);
 
   async function handleRecomputeAll() {
     if (releases.length === 0 || isRecomputingAll) {

@@ -6,7 +6,17 @@ from sqlalchemy import pool
 from alembic import context
 from app.config import get_settings
 from app.db.base import Base
-from app.models import Issue, IssueHistory, MetricSnapshot, Release, ReleaseSignal
+from app.models import (
+    Issue,
+    IssueHistory,
+    IssueSprint,
+    MetricSnapshot,
+    OperationalStatus,
+    Release,
+    ReleaseSignal,
+    Sprint,
+    SprintMetricSnapshot,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -20,7 +30,17 @@ if config.config_file_name is not None:
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-_ = (Issue, IssueHistory, MetricSnapshot, Release, ReleaseSignal)
+_ = (
+    Issue,
+    IssueHistory,
+    IssueSprint,
+    MetricSnapshot,
+    OperationalStatus,
+    Release,
+    ReleaseSignal,
+    Sprint,
+    SprintMetricSnapshot,
+)
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
@@ -48,6 +68,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        render_as_batch=url.startswith("sqlite"),
     )
 
     with context.begin_transaction():
@@ -72,6 +93,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            render_as_batch=connection.dialect.name == "sqlite",
         )
 
         with context.begin_transaction():

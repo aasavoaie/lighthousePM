@@ -64,3 +64,14 @@ export function getCurrentRelease(releases: Release[], currentDate = new Date())
 export function getCurrentReleaseId(releases: Release[], currentDate = new Date()) {
   return getCurrentRelease(releases, currentDate)?.release_id ?? null;
 }
+
+export function resolveSelectedReleaseId(
+  releases: Release[],
+  selectedReleaseId: string | null,
+  currentDate = new Date()
+) {
+  if (selectedReleaseId && releases.some((release) => release.release_id === selectedReleaseId)) {
+    return selectedReleaseId;
+  }
+  return getCurrentReleaseId(releases, currentDate);
+}

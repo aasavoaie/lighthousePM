@@ -29,8 +29,8 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=64), nullable=True),
         sa.Column("start_date", sa.DateTime(timezone=True), nullable=True),
         sa.Column("release_date", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_releases"),
     )
     op.create_index("ix_releases_release_id", "releases", ["release_id"], unique=True)
@@ -48,8 +48,8 @@ def upgrade() -> None:
         sa.Column("assignee", sa.String(length=128), nullable=True),
         sa.Column("release_id", sa.String(length=64), nullable=True),
         sa.Column("is_blocker", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["release_id"], ["releases.release_id"], name="fk_issues_release_id_releases", ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id", name="pk_issues"),
     )
@@ -65,7 +65,7 @@ def upgrade() -> None:
         sa.Column("old_value", sa.Text(), nullable=True),
         sa.Column("new_value", sa.Text(), nullable=True),
         sa.Column("changed_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["issue_key"], ["issues.issue_key"], name="fk_issue_history_issue_key_issues", ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id", name="pk_issue_history"),
     )
@@ -82,7 +82,7 @@ def upgrade() -> None:
         sa.Column("scope_churn_7d_pct", sa.Float(), nullable=False),
         sa.Column("median_cycle_time_days", sa.Float(), nullable=True),
         sa.Column("reopen_rate_pct", sa.Float(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["release_id"], ["releases.release_id"], name="fk_metric_snapshots_release_id_releases", ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id", name="pk_metric_snapshots"),
     )
@@ -95,8 +95,8 @@ def upgrade() -> None:
         sa.Column("release_id", sa.String(length=64), nullable=False),
         sa.Column("signal", sa.String(length=16), nullable=False),
         sa.Column("reasons", sa.JSON(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["release_id"], ["releases.release_id"], name="fk_release_signals_release_id_releases", ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id", name="pk_release_signals"),
     )

@@ -26,8 +26,9 @@ def upgrade() -> None:
         "metric_snapshots",
         sa.Column("scope_removed_7d_count", sa.Integer(), nullable=False, server_default="0"),
     )
-    op.alter_column("metric_snapshots", "scope_added_7d_count", server_default=None)
-    op.alter_column("metric_snapshots", "scope_removed_7d_count", server_default=None)
+    if op.get_bind().dialect.name != "sqlite":
+        op.alter_column("metric_snapshots", "scope_added_7d_count", server_default=None)
+        op.alter_column("metric_snapshots", "scope_removed_7d_count", server_default=None)
 
 
 def downgrade() -> None:
