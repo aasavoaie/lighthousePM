@@ -82,11 +82,15 @@ def test_create_database_engine_supports_file_backed_sqlite(tmp_path: Path) -> N
     try:
         with database_engine.connect() as connection:
             foreign_keys_enabled = connection.scalar(text("PRAGMA foreign_keys"))
+            busy_timeout = connection.scalar(text("PRAGMA busy_timeout"))
+            journal_mode = connection.scalar(text("PRAGMA journal_mode"))
     finally:
         database_engine.dispose()
 
     assert database_path.exists()
     assert foreign_keys_enabled == 1
+    assert busy_timeout == 30000
+    assert journal_mode == "wal"
 
 
 def test_create_database_engine_uses_static_pool_for_in_memory_sqlite() -> None:

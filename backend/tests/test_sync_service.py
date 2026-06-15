@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -159,6 +160,29 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert status is not None
     assert status.last_sync_succeeded_at is not None
     assert status.last_sync_failure_summary is None
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_rejects_concurrent_sync(db_session: Session) -> None:
+    sync_started = asyncio.Event()
+    release_sync = asyncio.Event()
+
+    class SlowJiraService(FakeJiraService):
+        async def validate_auth(self) -> None:
+            sync_started.set()
+            await release_sync.wait()
+
+    first_service = SyncService(jira_service=SlowJiraService(), settings=_test_settings())
+    second_service = SyncService(jira_service=FakeJiraService(), settings=_test_settings())
+
+    first_task = asyncio.create_task(first_service.sync_from_jira(session=db_session))
+    await sync_started.wait()
+
+    with pytest.raises(SyncServiceError, match="Jira sync is already running"):
+        await second_service.sync_from_jira(session=db_session)
+
+    release_sync.set()
+    await first_task
 
 
 @pytest.mark.asyncio

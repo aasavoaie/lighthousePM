@@ -12,6 +12,7 @@ const DEV_BACKEND_PORT = 8000;
 const DEV_RENDERER_URL = process.env.ELECTRON_RENDERER_URL;
 const BACKEND_STARTUP_TIMEOUT_MS = 30000;
 const BACKEND_HEALTH_RETRY_MS = 200;
+const BACKUP_VERSION = 1;
 
 const CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -65,6 +66,23 @@ function getBackendEnvFile() {
     return fs.existsSync(sidecarConfigPath) ? sidecarConfigPath : userConfigPath;
   }
   return path.resolve(__dirname, "../../backend/.env");
+}
+
+function getDesktopDataPaths() {
+  const userDataDirectory = app.getPath("userData");
+  const dataDirectory = path.join(userDataDirectory, "data");
+  const logsDirectory = path.join(userDataDirectory, "logs");
+  const secretsDirectory = path.join(userDataDirectory, "secrets");
+  const databasePath = path.join(dataDirectory, "lighthouse.db");
+  return {
+    userDataDirectory,
+    dataDirectory,
+    logsDirectory,
+    secretsDirectory,
+    databasePath,
+    configPath: getBackendEnvFile(),
+    tokenPath: getEncryptedJiraTokenPath(),
+  };
 }
 
 function getEncryptedJiraTokenPath() {
@@ -229,10 +247,10 @@ async function startBackend() {
     throw new Error(`Packaged backend not found at ${executablePath}. Run npm run build:backend first.`);
   }
 
-  const userDataDirectory = app.getPath("userData");
-  const dataDirectory = path.join(userDataDirectory, "data");
-  const logsDirectory = path.join(userDataDirectory, "logs");
-  const databasePath = path.join(dataDirectory, "lighthouse.db");
+  const paths = getDesktopDataPaths();
+  const dataDirectory = paths.dataDirectory;
+  const logsDirectory = paths.logsDirectory;
+  const databasePath = paths.databasePath;
   const logPath = path.join(logsDirectory, "backend.log");
   fs.mkdirSync(dataDirectory, { recursive: true });
   fs.mkdirSync(logsDirectory, { recursive: true });
@@ -304,6 +322,191 @@ function stopBackend() {
     backendProcess.kill();
   }
   backendProcess = null;
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function restartBackend() {
+  stopBackend();
+  await sleep(400);
+  await startBackend();
+}
+
+function fileSize(filePath) {
+  try {
+    return fs.statSync(filePath).size;
+  } catch {
+    return 0;
+  }
+}
+
+function directorySize(directoryPath) {
+  if (!fs.existsSync(directoryPath)) {
+    return 0;
+  }
+
+  let totalBytes = 0;
+  for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
+    const entryPath = path.join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      totalBytes += directorySize(entryPath);
+    } else if (entry.isFile()) {
+      totalBytes += fileSize(entryPath);
+    }
+  }
+  return totalBytes;
+}
+
+function deleteIfExists(targetPath) {
+  fs.rmSync(targetPath, { recursive: true, force: true });
+}
+
+function deleteDatabaseFiles(databasePath) {
+  deleteIfExists(databasePath);
+  deleteIfExists(`${databasePath}-shm`);
+  deleteIfExists(`${databasePath}-wal`);
+}
+
+function copyIfExists(sourcePath, targetPath) {
+  if (!fs.existsSync(sourcePath)) {
+    return false;
+  }
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+  return true;
+}
+
+function timestampForBackup() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function getDesktopStorageInfo() {
+  const paths = getDesktopDataPaths();
+  const databaseBytes = fileSize(paths.databasePath);
+  const configBytes = fileSize(paths.configPath);
+  const tokenBytes = fileSize(paths.tokenPath);
+  const logsBytes = directorySize(paths.logsDirectory);
+  return {
+    isElectron: true,
+    backendOrigin,
+    paths,
+    usage: {
+      databaseBytes,
+      configBytes,
+      tokenBytes,
+      logsBytes,
+      totalBytes: databaseBytes + configBytes + tokenBytes + logsBytes,
+    },
+    exists: {
+      database: fs.existsSync(paths.databasePath),
+      config: fs.existsSync(paths.configPath),
+      encryptedToken: fs.existsSync(paths.tokenPath),
+    },
+  };
+}
+
+async function createDesktopBackup() {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    title: "Choose Backup Location",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { ok: false, message: "Backup cancelled." };
+  }
+
+  const paths = getDesktopDataPaths();
+  const backupDirectory = path.join(result.filePaths[0], `lighthousepm-backup-${timestampForBackup()}`);
+  fs.mkdirSync(backupDirectory, { recursive: true });
+
+  const copied = {
+    database: copyIfExists(paths.databasePath, path.join(backupDirectory, "data", "lighthouse.db")),
+    databaseWal: copyIfExists(`${paths.databasePath}-wal`, path.join(backupDirectory, "data", "lighthouse.db-wal")),
+    databaseShm: copyIfExists(`${paths.databasePath}-shm`, path.join(backupDirectory, "data", "lighthouse.db-shm")),
+    config: copyIfExists(paths.configPath, path.join(backupDirectory, "backend.env")),
+    encryptedToken: copyIfExists(paths.tokenPath, path.join(backupDirectory, "secrets", "jira-token.bin")),
+  };
+  const manifest = {
+    app: "LighthousePM",
+    version: BACKUP_VERSION,
+    createdAt: new Date().toISOString(),
+    copied,
+  };
+  fs.writeFileSync(path.join(backupDirectory, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+  return { ok: true, message: "Backup created.", path: backupDirectory };
+}
+
+function resolveBackupDirectory(selectedPath) {
+  const manifestPath = path.join(selectedPath, "manifest.json");
+  if (fs.existsSync(manifestPath)) {
+    return selectedPath;
+  }
+  const childDirectories = fs
+    .readdirSync(selectedPath, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("lighthousepm-backup-"))
+    .map((entry) => path.join(selectedPath, entry.name));
+  const newestBackup = childDirectories
+    .filter((directoryPath) => fs.existsSync(path.join(directoryPath, "manifest.json")))
+    .sort()
+    .at(-1);
+  if (newestBackup) {
+    return newestBackup;
+  }
+  throw new Error("Selected folder does not contain a LighthousePM backup.");
+}
+
+async function restoreDesktopBackup() {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    title: "Choose LighthousePM Backup Folder",
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return { ok: false, message: "Restore cancelled." };
+  }
+
+  const backupDirectory = resolveBackupDirectory(result.filePaths[0]);
+  const paths = getDesktopDataPaths();
+  stopBackend();
+  await sleep(400);
+  copyIfExists(path.join(backupDirectory, "data", "lighthouse.db"), paths.databasePath);
+  copyIfExists(path.join(backupDirectory, "data", "lighthouse.db-wal"), `${paths.databasePath}-wal`);
+  copyIfExists(path.join(backupDirectory, "data", "lighthouse.db-shm"), `${paths.databasePath}-shm`);
+  copyIfExists(path.join(backupDirectory, "backend.env"), paths.configPath);
+  copyIfExists(path.join(backupDirectory, "secrets", "jira-token.bin"), paths.tokenPath);
+  await startBackend();
+  return { ok: true, message: "Backup restored.", path: backupDirectory };
+}
+
+async function clearDesktopData() {
+  const paths = getDesktopDataPaths();
+  stopBackend();
+  await sleep(400);
+  deleteDatabaseFiles(paths.databasePath);
+  await startBackend();
+  return { ok: true, message: "Local synced data cleared." };
+}
+
+async function factoryResetDesktopData() {
+  const paths = getDesktopDataPaths();
+  stopBackend();
+  await sleep(400);
+  deleteDatabaseFiles(paths.databasePath);
+  deleteIfExists(paths.configPath);
+  deleteIfExists(paths.tokenPath);
+  deleteIfExists(paths.logsDirectory);
+  await startBackend();
+  return { ok: true, message: "Factory reset complete." };
+}
+
+async function revealDesktopDataFolder() {
+  const paths = getDesktopDataPaths();
+  fs.mkdirSync(paths.userDataDirectory, { recursive: true });
+  const errorMessage = await shell.openPath(paths.userDataDirectory);
+  if (errorMessage) {
+    throw new Error(errorMessage);
+  }
+  return { ok: true, path: paths.userDataDirectory };
 }
 
 function resolveRendererFile(rendererDirectory, requestUrl) {
@@ -566,6 +769,12 @@ function configureSession() {
 
 function configureIpcHandlers() {
   ipcMain.handle("jira-token:store", (_event, token) => storeJiraTokenFromRenderer(token));
+  ipcMain.handle("desktop-storage:info", () => getDesktopStorageInfo());
+  ipcMain.handle("desktop-storage:backup", () => createDesktopBackup());
+  ipcMain.handle("desktop-storage:restore", () => restoreDesktopBackup());
+  ipcMain.handle("desktop-storage:clear-data", () => clearDesktopData());
+  ipcMain.handle("desktop-storage:factory-reset", () => factoryResetDesktopData());
+  ipcMain.handle("desktop-storage:reveal", () => revealDesktopDataFolder());
 }
 
 function createMainWindow() {

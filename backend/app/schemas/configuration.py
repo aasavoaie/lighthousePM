@@ -10,6 +10,7 @@ class JiraConfigurationResponse(BaseModel):
     jira_sync_enabled: bool
     jira_sync_page_size: int
     jira_sync_changelog_page_size: int
+    jira_sync_interval_seconds: int
     jira_field_story_points: str
     jira_field_severity: str
     jira_field_release: str
@@ -28,6 +29,7 @@ class JiraConfigurationUpdate(BaseModel):
     jira_sync_enabled: bool | None = None
     jira_sync_page_size: int | None = None
     jira_sync_changelog_page_size: int | None = None
+    jira_sync_interval_seconds: int | None = None
     jira_field_story_points: str | None = None
     jira_field_severity: str | None = None
     jira_field_release: str | None = None

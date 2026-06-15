@@ -12,6 +12,7 @@ def test_settings_defaults() -> None:
     assert settings.database_max_overflow == 10
     assert settings.lighthouse_api_token == ""
     assert settings.jira_sync_enabled is False
+    assert settings.jira_sync_interval_seconds == 0
     assert settings.jira_field_severity == "priority"
     assert settings.jira_field_release == "fixVersions"
 

@@ -22,6 +22,7 @@ JIRA_ENV_DEFAULTS = {
     "JIRA_SYNC_ENABLED": "false",
     "JIRA_SYNC_PAGE_SIZE": "50",
     "JIRA_SYNC_CHANGELOG_PAGE_SIZE": "100",
+    "JIRA_SYNC_INTERVAL_SECONDS": "0",
     "JIRA_FIELD_STORY_POINTS": "",
     "JIRA_FIELD_SEVERITY": "priority",
     "JIRA_FIELD_RELEASE": "fixVersions",
@@ -71,6 +72,7 @@ def test_update_jira_configuration_writes_env_and_refreshes_settings(
                 jira_api_token="new-token",
                 jira_project_key="LHPM",
                 jira_sync_enabled=True,
+                jira_sync_interval_seconds=1800,
                 jira_field_story_points="customfield_10016",
                 jira_field_sprint="customfield_10020",
             )
@@ -86,9 +88,11 @@ def test_update_jira_configuration_writes_env_and_refreshes_settings(
     assert "JIRA_API_TOKEN" not in config_values
     assert os.environ["JIRA_API_TOKEN"] == "new-token"
     assert os.environ["JIRA_SYNC_ENABLED"] == "true"
+    assert config_values["JIRA_SYNC_INTERVAL_SECONDS"] == "1800"
     assert response.jira_base_url == "https://example.atlassian.net"
     assert response.jira_api_token_configured is True
     assert response.is_complete is True
+    assert response.jira_sync_interval_seconds == 1800
     assert refreshed_settings.jira_project_key == "LHPM"
     assert refreshed_settings.jira_field_story_points == "customfield_10016"
 

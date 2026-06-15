@@ -428,6 +428,7 @@ export interface JiraConfigurationResponse {
   jira_sync_enabled: boolean;
   jira_sync_page_size: number;
   jira_sync_changelog_page_size: number;
+  jira_sync_interval_seconds: number;
   jira_field_story_points: string;
   jira_field_severity: string;
   jira_field_release: string;
@@ -446,6 +447,7 @@ export interface JiraConfigurationUpdate {
   jira_sync_enabled: boolean;
   jira_sync_page_size: number;
   jira_sync_changelog_page_size: number;
+  jira_sync_interval_seconds: number;
   jira_field_story_points: string;
   jira_field_severity: string;
   jira_field_release: string;

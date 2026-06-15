@@ -19,6 +19,7 @@ JIRA_FIELD_TO_ENV = {
     "jira_sync_enabled": "JIRA_SYNC_ENABLED",
     "jira_sync_page_size": "JIRA_SYNC_PAGE_SIZE",
     "jira_sync_changelog_page_size": "JIRA_SYNC_CHANGELOG_PAGE_SIZE",
+    "jira_sync_interval_seconds": "JIRA_SYNC_INTERVAL_SECONDS",
     "jira_field_story_points": "JIRA_FIELD_STORY_POINTS",
     "jira_field_severity": "JIRA_FIELD_SEVERITY",
     "jira_field_release": "JIRA_FIELD_RELEASE",
@@ -65,6 +66,8 @@ def _normalize_update_values(values: dict[str, Any]) -> dict[str, Any]:
             continue
         if field_name in {"jira_sync_page_size", "jira_sync_changelog_page_size"} and int(value) < 1:
             raise ValueError("Jira sync page sizes must be at least 1")
+        if field_name == "jira_sync_interval_seconds" and int(value) < 0:
+            raise ValueError("Jira sync interval must be zero or greater")
         normalized[field_name] = value.strip() if isinstance(value, str) else value
     return normalized
 
@@ -111,6 +114,7 @@ def _build_response(*, settings: Settings, config_path: Path) -> JiraConfigurati
         jira_sync_enabled=settings.jira_sync_enabled,
         jira_sync_page_size=settings.jira_sync_page_size,
         jira_sync_changelog_page_size=settings.jira_sync_changelog_page_size,
+        jira_sync_interval_seconds=settings.jira_sync_interval_seconds,
         jira_field_story_points=settings.jira_field_story_points,
         jira_field_severity=settings.jira_field_severity,
         jira_field_release=settings.jira_field_release,

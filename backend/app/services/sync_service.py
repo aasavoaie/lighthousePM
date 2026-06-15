@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from dataclasses import asdict, dataclass
 
@@ -16,6 +17,7 @@ from app.services.signal_service import SignalService
 from app.utils.error_sanitizer import sanitize_error_detail
 
 logger = logging.getLogger(__name__)
+_sync_lock = asyncio.Lock()
 
 
 @dataclass
@@ -37,6 +39,10 @@ class SyncResult:
 
 class SyncServiceError(Exception):
     """Raised when sync prerequisites or orchestration fail."""
+
+
+class SyncAlreadyRunningError(SyncServiceError):
+    """Raised when a second Jira sync starts before the current one finishes."""
 
 
 class SyncService:
@@ -105,6 +111,13 @@ class SyncService:
         return filtered
 
     async def sync_from_jira(self, session: Session) -> dict[str, int | str]:
+        if _sync_lock.locked():
+            raise SyncAlreadyRunningError("Jira sync is already running")
+
+        async with _sync_lock:
+            return await self._sync_from_jira_locked(session=session)
+
+    async def _sync_from_jira_locked(self, session: Session) -> dict[str, int | str]:
         project_key = self._validate_sync_settings()
         result = SyncResult(project_key=project_key)
         recompute_release_count = 0

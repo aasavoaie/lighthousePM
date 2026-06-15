@@ -15,6 +15,7 @@ interface JiraSettingsForm {
   jira_sync_enabled: boolean;
   jira_sync_page_size: string;
   jira_sync_changelog_page_size: string;
+  jira_sync_interval_minutes: string;
   jira_field_story_points: string;
   jira_field_severity: string;
   jira_field_release: string;
@@ -33,6 +34,7 @@ function toForm(config: JiraConfigurationResponse): JiraSettingsForm {
     jira_sync_enabled: config.jira_sync_enabled,
     jira_sync_page_size: String(config.jira_sync_page_size),
     jira_sync_changelog_page_size: String(config.jira_sync_changelog_page_size),
+    jira_sync_interval_minutes: String(Math.round(config.jira_sync_interval_seconds / 60)),
     jira_field_story_points: config.jira_field_story_points,
     jira_field_severity: config.jira_field_severity,
     jira_field_release: config.jira_field_release,
@@ -51,6 +53,7 @@ function toUpdate(form: JiraSettingsForm): JiraConfigurationUpdate {
     jira_sync_enabled: form.jira_sync_enabled,
     jira_sync_page_size: Number(form.jira_sync_page_size),
     jira_sync_changelog_page_size: Number(form.jira_sync_changelog_page_size),
+    jira_sync_interval_seconds: Number(form.jira_sync_interval_minutes) * 60,
     jira_field_story_points: form.jira_field_story_points,
     jira_field_severity: form.jira_field_severity,
     jira_field_release: form.jira_field_release,
@@ -86,6 +89,28 @@ function setupItems(config: JiraConfigurationResponse | null) {
   ];
 }
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+}
+
+function syncScheduleLabel(config: JiraConfigurationResponse | null) {
+  if (!config?.jira_sync_interval_seconds) {
+    return "Manual only";
+  }
+  const minutes = Math.round(config.jira_sync_interval_seconds / 60);
+  return minutes >= 60 && minutes % 60 === 0 ? `Every ${minutes / 60} hour(s)` : `Every ${minutes} minute(s)`;
+}
+
 export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
   const [config, setConfig] = useState<JiraConfigurationResponse | null>(null);
   const [form, setForm] = useState<JiraSettingsForm | null>(null);
@@ -96,6 +121,9 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [testSucceeded, setTestSucceeded] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [desktopStorage, setDesktopStorage] = useState<LighthouseDesktopStorageInfo | null>(null);
+  const [desktopAction, setDesktopAction] = useState<string | null>(null);
+  const [isDesktopActionRunning, setIsDesktopActionRunning] = useState(false);
 
   async function loadConfiguration() {
     setIsLoading(true);
@@ -113,6 +141,21 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
 
   useEffect(() => {
     void loadConfiguration();
+  }, []);
+
+  async function loadDesktopStorage() {
+    if (!window.lighthouseDesktop?.getStorageInfo) {
+      return;
+    }
+    try {
+      setDesktopStorage(await window.lighthouseDesktop.getStorageInfo());
+    } catch (error) {
+      setDesktopAction(error instanceof Error ? error.message : "Failed to load desktop storage.");
+    }
+  }
+
+  useEffect(() => {
+    void loadDesktopStorage();
   }, []);
 
   function updateField<K extends keyof JiraSettingsForm>(field: K, value: JiraSettingsForm[K]) {
@@ -138,6 +181,7 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
       setConfig(response);
       setForm(toForm(response));
       onConfigurationSaved?.(response);
+      await loadDesktopStorage();
       setStatusMessage("Settings saved.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to save settings.");
@@ -165,6 +209,26 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
       setTestSucceeded(false);
     } finally {
       setIsTesting(false);
+    }
+  }
+
+  async function runDesktopAction(action: () => Promise<LighthouseDesktopOperationResult>, fallbackMessage: string) {
+    if (isDesktopActionRunning) {
+      return;
+    }
+
+    setIsDesktopActionRunning(true);
+    setDesktopAction(null);
+    setErrorMessage(null);
+    try {
+      const response = await action();
+      setDesktopAction(response.message ?? fallbackMessage);
+      await loadConfiguration();
+      await loadDesktopStorage();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : fallbackMessage);
+    } finally {
+      setIsDesktopActionRunning(false);
     }
   }
 
@@ -238,6 +302,15 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
           <fieldset className="settings-fieldset">
             <legend>Sync Limits</legend>
             <label className="settings-field">
+              <span>Sync interval minutes</span>
+              <input
+                type="number"
+                min="0"
+                value={form.jira_sync_interval_minutes}
+                onChange={(event) => updateField("jira_sync_interval_minutes", event.target.value)}
+              />
+            </label>
+            <label className="settings-field">
               <span>Issue page size</span>
               <input
                 type="number"
@@ -257,6 +330,10 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
                 onChange={(event) => updateField("jira_sync_changelog_page_size", event.target.value)}
               />
             </label>
+            <div className="settings-field settings-field-wide">
+              <span>Current schedule</span>
+              <strong>{syncScheduleLabel(config)}</strong>
+            </div>
           </fieldset>
 
           <fieldset className="settings-fieldset">
@@ -303,6 +380,112 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
                 onChange={(event) => updateField("jira_changelog_sprint_fields", event.target.value)}
               />
             </label>
+          </fieldset>
+
+          <fieldset className="settings-fieldset desktop-settings-fieldset">
+            <legend>Desktop Storage</legend>
+            {window.lighthouseDesktop?.isElectron ? (
+              <>
+                <div className="storage-summary settings-field-wide">
+                  <div>
+                    <span>Total local storage</span>
+                    <strong>{desktopStorage ? formatBytes(desktopStorage.usage.totalBytes) : "Loading..."}</strong>
+                  </div>
+                  <div>
+                    <span>Database</span>
+                    <strong>{desktopStorage ? formatBytes(desktopStorage.usage.databaseBytes) : "Loading..."}</strong>
+                  </div>
+                  <div>
+                    <span>Logs</span>
+                    <strong>{desktopStorage ? formatBytes(desktopStorage.usage.logsBytes) : "Loading..."}</strong>
+                  </div>
+                  <div>
+                    <span>Token</span>
+                    <strong>{desktopStorage?.exists.encryptedToken ? "Encrypted" : "Not stored"}</strong>
+                  </div>
+                </div>
+                <div className="settings-field settings-field-wide">
+                  <span>Local data folder</span>
+                  <strong>{desktopStorage?.paths.userDataDirectory ?? "Loading..."}</strong>
+                </div>
+                <div className="desktop-action-grid settings-field-wide">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={isDesktopActionRunning || !window.lighthouseDesktop?.revealDataFolder}
+                    onClick={() =>
+                      void runDesktopAction(
+                        () => window.lighthouseDesktop!.revealDataFolder!(),
+                        "Could not open the local data folder."
+                      )
+                    }
+                  >
+                    Open Data Folder
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={isDesktopActionRunning || !window.lighthouseDesktop?.backupData}
+                    onClick={() =>
+                      void runDesktopAction(
+                        () => window.lighthouseDesktop!.backupData!(),
+                        "Could not create backup."
+                      )
+                    }
+                  >
+                    Backup
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={isDesktopActionRunning || !window.lighthouseDesktop?.restoreData}
+                    onClick={() => {
+                      if (window.confirm("Restore will replace local data and restart the backend. Continue?")) {
+                        void runDesktopAction(
+                          () => window.lighthouseDesktop!.restoreData!(),
+                          "Could not restore backup."
+                        );
+                      }
+                    }}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button danger-button"
+                    disabled={isDesktopActionRunning || !window.lighthouseDesktop?.clearData}
+                    onClick={() => {
+                      if (window.confirm("Clear synced Jira data from this laptop? Settings and token will be kept.")) {
+                        void runDesktopAction(
+                          () => window.lighthouseDesktop!.clearData!(),
+                          "Could not clear local data."
+                        );
+                      }
+                    }}
+                  >
+                    Clear Data
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button danger-button"
+                    disabled={isDesktopActionRunning || !window.lighthouseDesktop?.factoryReset}
+                    onClick={() => {
+                      if (window.confirm("Factory reset removes local data, settings, logs, and encrypted token. Continue?")) {
+                        void runDesktopAction(
+                          () => window.lighthouseDesktop!.factoryReset!(),
+                          "Could not factory reset local data."
+                        );
+                      }
+                    }}
+                  >
+                    Factory Reset
+                  </button>
+                </div>
+                {desktopAction ? <p className="muted action-status settings-field-wide">{desktopAction}</p> : null}
+              </>
+            ) : (
+              <p className="muted settings-field-wide">Desktop storage actions are available in the Electron app.</p>
+            )}
           </fieldset>
 
           <div className="action-row">
