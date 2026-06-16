@@ -681,7 +681,7 @@ class ReportTemplateEngine:
     ) -> ReportDocument:
         snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release.release_id)
         snapshots = MetricRepository.list_snapshots_for_release(session=session, release_id=release.release_id, limit=30)
-        sprint = SprintRepository.get_current_sprint(session=session)
+        sprint = SprintRepository.get_current_sprint(session=session, project_key=release.project_key)
         sprint_snapshot = (
             SprintRepository.get_latest_metric_snapshot(session=session, sprint_id=sprint.sprint_id) if sprint else None
         )
@@ -739,11 +739,11 @@ class ReportTemplateEngine:
                     ("Release status", release.status or "Unknown"),
                     ("Release date", format_datetime(release.release_date)),
                     ("Current sprint", sprint.name if sprint else "No active sprint"),
-                    ("Latest release snapshot", format_datetime(snapshot.snapshot_at if snapshot else None)),
-                    ("Latest sprint snapshot", format_datetime(sprint_snapshot.snapshot_at if sprint_snapshot else None)),
+                    ("Latest release snapshot", _overview_release_snapshot_label(snapshot)),
+                    ("Latest sprint snapshot", _overview_sprint_snapshot_label(sprint, sprint_snapshot)),
                 ],
             ),
-            ReportSection("Portfolio Metrics", rows=self._portfolio_metric_rows(session)),
+            ReportSection("Project Portfolio Metrics", rows=self._portfolio_metric_rows(session, release.project_key)),
             ReportSection("Release Metrics", rows=release_metric_rows(snapshot)),
             ReportSection("Sprint Metrics", rows=overview_sprint_metric_rows(sprint, sprint_snapshot)),
             ReportSection(
@@ -773,9 +773,19 @@ class ReportTemplateEngine:
             ),
         ]
 
-    def _portfolio_metric_rows(self, session: Session) -> list[tuple[str, str]]:
-        releases, release_count = ReleaseRepository.list_releases(session=session, skip=0, limit=1000)
-        sprints, sprint_count = SprintRepository.list_sprints(session=session, skip=0, limit=1000)
+    def _portfolio_metric_rows(self, session: Session, project_key: str) -> list[tuple[str, str]]:
+        releases, release_count = ReleaseRepository.list_releases(
+            session=session,
+            project_key=project_key,
+            skip=0,
+            limit=1000,
+        )
+        sprints, sprint_count = SprintRepository.list_sprints(
+            session=session,
+            project_key=project_key,
+            skip=0,
+            limit=1000,
+        )
         active_releases = sum(1 for item in releases if (item.status or "").casefold() in {"active", "unreleased"})
         active_sprints = sum(1 for item in sprints if item.state.casefold() == "active")
         computed_releases = sum(
@@ -784,6 +794,7 @@ class ReportTemplateEngine:
             if MetricRepository.get_latest_snapshot(session=session, release_id=item.release_id) is not None
         )
         return [
+            ("Project", project_key),
             ("Total releases", format_number(release_count)),
             ("Active releases", format_number(active_releases)),
             ("Computed releases", format_number(computed_releases)),
@@ -1510,9 +1521,25 @@ def decision_recommendation_lines(readiness: dict[str, object]) -> list[str]:
     return ["Do not make a release decision until release metrics and signal have been computed."]
 
 
+def _overview_release_snapshot_label(snapshot: MetricSnapshot | None) -> str:
+    return format_datetime(snapshot.snapshot_at) if snapshot else "No snapshot available yet."
+
+
+def _overview_sprint_snapshot_label(sprint: Sprint | None, snapshot: SprintMetricSnapshot | None) -> str:
+    if sprint is None:
+        return "No sprint snapshot available yet."
+    return format_datetime(snapshot.snapshot_at) if snapshot else "No sprint snapshot available yet."
+
+
 def overview_sprint_metric_rows(sprint: Sprint | None, snapshot: SprintMetricSnapshot | None) -> list[tuple[str, str]]:
     if sprint is None:
         return [("Status", "No active sprint is available for the overview dashboard.")]
+    if snapshot is None:
+        return [
+            ("Sprint", sprint.name),
+            ("State", sprint.state),
+            ("Status", "No sprint snapshot available yet."),
+        ]
     return [
         ("Sprint", sprint.name),
         ("State", sprint.state),

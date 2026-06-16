@@ -35,11 +35,11 @@ def db_session() -> Session:
     session.close()
 
 
-def _release(release_id: str = "R1", name: str = "v1.0") -> Release:
+def _release(release_id: str = "R1", name: str = "v1.0", project_key: str = "PROJ") -> Release:
     return Release(
         release_id=release_id,
         name=name,
-        project_key="PROJ",
+        project_key=project_key,
         status="unreleased",
     )
 
@@ -247,6 +247,25 @@ def test_scope_churn_7d_supports_configured_changelog_alias(
     db_session.flush()
 
     result = AnalyticsService().recompute_release_metrics(db_session, "R1")
+    assert result.scope_churn_7d_pct == 100.0
+    assert result.scope_added_7d_count == 1
+    assert result.scope_removed_7d_count == 0
+
+
+def test_scope_churn_7d_ignores_same_release_name_from_other_project(db_session: Session) -> None:
+    db_session.add(_release(release_id="R1", name="v1.0", project_key="PROJ"))
+    db_session.add(_release(release_id="R2", name="v1.0", project_key="OTHER"))
+    db_session.add(_issue("PROJ-1", "In Progress", release_id="R1"))
+    db_session.add(_issue("OTHER-1", "In Progress", release_id="R2"))
+    db_session.flush()
+
+    now = datetime.now(UTC)
+    db_session.add(_history("PROJ-1", "fix version", "v0.9", "v1.0", now - timedelta(days=1)))
+    db_session.add(_history("OTHER-1", "fix version", "v0.9", "v1.0", now - timedelta(days=1)))
+    db_session.flush()
+
+    result = AnalyticsService().recompute_release_metrics(db_session, "R1")
+
     assert result.scope_churn_7d_pct == 100.0
     assert result.scope_added_7d_count == 1
     assert result.scope_removed_7d_count == 0

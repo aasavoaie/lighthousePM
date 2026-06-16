@@ -28,6 +28,7 @@ interface ChartsPanelProps {
   signal: ReleaseSignalResponse | null;
   metrics: ReleaseMetricsResponse | null;
   releases: Release[];
+  selectedProjectKey: string | null;
   selectedReleaseName: string | null;
   refreshNonce: number;
   isLoading: boolean;
@@ -97,8 +98,9 @@ function releaseSortTime(release: Release) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getRecentReleases(releases: Release[]) {
-  return [...releases]
+function getRecentReleases(releases: Release[], projectKey: string | null) {
+  const scopedReleases = projectKey ? releases.filter((release) => release.project_key === projectKey) : releases;
+  return [...scopedReleases]
     .sort((left, right) => releaseSortTime(right) - releaseSortTime(left))
     .slice(0, 5)
     .reverse();
@@ -231,6 +233,7 @@ export function ChartsPanel({
   signal,
   metrics,
   releases,
+  selectedProjectKey,
   selectedReleaseName,
   refreshNonce,
   isLoading,
@@ -240,7 +243,7 @@ export function ChartsPanel({
   const readinessRows = useMemo(() => buildSingleMetricRows(charts, "readiness_pct"), [charts]);
   const riskContributionRows = useMemo(() => buildRiskContributionRows(signal), [signal]);
   const blockerAgingRows = useMemo(() => buildBlockerAgingRows(signal?.risk_aging.blockers), [signal]);
-  const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
+  const recentReleases = useMemo(() => getRecentReleases(releases, selectedProjectKey), [releases, selectedProjectKey]);
   const [snapshotBaseline, setSnapshotBaseline] = useState<SnapshotBaseline>("previous");
   const [snapshotComparison, setSnapshotComparison] = useState<SnapshotComparisonResponse | null>(null);
   const [snapshotHistory, setSnapshotHistory] = useState<SnapshotChangeHistoryResponse | null>(null);

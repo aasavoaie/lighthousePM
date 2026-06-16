@@ -67,6 +67,7 @@ interface SprintsPanelProps {
   refreshNonce: number;
   onSelectIssue: (issueKey: string) => void;
   mode?: SprintsPanelMode;
+  projectKey?: string | null;
 }
 
 type SprintCommitmentReliabilityRow = {
@@ -513,7 +514,7 @@ async function loadAllSprintIssues(sprintId: string) {
   return items;
 }
 
-export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence" }: SprintsPanelProps) {
+export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence", projectKey = null }: SprintsPanelProps) {
   const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
   const [closedSprints, setClosedSprints] = useState<Sprint[]>([]);
   const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
@@ -772,8 +773,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
       setErrorMessage(null);
       try {
         const [currentResult, closedResult] = await Promise.allSettled([
-          apiClient.getCurrentSprint(),
-          apiClient.getClosedSprints(),
+          apiClient.getCurrentSprint(projectKey),
+          apiClient.getClosedSprints(projectKey),
         ]);
         if (!isActive) {
           return;
@@ -782,7 +783,12 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         const closed = closedResult.status === "fulfilled" ? closedResult.value.items : [];
         setCurrentSprint(activeSprint);
         setClosedSprints(closed);
-        setSelectedSprintId((existing) => existing ?? activeSprint?.sprint_id ?? closed[0]?.sprint_id ?? null);
+        setSelectedSprintId((existing) => {
+          if (existing && [activeSprint, ...closed].some((sprint) => sprint?.sprint_id === existing)) {
+            return existing;
+          }
+          return activeSprint?.sprint_id ?? closed[0]?.sprint_id ?? null;
+        });
         if (closedResult.status === "rejected") {
           setErrorMessage(closedResult.reason instanceof Error ? closedResult.reason.message : "Failed to load sprints.");
         }
@@ -798,7 +804,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     return () => {
       isActive = false;
     };
-  }, [refreshNonce]);
+  }, [projectKey, refreshNonce]);
 
   useEffect(() => {
     if (!selectedSprintId) {

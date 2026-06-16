@@ -17,6 +17,7 @@ interface SignalSummaryPanelProps {
   signal: ReleaseSignalResponse | null;
   isLoading: boolean;
   releases: Release[];
+  selectedProjectKey: string | null;
   refreshNonce: number;
 }
 
@@ -174,8 +175,9 @@ function releaseSortTime(release: Release) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getRecentReleases(releases: Release[]) {
-  return [...releases]
+function getRecentReleases(releases: Release[], projectKey: string | null) {
+  const scopedReleases = projectKey ? releases.filter((release) => release.project_key === projectKey) : releases;
+  return [...scopedReleases]
     .sort((left, right) => releaseSortTime(right) - releaseSortTime(left))
     .slice(0, 3)
     .reverse();
@@ -304,8 +306,11 @@ function renderWarningsSection(signal: ReleaseSignalResponse) {
   );
 }
 
-export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }: SignalSummaryPanelProps) {
-  const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
+export function SignalSummaryPanel({ signal, isLoading, releases, selectedProjectKey, refreshNonce }: SignalSummaryPanelProps) {
+  const recentReleases = useMemo(
+    () => getRecentReleases(releases, selectedProjectKey),
+    [releases, selectedProjectKey]
+  );
   const riskAgingIssueKeys = useMemo(() => {
     if (!signal) {
       return [];

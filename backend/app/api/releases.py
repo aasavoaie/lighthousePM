@@ -11,11 +11,17 @@ router = APIRouter(prefix="/releases", tags=["releases"])
 
 @router.get("", response_model=ReleaseListResponse)
 def get_releases(
+    project_key: str | None = Query(default=None, min_length=1),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     session: Session = Depends(get_db_session),
 ) -> ReleaseListResponse:
-    releases, total = ReleaseRepository.list_releases(session=session, skip=skip, limit=limit)
+    releases, total = ReleaseRepository.list_releases(
+        session=session,
+        project_key=project_key,
+        skip=skip,
+        limit=limit,
+    )
     return ReleaseListResponse(
         items=[ReleaseResponse.model_validate(release, from_attributes=True) for release in releases],
         skip=skip,

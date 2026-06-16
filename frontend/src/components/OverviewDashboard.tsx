@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   CartesianGrid,
   Line,
@@ -18,14 +18,19 @@ import type {
   ReleaseSignalResponse,
   SignalRiskAgingGroup,
   SignalRiskItem,
+  Sprint,
+  SprintMetricsResponse,
 } from "../api/types";
+import { apiClient } from "../api/client";
 import { RecommendationsPanel } from "./RecommendationsPanel";
 
 interface OverviewDashboardProps {
+  projectKey: string | null;
   release: Release | null;
   metrics: ReleaseMetricsResponse | null;
   charts: ReleaseChartsResponse | null;
   signal: ReleaseSignalResponse | null;
+  refreshNonce: number;
   isLoading: boolean;
   onOpenReports: () => void;
   onOpenReleaseMetric: (metricName: keyof MetricValues) => void;
@@ -230,14 +235,37 @@ function renderWarning(item: SignalRiskItem) {
   );
 }
 
+function formatDate(value: string | null) {
+  if (!value) {
+    return "N/A";
+  }
+  return new Date(value).toLocaleDateString();
+}
+
+function sprintSnapshotStatus(sprint: Sprint | null, metrics: SprintMetricsResponse | null) {
+  if (!sprint) {
+    return "No sprint snapshot available yet.";
+  }
+  if (!metrics?.is_computed) {
+    return "No sprint snapshot available yet.";
+  }
+  return metrics.snapshot_at ? `Latest snapshot ${new Date(metrics.snapshot_at).toLocaleString()}` : "No sprint snapshot available yet.";
+}
+
 export function OverviewDashboard({
+  projectKey,
   release,
   metrics,
   charts,
   signal,
+  refreshNonce,
   isLoading,
   onOpenReports,
 }: OverviewDashboardProps) {
+  const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
+  const [currentSprintMetrics, setCurrentSprintMetrics] = useState<SprintMetricsResponse | null>(null);
+  const [isLoadingSprint, setIsLoadingSprint] = useState(false);
+  const [sprintError, setSprintError] = useState<string | null>(null);
   const confidenceScore = getConfidenceScore(signal, charts);
   const tone = getSignalTone(signal);
   const riskDrivers = getRiskDrivers(signal);
@@ -245,10 +273,63 @@ export function OverviewDashboard({
   const delta = getConfidenceDelta(charts);
   const predictedConfidence = getPredictedConfidence(charts, release);
   const targetChance = getTargetChance(charts, signal, release);
-  const summary = signal?.summary ?? "Signal data has not been computed for this release yet.";
+  const hasReleaseSnapshot = metrics?.is_computed === true;
+  const summary = hasReleaseSnapshot
+    ? signal?.summary ?? "Signal data has not been computed for this release yet."
+    : "No snapshot available yet.";
   const warnings = signal?.warnings ?? [];
   const blockers = getMetricValue(metrics, "open_blockers");
   const bugs = getMetricValue(metrics, "open_high_severity_bugs");
+
+  useEffect(() => {
+    if (!projectKey) {
+      setCurrentSprint(null);
+      setCurrentSprintMetrics(null);
+      setSprintError(null);
+      setIsLoadingSprint(false);
+      return;
+    }
+
+    let isActive = true;
+
+    async function loadCurrentSprint() {
+      setCurrentSprint(null);
+      setCurrentSprintMetrics(null);
+      setIsLoadingSprint(true);
+      setSprintError(null);
+      try {
+        const response = await apiClient.getCurrentSprint(projectKey);
+        if (!isActive) {
+          return;
+        }
+        setCurrentSprint(response.item);
+        if (!response.item) {
+          setCurrentSprintMetrics(null);
+          return;
+        }
+        const metricsResponse = await apiClient.getSprintMetrics(response.item.sprint_id);
+        if (isActive) {
+          setCurrentSprintMetrics(metricsResponse);
+        }
+      } catch (error) {
+        if (isActive) {
+          setCurrentSprint(null);
+          setCurrentSprintMetrics(null);
+          setSprintError(error instanceof Error ? error.message : "Failed to load active sprint.");
+        }
+      } finally {
+        if (isActive) {
+          setIsLoadingSprint(false);
+        }
+      }
+    }
+
+    void loadCurrentSprint();
+
+    return () => {
+      isActive = false;
+    };
+  }, [projectKey, refreshNonce]);
 
   if (isLoading) {
     return <section className="overview-loading panel">Loading release intelligence...</section>;
@@ -320,7 +401,7 @@ export function OverviewDashboard({
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <p className="muted">No confidence history available yet.</p>
+            <p className="muted">No snapshot available yet.</p>
           )}
         </div>
         {delta !== null ? (
@@ -341,6 +422,30 @@ export function OverviewDashboard({
         <button type="button" className="overview-link-button" onClick={onOpenReports}>
           View prediction factors
         </button>
+      </section>
+
+      <section className="overview-card">
+        <p className="overview-card-kicker">Active Sprint</p>
+        {isLoadingSprint ? <p className="muted">Loading active sprint...</p> : null}
+        {sprintError ? <p className="error-text">{sprintError}</p> : null}
+        {!isLoadingSprint && !sprintError ? (
+          <>
+            <h2>{currentSprint?.name ?? "No active sprint"}</h2>
+            <p className="overview-copy">{sprintSnapshotStatus(currentSprint, currentSprintMetrics)}</p>
+            {currentSprint ? (
+              <dl className="confidence-inputs">
+                <dt>Project</dt>
+                <dd>{currentSprint.project_key}</dd>
+                <dt>State</dt>
+                <dd>{currentSprint.state}</dd>
+                <dt>End</dt>
+                <dd>{formatDate(currentSprint.end_date)}</dd>
+                <dt>Delivery confidence</dt>
+                <dd>{formatPercentage(currentSprintMetrics?.metrics.delivery_confidence_score)}</dd>
+              </dl>
+            ) : null}
+          </>
+        ) : null}
       </section>
 
       <section className="overview-card risk-aging-card">

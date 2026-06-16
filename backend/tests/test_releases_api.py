@@ -45,12 +45,17 @@ def client() -> Generator[TestClient, None, None]:
         app.dependency_overrides.clear()
 
 
-def _seed_release(session: Session, release_id: str = "REL-1") -> Release:
+def _seed_release(
+    session: Session,
+    release_id: str = "REL-1",
+    name: str = "Release 1",
+    project_key: str = "LHPM",
+) -> Release:
     now = datetime.now(UTC)
     release = Release(
         release_id=release_id,
-        name="Release 1",
-        project_key="LHPM",
+        name=name,
+        project_key=project_key,
         description="Seed release",
         status="active",
         start_date=now,
@@ -95,6 +100,34 @@ def test_get_releases_returns_paginated_list(client: TestClient) -> None:
     assert payload["limit"] == 1
     assert payload["total"] == 2
     assert len(payload["items"]) == 1
+
+
+def test_get_releases_filters_by_project_key(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, "LHPM-REL-1", name="Release 1", project_key="LHPM")
+        _seed_release(session, "OTHER-REL-1", name="Release 1", project_key="OTHER")
+
+    response = client.get("/releases?project_key=LHPM")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["release_id"] == "LHPM-REL-1"
+    assert payload["items"][0]["name"] == "Release 1"
+    assert payload["items"][0]["project_key"] == "LHPM"
+
+
+def test_get_releases_project_filter_is_case_insensitive(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, "LHPM-REL-1", project_key="LHPM")
+        _seed_release(session, "OTHER-REL-1", project_key="OTHER")
+
+    response = client.get("/releases?project_key=lhpm")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["release_id"] == "LHPM-REL-1"
 
 
 def test_get_release_by_id_returns_release(client: TestClient) -> None:

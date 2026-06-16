@@ -28,6 +28,7 @@ def _sprint(
     sprint_id: str = "10",
     state: str = "active",
     name: str | None = None,
+    project_key: str = "LHPM",
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     complete_date: datetime | None = None,
@@ -38,7 +39,7 @@ def _sprint(
         sprint_id=sprint_id,
         name=name or f"Sprint {sprint_id}",
         state=state,
-        project_key="LHPM",
+        project_key=project_key,
         board_id="1",
         start_date=(start_date if start_date is not None else now - timedelta(days=7)) if with_dates else None,
         end_date=(end_date if end_date is not None else now + timedelta(days=7)) if with_dates else None,
@@ -292,6 +293,32 @@ def test_scope_stability_index_counts_added_and_removed_issues(db_session: Sessi
     assert snapshot.delivery_confidence_inputs["scope_change_issue_keys"] == ["LHPM-3", "LHPM-4"]
     assert snapshot.delivery_confidence_inputs["scope_added_issue_keys"] == ["LHPM-3"]
     assert snapshot.delivery_confidence_inputs["scope_removed_issue_keys"] == ["LHPM-4"]
+
+
+def test_scope_stability_ignores_same_sprint_reference_from_other_project(db_session: Session) -> None:
+    now = datetime.now(UTC)
+    db_session.add(_sprint(start_date=now - timedelta(days=2), end_date=now + timedelta(days=2)))
+    db_session.add(_issue("LHPM-1", "In Progress"))
+    db_session.add(_issue("OTHER-1", "In Progress"))
+    db_session.add(_link("LHPM-1"))
+    db_session.flush()
+    db_session.add(
+        _history(
+            "OTHER-1",
+            old_value="Sprint 9",
+            new_value="Sprint 10",
+            changed_at=now - timedelta(days=1),
+            field_name="sprint",
+        )
+    )
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.delivery_confidence_inputs is not None
+    assert snapshot.delivery_confidence_inputs["scope_added_count"] == 0
+    assert snapshot.delivery_confidence_inputs["scope_removed_count"] == 0
+    assert snapshot.delivery_confidence_inputs["scope_change_issue_keys"] == []
 
 
 def test_delivery_confidence_empty_sprint_scores_full_confidence(db_session: Session) -> None:

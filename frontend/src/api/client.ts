@@ -93,8 +93,13 @@ async function requestBlob(path: string, options?: RequestInit): Promise<Blob> {
 }
 
 export const apiClient = {
-  getReleases(): Promise<ReleaseListResponse> {
-    return request<ReleaseListResponse>("/releases");
+  getReleases(projectKey?: string | null): Promise<ReleaseListResponse> {
+    const params = new URLSearchParams();
+    if (projectKey) {
+      params.set("project_key", projectKey);
+    }
+    const query = params.toString();
+    return request<ReleaseListResponse>(`/releases${query ? `?${query}` : ""}`);
   },
   getRelease(releaseId: string): Promise<Release> {
     return request<Release>(`/releases/${releaseId}`);
@@ -102,11 +107,20 @@ export const apiClient = {
   getReleaseIssues(releaseId: string, skip = 0, limit = 50): Promise<IssueListResponse> {
     return request<IssueListResponse>(`/releases/${releaseId}/issues?skip=${skip}&limit=${limit}`);
   },
-  getClosedSprints(): Promise<SprintListResponse> {
-    return request<SprintListResponse>("/sprints?state=closed&limit=100");
+  getClosedSprints(projectKey?: string | null): Promise<SprintListResponse> {
+    const params = new URLSearchParams({ state: "closed", limit: "100" });
+    if (projectKey) {
+      params.set("project_key", projectKey);
+    }
+    return request<SprintListResponse>(`/sprints?${params.toString()}`);
   },
-  getCurrentSprint(): Promise<CurrentSprintResponse> {
-    return request<CurrentSprintResponse>("/sprints/current");
+  getCurrentSprint(projectKey?: string | null): Promise<CurrentSprintResponse> {
+    const params = new URLSearchParams();
+    if (projectKey) {
+      params.set("project_key", projectKey);
+    }
+    const query = params.toString();
+    return request<CurrentSprintResponse>(`/sprints/current${query ? `?${query}` : ""}`);
   },
   getSprintIssues(sprintId: string, skip = 0, limit = 50): Promise<SprintIssueListResponse> {
     return request<SprintIssueListResponse>(`/sprints/${sprintId}/issues?skip=${skip}&limit=${limit}`);

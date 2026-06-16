@@ -2,7 +2,7 @@ import statistics
 from datetime import UTC, datetime, timedelta
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -53,6 +53,7 @@ class AnalyticsService:
         scope_churn_7d = self._compute_release_scope_churn_7d(
             session=session,
             release_id=release_id,
+            project_key=release.project_key,
             release_name=release.name,
             field_mapper=field_mapper,
         )
@@ -297,6 +298,7 @@ class AnalyticsService:
     def _compute_scope_churn_7d_pct(
         session: Session,
         release_id: str,
+        project_key: str,
         release_name: str,
         field_mapper: JiraFieldMapper,
     ) -> float:
@@ -304,6 +306,7 @@ class AnalyticsService:
             AnalyticsService._compute_release_scope_churn_7d(
                 session=session,
                 release_id=release_id,
+                project_key=project_key,
                 release_name=release_name,
                 field_mapper=field_mapper,
             )["scope_churn_7d_pct"]
@@ -313,6 +316,7 @@ class AnalyticsService:
     def _compute_release_scope_churn_7d(
         session: Session,
         release_id: str,
+        project_key: str,
         release_name: str,
         field_mapper: JiraFieldMapper,
     ) -> dict[str, int | float]:
@@ -340,6 +344,14 @@ class AnalyticsService:
         entries = session.scalars(
             select(IssueHistory)
             .where(
+                IssueHistory.issue_key.in_(
+                    select(Issue.issue_key).where(
+                        or_(
+                            Issue.release_id == release_id,
+                            _issue_key_matches_project(Issue.issue_key, project_key),
+                        )
+                    )
+                ),
                 func.lower(IssueHistory.field_name).in_(field_mapper.fix_version_changelog_fields),
                 IssueHistory.changed_at >= cutoff,
                 func.lower(IssueHistory.old_value).in_([release_name_lower])
@@ -863,6 +875,14 @@ class AnalyticsService:
         entries = session.scalars(
             select(IssueHistory)
             .where(
+                IssueHistory.issue_key.in_(
+                    select(Issue.issue_key).where(
+                        or_(
+                            Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint.sprint_id)),
+                            _issue_key_matches_project(Issue.issue_key, sprint.project_key),
+                        )
+                    )
+                ),
                 func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
                 IssueHistory.changed_at > start_at,
                 IssueHistory.changed_at <= upper_bound,
@@ -967,3 +987,7 @@ def _history_value_references_sprint(value: str | None, sprint: Sprint) -> bool:
         return False
     normalized = value.casefold()
     return sprint.sprint_id.casefold() in normalized or sprint.name.casefold() in normalized
+
+
+def _issue_key_matches_project(issue_key_column, project_key: str):
+    return func.upper(issue_key_column).like(f"{project_key.upper()}-%")
