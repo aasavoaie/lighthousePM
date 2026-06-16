@@ -50,7 +50,7 @@ def main() -> None:
         host=args.host,
         port=args.port,
         log_level=args.log_level.casefold(),
-        access_log=True,
+        access_log=False,
     )
 
 

@@ -77,10 +77,6 @@ class JiraFieldMapper:
             "updated",
             self.mapping.release_field,
             self.mapping.severity_field,
-            "description",
-            "labels",
-            "components",
-            "reporter",
         ]
         if self.mapping.sprint_field:
             fields.append(self.mapping.sprint_field)
@@ -112,15 +108,8 @@ class JiraFieldMapper:
         updated: Any,
     ) -> JiraIssueDetail:
         fields: dict[str, Any] = raw.get("fields", {})
-        labels: list[str] = fields.get("labels") or []
-        components: list[str] = [c.get("name", "") for c in (fields.get("components") or [])]
         fix_versions = self.extract_fix_versions(fields)
         sprints = self.extract_sprints(fields)
-        description_raw = fields.get("description")
-        if isinstance(description_raw, dict):
-            description = "[ADF content]"
-        else:
-            description = description_raw
 
         return JiraIssueDetail(
             key=raw["key"],
@@ -130,12 +119,8 @@ class JiraFieldMapper:
             priority=self.extract_severity(fields),
             assignee=_display_name(fields.get("assignee")),
             updated=updated,
-            description=description,
-            labels=labels,
-            components=components,
             fix_versions=fix_versions,
             sprints=sprints,
-            reporter=_display_name(fields.get("reporter")),
             story_points=self.extract_story_points(fields),
             blocker_flag=self.extract_blocker_flag(fields),
         )

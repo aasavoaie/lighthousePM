@@ -70,24 +70,66 @@ user's application-data directory:
 ```text
 %APPDATA%\LighthousePM\data\lighthouse.db
 %APPDATA%\LighthousePM\logs\backend.log
+%APPDATA%\LighthousePM\backend.env
+%APPDATA%\LighthousePM\secrets\jira-token.bin
 ```
 
 Nothing is sent to an external LighthousePM service. Jira requests still go
 directly from the local backend to the configured Jira Cloud instance.
 
+### What Is Stored
+
+- `lighthouse.db`: normalized Jira project, release, sprint, issue, changelog,
+  metric, signal, and operational-status data.
+- `backend.env`: non-secret Jira connection settings such as base URL, email,
+  project key, field mappings, sync limits, and sync interval.
+- `jira-token.bin`: Jira API token encrypted with Electron `safeStorage`.
+- `backend.log`: local backend startup and operational logs.
+
+### What Is Not Stored
+
+- The Jira API token is not written to `backend.env` or SQLite.
+- The per-launch local API bearer token is not written to disk.
+- Raw Jira issue descriptions, labels, components, reporters, and changelog
+  authors are not requested or normalized by the sync path.
+- Chromium cookies, local storage, IndexedDB, cache storage, service workers,
+  web SQL, shader cache, and HTTP cache are cleared on app startup and the app
+  uses a non-persistent Electron session partition.
+
+### Retention And Cleanup
+
+- `backend.log` rotates when it exceeds 1 MB.
+- Up to 5 rotated backend logs are kept.
+- Rotated backend logs older than 14 days are pruned on startup.
+- Synced Jira data is retained locally until the user chooses Clear Data,
+  Restore, or Factory Reset from Settings.
+- Clear Data removes the local SQLite database and keeps settings plus the
+  encrypted token.
+- Factory Reset removes local database files, settings, logs, and encrypted
+  token, then restarts the backend.
+
 ## Jira Configuration
 
 Jira credentials are deliberately not embedded in the packaged application.
-Create a `backend.env` file in either location:
+Users should configure Jira from Settings inside the app. Non-secret settings
+are written to:
 
 ```text
 %APPDATA%\LighthousePM\backend.env
-<directory containing LighthousePM.exe>\backend.env
 ```
 
-Use the Jira-related settings from `backend/.env.example`. During repository
-development, Electron reads `backend/.env` automatically. The desktop runtime
-always supplies its own SQLite database path, loopback port, and CORS settings.
+The Jira token is encrypted with Electron `safeStorage` and written to:
+
+```text
+%APPDATA%\LighthousePM\secrets\jira-token.bin
+```
+
+For migration only, a sidecar `backend.env` next to `LighthousePM.exe` may be
+read. If it contains `JIRA_API_TOKEN`, Electron encrypts that token into
+`safeStorage` and removes the plaintext token from the env file. During
+repository development, Electron reads `backend/.env` automatically. The
+desktop runtime always supplies its own SQLite database path, loopback port,
+per-launch API token, and CORS settings.
 
 ## Security Boundary
 
@@ -95,6 +137,11 @@ always supplies its own SQLite database path, loopback port, and CORS settings.
 - Node.js is disabled in the renderer.
 - Browser permissions, webviews, and unexpected navigation are blocked.
 - Only HTTPS links may be opened in the system browser.
-- The preload exposes only a read-only desktop runtime marker.
+- The preload exposes only narrow desktop operations for encrypted token
+  storage, local storage status, backup, restore, data clearing, factory reset,
+  and opening the data folder.
 - Packaged frontend and API traffic stay on loopback interfaces.
 - Jira credentials remain outside the packaged executable.
+- The backend rejects protected API calls unless Electron adds the per-launch
+  bearer token.
+- Backend logs redact obvious token, password, authorization, and secret values.

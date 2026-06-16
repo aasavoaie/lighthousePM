@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ from app.services.analytics_service import AnalyticsService
 from app.services.jira_errors import JiraServiceError
 from app.services.jira_field_mapper import JiraFieldMapper
 from app.services.jira_service import JiraService
-from app.services.jira_types import JiraChangelogEntry, JiraIssueSummary
+from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraIssueSummary, JiraSprintRef, JiraVersion
 from app.services.signal_service import SignalService
 from app.utils.error_sanitizer import sanitize_error_detail
 
@@ -110,6 +110,49 @@ class SyncService:
                 filtered.append(entry)
         return filtered
 
+    def _sanitize_persisted_text(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        sanitized = sanitize_error_detail(value, max_length=max(len(value) + 64, 280))
+        for secret in {self._settings.jira_api_token.strip(), self._settings.lighthouse_api_token.strip()}:
+            if secret:
+                sanitized = sanitized.replace(secret, "[REDACTED]")
+        return sanitized
+
+    def _sanitize_sprint_ref(self, sprint_ref: JiraSprintRef) -> JiraSprintRef:
+        return replace(
+            sprint_ref,
+            name=self._sanitize_persisted_text(sprint_ref.name) or "",
+            goal=self._sanitize_persisted_text(sprint_ref.goal),
+        )
+
+    def _sanitize_version(self, version: JiraVersion) -> JiraVersion:
+        return replace(
+            version,
+            name=self._sanitize_persisted_text(version.name) or "",
+            description=self._sanitize_persisted_text(version.description),
+        )
+
+    def _sanitize_issue_detail(self, issue_detail: JiraIssueDetail) -> JiraIssueDetail:
+        return replace(
+            issue_detail,
+            summary=self._sanitize_persisted_text(issue_detail.summary) or "",
+            status=self._sanitize_persisted_text(issue_detail.status) or "",
+            issue_type=self._sanitize_persisted_text(issue_detail.issue_type) or "",
+            priority=self._sanitize_persisted_text(issue_detail.priority),
+            assignee=self._sanitize_persisted_text(issue_detail.assignee),
+            fix_versions=[self._sanitize_persisted_text(version) or "" for version in issue_detail.fix_versions],
+            sprints=[self._sanitize_sprint_ref(sprint_ref) for sprint_ref in issue_detail.sprints],
+        )
+
+    def _sanitize_history_entry(self, entry: JiraChangelogEntry) -> JiraChangelogEntry:
+        return replace(
+            entry,
+            field_name=self._sanitize_persisted_text(entry.field_name) or "",
+            from_value=self._sanitize_persisted_text(entry.from_value),
+            to_value=self._sanitize_persisted_text(entry.to_value),
+        )
+
     async def sync_from_jira(self, session: Session) -> dict[str, int | str]:
         if _sync_lock.locked():
             raise SyncAlreadyRunningError("Jira sync is already running")
@@ -127,7 +170,7 @@ class SyncService:
 
         try:
             await self._jira_service.validate_auth()
-            versions = await self._jira_service.get_project_versions(project_key=project_key)
+            versions = [self._sanitize_version(version) for version in await self._jira_service.get_project_versions(project_key=project_key)]
             result.releases_fetched = len(versions)
 
             version_name_to_release_id: dict[str, str] = {}
@@ -152,7 +195,9 @@ class SyncService:
 
             for issue_summary in issue_summaries:
                 try:
-                    issue_detail = await self._jira_service.get_issue_details(issue_key=issue_summary.key)
+                    issue_detail = self._sanitize_issue_detail(
+                        await self._jira_service.get_issue_details(issue_key=issue_summary.key)
+                    )
                 except JiraServiceError:
                     result.issues_skipped += 1
                     logger.warning("Skipping issue %s due to detail fetch error", issue_summary.key)
@@ -208,7 +253,9 @@ class SyncService:
                     start_at=0,
                     max_results=self._settings.jira_sync_changelog_page_size,
                 )
-                filtered_history = self._filter_relevant_history(changelog_entries)
+                filtered_history = [
+                    self._sanitize_history_entry(entry) for entry in self._filter_relevant_history(changelog_entries)
+                ]
                 result.history_fetched += len(filtered_history)
                 inserted_count, skipped_count = SyncRepository.insert_issue_history_entries(
                     session=session,

@@ -57,7 +57,6 @@ def _display_name(field: dict[str, Any] | None) -> str | None:
 
 
 def _normalize_changelog_entry(issue_key: str, history: dict[str, Any]) -> list[JiraChangelogEntry]:
-    author = _display_name(history.get("author"))
     changed_at = _parse_datetime(history.get("created")) or datetime.min
     entries: list[JiraChangelogEntry] = []
     for item in history.get("items", []):
@@ -68,7 +67,6 @@ def _normalize_changelog_entry(issue_key: str, history: dict[str, Any]) -> list[
                 from_value=item.get("fromString"),
                 to_value=item.get("toString"),
                 changed_at=changed_at,
-                author=author,
             )
         )
     return entries

@@ -13,6 +13,10 @@ const DEV_RENDERER_URL = process.env.ELECTRON_RENDERER_URL;
 const BACKEND_STARTUP_TIMEOUT_MS = 30000;
 const BACKEND_HEALTH_RETRY_MS = 200;
 const BACKUP_VERSION = 1;
+const APP_SESSION_PARTITION = "lighthousepm-ephemeral";
+const BACKEND_LOG_MAX_BYTES = 1024 * 1024;
+const BACKEND_LOG_MAX_FILES = 5;
+const BACKEND_LOG_RETENTION_DAYS = 14;
 
 const CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -38,6 +42,7 @@ let rendererOrigin = null;
 let isQuitting = false;
 
 app.enableSandbox();
+app.commandLine.appendSwitch("disable-http-cache");
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -87,6 +92,10 @@ function getDesktopDataPaths() {
 
 function getEncryptedJiraTokenPath() {
   return path.join(app.getPath("userData"), "secrets", "jira-token.bin");
+}
+
+function getAppSession() {
+  return session.fromPartition(APP_SESSION_PARTITION);
 }
 
 function readEnvValue(envFilePath, key) {
@@ -254,6 +263,7 @@ async function startBackend() {
   const logPath = path.join(logsDirectory, "backend.log");
   fs.mkdirSync(dataDirectory, { recursive: true });
   fs.mkdirSync(logsDirectory, { recursive: true });
+  rotateBackendLogIfNeeded(logPath);
   copyLegacyDatabase(databasePath);
 
   const port = DEV_RENDERER_URL ? DEV_BACKEND_PORT : await findAvailablePort();
@@ -286,7 +296,7 @@ async function startBackend() {
     delete childEnvironment.JIRA_API_TOKEN;
   }
 
-  const logDescriptor = fs.openSync(logPath, "w");
+  const logDescriptor = fs.openSync(logPath, "a");
   try {
     backendProcess = spawn(executablePath, args, {
       env: childEnvironment,
@@ -367,6 +377,46 @@ function deleteDatabaseFiles(databasePath) {
   deleteIfExists(databasePath);
   deleteIfExists(`${databasePath}-shm`);
   deleteIfExists(`${databasePath}-wal`);
+}
+
+function rotatedLogName() {
+  return `backend-${timestampForBackup()}.log`;
+}
+
+function pruneBackendLogs(logsDirectory) {
+  if (!fs.existsSync(logsDirectory)) {
+    return;
+  }
+
+  const retentionCutoff = Date.now() - BACKEND_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const rotatedLogs = fs
+    .readdirSync(logsDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^backend-.+\.log$/.test(entry.name))
+    .map((entry) => {
+      const filePath = path.join(logsDirectory, entry.name);
+      return { filePath, mtimeMs: fs.statSync(filePath).mtimeMs };
+    })
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+  for (const logFile of rotatedLogs) {
+    if (logFile.mtimeMs < retentionCutoff) {
+      deleteIfExists(logFile.filePath);
+    }
+  }
+
+  rotatedLogs.slice(BACKEND_LOG_MAX_FILES).forEach((logFile) => deleteIfExists(logFile.filePath));
+}
+
+function rotateBackendLogIfNeeded(logPath) {
+  const logsDirectory = path.dirname(logPath);
+  fs.mkdirSync(logsDirectory, { recursive: true });
+  pruneBackendLogs(logsDirectory);
+  if (!fs.existsSync(logPath) || fileSize(logPath) <= BACKEND_LOG_MAX_BYTES) {
+    return;
+  }
+
+  fs.renameSync(logPath, path.join(logsDirectory, rotatedLogName()));
+  pruneBackendLogs(logsDirectory);
 }
 
 function copyIfExists(sourcePath, targetPath) {
@@ -734,8 +784,12 @@ function openExternalUrl(targetUrl) {
   }
 }
 
-function configureSession() {
-  const appSession = session.defaultSession;
+async function configureSession() {
+  const appSession = getAppSession();
+  await appSession.clearCache();
+  await appSession.clearStorageData({
+    storages: ["cookies", "localstorage", "indexdb", "cachestorage", "websql", "serviceworkers", "shadercache"],
+  });
   appSession.setPermissionCheckHandler(() => false);
   appSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
 
@@ -789,6 +843,7 @@ function createMainWindow() {
     title: "LighthousePM",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
+      partition: APP_SESSION_PARTITION,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -827,7 +882,7 @@ function createMainWindow() {
 }
 
 async function startApplication() {
-  configureSession();
+  await configureSession();
   configureIpcHandlers();
   await startBackend();
   rendererOrigin = getDevRendererOrigin() ?? (await startRendererServer());

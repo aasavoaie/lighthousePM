@@ -10,6 +10,16 @@ from app.config import get_settings
 from app.db.init import init_db
 from app.jobs.scheduler import start_scheduler, stop_scheduler
 from app.security import enforce_local_api_auth
+from app.utils.error_sanitizer import sanitize_error_detail
+
+
+class RedactingLogFilter(logging.Filter):
+    """Redact obvious secrets before records reach configured handlers."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = sanitize_error_detail(record.getMessage(), max_length=1200)
+        record.args = ()
+        return True
 
 
 def _configure_logging(level_name: str) -> None:
@@ -18,7 +28,13 @@ def _configure_logging(level_name: str) -> None:
     logging.basicConfig(
         level=level,
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        force=True,
     )
+    redacting_filter = RedactingLogFilter()
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        if not any(isinstance(existing_filter, RedactingLogFilter) for existing_filter in handler.filters):
+            handler.addFilter(redacting_filter)
 
 
 @asynccontextmanager

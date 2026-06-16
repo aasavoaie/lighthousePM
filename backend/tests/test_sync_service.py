@@ -2,7 +2,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -27,7 +27,7 @@ class FakeJiraService:
                 released=False,
                 release_date="2026-04-30",
                 start_date="2026-04-01",
-                description="Release 1",
+            description="Release 1",
             )
         ]
 
@@ -65,11 +65,7 @@ class FakeJiraService:
             priority="High",
             assignee="alice",
             updated=datetime.now(UTC),
-            description="details",
-            labels=["backend"],
-            components=["api"],
             fix_versions=["Release 1"],
-            reporter="bob",
             story_points=5.0,
         )
 
@@ -86,7 +82,6 @@ class FakeJiraService:
                 from_value="To Do",
                 to_value="In Progress",
                 changed_at=datetime(2026, 4, 1, tzinfo=UTC),
-                author="alice",
             ),
             JiraChangelogEntry(
                 issue_key=issue_key,
@@ -94,7 +89,6 @@ class FakeJiraService:
                 from_value="Old",
                 to_value="New",
                 changed_at=datetime(2026, 4, 2, tzinfo=UTC),
-                author="alice",
             ),
         ]
 
@@ -186,6 +180,57 @@ async def test_sync_from_jira_rejects_concurrent_sync(db_session: Session) -> No
 
 
 @pytest.mark.asyncio
+async def test_sync_from_jira_redacts_configured_secret_before_sqlite_persistence(db_session: Session) -> None:
+    settings = _test_settings()
+    settings.jira_api_token = "persist-secret"
+
+    class SecretEchoJiraService(FakeJiraService):
+        async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
+            versions = await super().get_project_versions(project_key=project_key)
+            versions[0].description = "Release copied persist-secret"
+            return versions
+
+        async def get_issue_details(self, issue_key: str, fields: list[str] | None = None) -> JiraIssueDetail:
+            detail = await super().get_issue_details(issue_key=issue_key, fields=fields)
+            detail.summary = "Issue copied persist-secret"
+            return detail
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            return [
+                JiraChangelogEntry(
+                    issue_key=issue_key,
+                    field_name="status",
+                    from_value="To Do",
+                    to_value="Done with persist-secret",
+                    changed_at=datetime(2026, 4, 1, tzinfo=UTC),
+                )
+            ]
+
+    service = SyncService(jira_service=SecretEchoJiraService(), settings=settings)
+
+    await service.sync_from_jira(session=db_session)
+
+    rows = db_session.execute(
+        text(
+            """
+            SELECT summary AS value FROM issues
+            UNION ALL SELECT description FROM releases
+            UNION ALL SELECT old_value FROM issue_history
+            UNION ALL SELECT new_value FROM issue_history
+            """
+        )
+    ).all()
+    stored_text = "\n".join(str(row.value) for row in rows if row.value is not None)
+    assert "persist-secret" not in stored_text
+    assert "[REDACTED]" in stored_text
+
+
+@pytest.mark.asyncio
 async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Session) -> None:
     service = SyncService(jira_service=FakeJiraService(), settings=_test_settings())
 
@@ -257,11 +302,7 @@ async def test_sync_from_jira_uses_blocker_flag_when_present(db_session: Session
                 priority="Low",
                 assignee="alice",
                 updated=datetime.now(UTC),
-                description="details",
-                labels=["backend"],
-                components=["api"],
                 fix_versions=["Release 1"],
-                reporter="bob",
                 blocker_flag=True,
             )
 
@@ -296,11 +337,7 @@ async def test_sync_from_jira_classifies_blocked_status_as_blocker(db_session: S
                 priority="Medium",
                 assignee="alice",
                 updated=datetime.now(UTC),
-                description="details",
-                labels=["backend"],
-                components=["api"],
                 fix_versions=["Release 1"],
-                reporter="bob",
                 story_points=3.0,
             )
 
