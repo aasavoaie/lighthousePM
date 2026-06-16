@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = require("electron");
+const { app, autoUpdater, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -17,6 +17,8 @@ const APP_SESSION_PARTITION = "lighthousepm-ephemeral";
 const BACKEND_LOG_MAX_BYTES = 1024 * 1024;
 const BACKEND_LOG_MAX_FILES = 5;
 const BACKEND_LOG_RETENTION_DAYS = 14;
+const WINDOWS_APP_USER_MODEL_ID = "com.squirrel.lighthousepm.LighthousePM";
+const UPDATE_FEED_URL = process.env.LIGHTHOUSEPM_UPDATE_URL;
 
 const CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -42,7 +44,48 @@ let rendererOrigin = null;
 let isQuitting = false;
 
 app.enableSandbox();
+if (process.platform === "win32") {
+  app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
+}
 app.commandLine.appendSwitch("disable-http-cache");
+
+function spawnSquirrelUpdate(args) {
+  const updateExecutable = path.resolve(path.dirname(process.execPath), "..", "Update.exe");
+  try {
+    return spawn(updateExecutable, args, { detached: true, windowsHide: true });
+  } catch {
+    return null;
+  }
+}
+
+function handleSquirrelStartupEvent() {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  const squirrelEvent = process.argv[1];
+  const executableName = path.basename(process.execPath);
+  switch (squirrelEvent) {
+    case "--squirrel-install":
+    case "--squirrel-updated":
+      spawnSquirrelUpdate(["--createShortcut", executableName]);
+      setTimeout(() => app.quit(), 1000);
+      return true;
+    case "--squirrel-uninstall":
+      spawnSquirrelUpdate(["--removeShortcut", executableName]);
+      setTimeout(() => app.quit(), 1000);
+      return true;
+    case "--squirrel-obsolete":
+      app.quit();
+      return true;
+    default:
+      return false;
+  }
+}
+
+if (handleSquirrelStartupEvent()) {
+  return;
+}
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
@@ -954,6 +997,53 @@ function showBackendErrorScreen(message, detail) {
   dialog.showErrorBox("LighthousePM backend error", `${message}\n\n${detail ?? ""}`);
 }
 
+function getValidatedUpdateFeedUrl() {
+  if (!UPDATE_FEED_URL || !app.isPackaged) {
+    return null;
+  }
+
+  try {
+    const updateFeedUrl = new URL(UPDATE_FEED_URL);
+    if (updateFeedUrl.protocol === "https:") {
+      return updateFeedUrl.toString();
+    }
+  } catch {
+    // Invalid update feed URLs are ignored.
+  }
+  return null;
+}
+
+function configureOptionalUpdates() {
+  const updateFeedUrl = getValidatedUpdateFeedUrl();
+  if (!updateFeedUrl) {
+    return;
+  }
+
+  autoUpdater.setFeedURL({ url: updateFeedUrl });
+  autoUpdater.on("error", () => {
+    // Update checks are optional and should never block local app usage.
+  });
+  autoUpdater.on("update-downloaded", (_event, _releaseNotes, releaseName) => {
+    void dialog
+      .showMessageBox(mainWindow ?? undefined, {
+        type: "info",
+        title: "LighthousePM Update Ready",
+        message: "A LighthousePM update is ready to install.",
+        detail: releaseName ? `Version: ${releaseName}` : "Restart the app to install the downloaded update.",
+        buttons: ["Restart and install", "Later"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then((result) => {
+        if (result.response === 0) {
+          isQuitting = true;
+          autoUpdater.quitAndInstall();
+        }
+      });
+  });
+  setTimeout(() => autoUpdater.checkForUpdates(), 10000);
+}
+
 function createMainWindow(initialUrl = startupScreenUrl()) {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -1012,6 +1102,7 @@ async function startApplication() {
     await startBackend();
     rendererOrigin = getDevRendererOrigin() ?? (await startRendererServer());
     await mainWindow?.loadURL(rendererOrigin);
+    configureOptionalUpdates();
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown startup error";
     showBackendErrorScreen("LighthousePM could not start the local backend.", detail);
