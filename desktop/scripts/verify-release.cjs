@@ -10,6 +10,7 @@ const requiredFiles = [
   "assets/icon.ico",
   "assets/icon.png",
   "assets/icon.svg",
+  "scripts/clean-machine-acceptance.ps1",
   "out/LighthousePM-win32-x64/LighthousePM.exe",
   "out/LighthousePM-win32-x64/resources/app.asar",
   "out/LighthousePM-win32-x64/resources/dist/index.html",

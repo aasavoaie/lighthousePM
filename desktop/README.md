@@ -145,14 +145,51 @@ asked before the app restarts to install it.
 Before distributing an installer:
 
 - Run `npm run release:windows`.
-- Install `LighthousePM-Setup.exe` on a clean Windows user profile.
-- Confirm the Start menu shortcut launches the app and only one instance opens.
-- Confirm Settings can create Jira configuration without editing `.env`.
-- Install a newer version over the old version and confirm local data remains
-  under `%APPDATA%\LighthousePM`.
-- Uninstall from Windows Apps and confirm the shortcut is removed. User data is
-  intentionally left in `%APPDATA%\LighthousePM` unless the user runs Factory
-  Reset inside the app first.
+- Copy `desktop/out/make/squirrel.windows/x64/LighthousePM-Setup.exe` to a
+  Windows test machine or VM that does not have Python, Node.js, PostgreSQL, or
+  Docker installed.
+- Run the clean-machine acceptance script from the repository or from a copied
+  `desktop` folder:
+
+```powershell
+npm run acceptance:clean-machine -- -RequireNoDevTools
+```
+
+For upgrade testing, provide a previous installer:
+
+```powershell
+npm run acceptance:clean-machine -- -RequireNoDevTools -PreviousSetupPath C:\path\to\old\LighthousePM-Setup.exe
+```
+
+To let the script run the Squirrel uninstall check at the end:
+
+```powershell
+npm run acceptance:clean-machine -- -RequireNoDevTools -RunUninstall
+```
+
+The script writes a release approval report to:
+
+```text
+desktop/out/acceptance/clean-machine-acceptance-<timestamp>.md
+```
+
+A release is approved only when every check is marked `Pass` and the report
+shows `Approval: APPROVED`.
+
+Required checks:
+
+- Setup installs from `LighthousePM-Setup.exe`.
+- The app launches without Python, Node.js, PostgreSQL, or Docker installed.
+- Settings can create Jira configuration without editing `.env` or
+  `backend.env`.
+- Sync Jira completes and release plus sprint information are visible.
+- Offline restart loads the local dashboard from SQLite without Jira access.
+- PDF export uses the native save dialog and produces a readable PDF.
+- Factory Reset removes local app data and returns the app to first-run setup.
+- Upgrade preserves local data across versions.
+- Uninstall removes the app and shortcuts. User data is intentionally left in
+  `%APPDATA%\LighthousePM` unless the user runs Factory Reset inside the app
+  first.
 
 ## Local Data
 

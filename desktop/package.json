@@ -16,6 +16,7 @@
     "package": "npm run build:assets && npm run build:backend && npm run build:frontend && electron-forge package",
     "make": "npm run build:assets && npm run build:backend && npm run build:frontend && electron-forge make",
     "release:windows": "npm run make && npm run verify:release",
+    "acceptance:clean-machine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/clean-machine-acceptance.ps1",
     "verify:release": "node scripts/verify-release.cjs",
     "lint": "node --check src/main.cjs && node --check src/preload.cjs && node --check scripts/build-backend.cjs && node --check scripts/generate-icons.cjs && node --check scripts/verify-release.cjs && node --check forge.config.cjs",
     "test": "npm run lint"
