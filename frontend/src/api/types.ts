@@ -419,6 +419,53 @@ export interface AdminStatusResponse {
   last_signal_recompute_at: string | null;
 }
 
+export interface JiraConfigurationResponse {
+  config_path: string;
+  jira_base_url: string;
+  jira_user_email: string;
+  jira_api_token_configured: boolean;
+  jira_project_key: string;
+  jira_sync_enabled: boolean;
+  jira_sync_page_size: number;
+  jira_sync_changelog_page_size: number;
+  jira_sync_interval_seconds: number;
+  jira_field_story_points: string;
+  jira_field_severity: string;
+  jira_field_release: string;
+  jira_field_sprint: string;
+  jira_field_blocker: string;
+  jira_changelog_fix_version_fields: string;
+  jira_changelog_sprint_fields: string;
+  is_complete: boolean;
+}
+
+export interface JiraConfigurationUpdate {
+  jira_base_url: string;
+  jira_user_email: string;
+  jira_api_token?: string;
+  jira_project_key: string;
+  jira_sync_enabled: boolean;
+  jira_sync_page_size: number;
+  jira_sync_changelog_page_size: number;
+  jira_sync_interval_seconds: number;
+  jira_field_story_points: string;
+  jira_field_severity: string;
+  jira_field_release: string;
+  jira_field_sprint: string;
+  jira_field_blocker: string;
+  jira_changelog_fix_version_fields: string;
+  jira_changelog_sprint_fields: string;
+}
+
+export interface JiraConnectionTestResponse {
+  ok: boolean;
+  message: string;
+  account_id: string | null;
+  display_name: string | null;
+  project_key: string | null;
+  project_accessible: boolean;
+}
+
 export interface SyncJiraResponse {
   project_key: string;
   releases_fetched: number;

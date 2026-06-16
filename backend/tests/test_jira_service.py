@@ -117,22 +117,25 @@ async def test_get_issue_details_success() -> None:
 
     assert detail.key == "PROJ-42"
     assert detail.summary == "Test issue"
-    assert detail.labels == ["backend"]
-    assert detail.components == ["API"]
-    assert detail.reporter == "Bob"
 
 
 @pytest.mark.asyncio
-async def test_get_issue_details_adf_description() -> None:
-    """ADF dict descriptions are collapsed to a placeholder string."""
-    raw = _issue_raw("PROJ-1")
-    raw["fields"]["description"] = {"type": "doc", "version": 1, "content": []}
-    client = _mock_client(200, raw)
+async def test_get_issue_details_does_not_request_unused_rich_fields() -> None:
+    seen_fields: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_fields.extend((request.url.params.get("fields") or "").split(","))
+        return httpx.Response(200, content=json.dumps(_issue_raw("PROJ-1")).encode())
+
+    client = httpx.AsyncClient(base_url="https://test.atlassian.net", transport=httpx.MockTransport(handler))
     svc = JiraService(client=client, settings=_make_settings())
 
-    detail = await svc.get_issue_details("PROJ-1")
+    await svc.get_issue_details("PROJ-1")
 
-    assert detail.description == "[ADF content]"
+    assert "description" not in seen_fields
+    assert "labels" not in seen_fields
+    assert "components" not in seen_fields
+    assert "reporter" not in seen_fields
 
 
 @pytest.mark.asyncio
@@ -183,7 +186,6 @@ async def test_get_issue_changelog_success() -> None:
     assert len(entries) == 2
     assert entries[0].field_name == "status"
     assert entries[0].from_value == "To Do"
-    assert entries[0].author == "Alice"
     assert entries[1].field_name == "assignee"
 
 
@@ -242,7 +244,6 @@ async def test_get_issue_changelog_paginates_all_pages() -> None:
     assert len(entries) == 2
     assert entries[0].field_name == "status"
     assert entries[1].field_name == "priority"
-    assert entries[1].author == "Bob"
 
 
 # ---------------------------------------------------------------------------
@@ -279,14 +280,15 @@ async def test_validate_auth_calls_myself_endpoint() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen_paths.append(request.url.path)
-        return httpx.Response(200, content=b'{"active": true}')
+        return httpx.Response(200, content=b'{"accountId": "account-1", "active": true}')
 
     client = httpx.AsyncClient(base_url="https://test.atlassian.net", transport=httpx.MockTransport(handler))
     svc = JiraService(client=client, settings=_make_settings())
 
-    await svc.validate_auth()
+    response = await svc.validate_auth()
 
     assert seen_paths == ["/rest/api/3/myself"]
+    assert response["accountId"] == "account-1"
 
 
 # ---------------------------------------------------------------------------

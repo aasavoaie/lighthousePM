@@ -30,8 +30,8 @@ def upgrade() -> None:
         sa.Column("end_date", sa.DateTime(timezone=True), nullable=True),
         sa.Column("complete_date", sa.DateTime(timezone=True), nullable=True),
         sa.Column("goal", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_sprints"),
     )
     op.create_index("ix_sprints_sprint_id", "sprints", ["sprint_id"], unique=True)
@@ -44,7 +44,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("issue_key", sa.String(length=32), nullable=False),
         sa.Column("sprint_id", sa.String(length=64), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["issue_key"], ["issues.issue_key"], name="fk_issue_sprints_issue_key_issues", ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["sprint_id"], ["sprints.sprint_id"], name="fk_issue_sprints_sprint_id_sprints", ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id", name="pk_issue_sprints"),
@@ -67,7 +67,7 @@ def upgrade() -> None:
         sa.Column("rollover_count", sa.Integer(), nullable=False),
         sa.Column("median_cycle_time_days", sa.Float(), nullable=True),
         sa.Column("reopen_rate_pct", sa.Float(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(["sprint_id"], ["sprints.sprint_id"], name="fk_sprint_metric_snapshots_sprint_id_sprints", ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id", name="pk_sprint_metric_snapshots"),
     )

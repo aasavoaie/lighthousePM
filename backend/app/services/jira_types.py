@@ -40,7 +40,7 @@ class JiraIssueSummary:
 
 @dataclass
 class JiraIssueDetail:
-    """Full issue detail including description, labels, and components."""
+    """Issue detail fields required for deterministic sync and metrics."""
 
     key: str
     summary: str
@@ -49,12 +49,8 @@ class JiraIssueDetail:
     priority: str | None
     assignee: str | None
     updated: datetime | None
-    description: str | None
-    labels: list[str] = field(default_factory=list)
-    components: list[str] = field(default_factory=list)
     fix_versions: list[str] = field(default_factory=list)
     sprints: list[JiraSprintRef] = field(default_factory=list)
-    reporter: str | None = None
     story_points: float | None = None
     blocker_flag: bool | None = None
 
@@ -68,7 +64,6 @@ class JiraChangelogEntry:
     from_value: str | None
     to_value: str | None
     changed_at: datetime
-    author: str | None
 
 
 @dataclass

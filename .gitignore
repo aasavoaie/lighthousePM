@@ -18,6 +18,9 @@ venv/
 # Environment files
 .env
 backend/.env
+backend/data/
+backend/build/
+backend/dist/
 
 # IDE
 .vscode/
@@ -29,6 +32,10 @@ frontend/dist/
 frontend/.env
 frontend/.env.local
 frontend/.env.*.local
+
+# Desktop
+desktop/node_modules/
+desktop/out/
 
 # OS
 .DS_Store

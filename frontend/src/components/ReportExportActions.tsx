@@ -11,7 +11,13 @@ interface ReportExportActionsProps {
   filenameLabel: string;
 }
 
-function saveBlob(blob: Blob, filename: string) {
+async function saveBlob(blob: Blob, filename: string) {
+  if (window.lighthouseDesktop?.savePdf) {
+    const data = new Uint8Array(await blob.arrayBuffer());
+    const response = await window.lighthouseDesktop.savePdf({ filename, data });
+    return response.ok ? response.message ?? "PDF saved." : response.message ?? "Save cancelled.";
+  }
+
   const url = window.URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -20,6 +26,7 @@ function saveBlob(blob: Blob, filename: string) {
   anchor.click();
   anchor.remove();
   window.URL.revokeObjectURL(url);
+  return "PDF export started.";
 }
 
 function reportFilename(entity: ReportEntity, entityId: string, depth: ReportDepth, filenameLabel: string) {
@@ -35,6 +42,7 @@ function overviewFilename(entityId: string, filenameLabel: string) {
 export function ReportExportActions({ entity, entityId, filenameLabel }: ReportExportActionsProps) {
   const [exportingDepth, setExportingDepth] = useState<ReportDepth | "overview" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
   async function handleOverviewExport() {
     if (!entityId || exportingDepth) {
@@ -42,9 +50,10 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
     }
     setExportingDepth("overview");
     setError(null);
+    setStatus(null);
     try {
       const blob = await apiClient.downloadOverviewReport(entityId);
-      saveBlob(blob, overviewFilename(entityId, filenameLabel));
+      setStatus(await saveBlob(blob, overviewFilename(entityId, filenameLabel)));
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Failed to export PDF report.");
     } finally {
@@ -58,12 +67,13 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
     }
     setExportingDepth(depth);
     setError(null);
+    setStatus(null);
     try {
       const blob =
         entity === "release"
           ? await apiClient.downloadReleaseReport(entityId, depth)
           : await apiClient.downloadSprintReport(entityId, depth);
-      saveBlob(blob, reportFilename(entity, entityId, depth, filenameLabel));
+      setStatus(await saveBlob(blob, reportFilename(entity, entityId, depth, filenameLabel)));
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Failed to export PDF report.");
     } finally {
@@ -85,6 +95,7 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
           </button>
         </div>
         {error ? <p className="error-text report-export-error">{error}</p> : null}
+        {status ? <p className="muted report-export-error">{status}</p> : null}
       </div>
     );
   }
@@ -110,6 +121,7 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
         </button>
       </div>
       {error ? <p className="error-text report-export-error">{error}</p> : null}
+      {status ? <p className="muted report-export-error">{status}</p> : null}
     </div>
   );
 }

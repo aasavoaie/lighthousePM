@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiClient } from "./api/client";
 import type {
   MetricValues,
+  JiraConfigurationResponse,
   Release,
   ReleaseChartsResponse,
   ReleaseMetricsResponse,
@@ -16,9 +17,10 @@ import { MetricsPanel } from "./components/MetricsPanel";
 import { OverviewDashboard } from "./components/OverviewDashboard";
 import { ReportExportActions } from "./components/ReportExportActions";
 import { ReleaseSelector } from "./components/ReleaseSelector";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
-import { getCurrentReleaseId } from "./releaseSelection";
+import { getCurrentReleaseId, resolveSelectedReleaseId } from "./releaseSelection";
 
 type AppTab =
   | "overview"
@@ -62,8 +64,8 @@ const tabContent: Record<AppTab, { title: string; subtitle: string; kicker: stri
     kicker: "Admin",
   },
   settings: {
-    title: "Settings - WIP",
-    subtitle: "Workspace preferences and product controls are being prepared.",
+    title: "Settings",
+    subtitle: "Configure Jira sync for the local workspace.",
     kicker: "Configuration",
   },
   about: {
@@ -99,33 +101,6 @@ function renderDetailHeader(tab: AppTab, selectedRelease: Release | null) {
           </div>
         </dl>
       ) : null}
-    </section>
-  );
-}
-
-function renderSettingsPanel() {
-  return (
-    <section className="panel product-info-panel">
-      <div className="panel-heading">
-        <h2>Settings - WIP</h2>
-      </div>
-      <div className="product-info-grid">
-        <article className="product-info-card">
-          <span className="product-info-icon nav-settings" aria-hidden="true" />
-          <h3>Workspace Preferences</h3>
-          <p>Release defaults, team views, and notification preferences will live here.</p>
-        </article>
-        <article className="product-info-card">
-          <span className="product-info-icon nav-admin" aria-hidden="true" />
-          <h3>Risk Thresholds</h3>
-          <p>Future controls will make signal thresholds visible and adjustable by authorized users.</p>
-        </article>
-        <article className="product-info-card">
-          <span className="product-info-icon nav-reports" aria-hidden="true" />
-          <h3>Reporting Views</h3>
-          <p>Saved report layouts and preferred operational views are planned for this area.</p>
-        </article>
-      </div>
     </section>
   );
 }
@@ -172,6 +147,10 @@ function renderAboutPanel() {
   );
 }
 
+function isJiraConfigurationComplete(config: JiraConfigurationResponse) {
+  return config.is_complete;
+}
+
 export default function App() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [selectedReleaseId, setSelectedReleaseId] = useState<string | null>(null);
@@ -189,6 +168,28 @@ export default function App() {
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
   const [focusedReleaseMetricName, setFocusedReleaseMetricName] = useState<keyof MetricValues | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSyncingJira, setIsSyncingJira] = useState(false);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadJiraSetupState() {
+      try {
+        const config = await apiClient.getJiraConfiguration();
+        if (isActive && !isJiraConfigurationComplete(config)) {
+          setSelectedTab("settings");
+        }
+      } catch {
+        // Keep the dashboard usable if setup state cannot be loaded.
+      }
+    }
+
+    void loadJiraSetupState();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -202,7 +203,7 @@ export default function App() {
           return;
         }
         setReleases(response.items);
-        setSelectedReleaseId((current) => current ?? getCurrentReleaseId(response.items));
+        setSelectedReleaseId((current) => resolveSelectedReleaseId(response.items, current));
       } catch (error) {
         if (!isActive) {
           return;
@@ -220,7 +221,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [dashboardRefreshNonce]);
 
   async function handleRecomputeAll() {
     if (releases.length === 0 || isRecomputingAll) {
@@ -270,12 +271,25 @@ export default function App() {
     setDashboardRefreshNonce((current) => current + 1);
   }
 
+  function requestTabChange(tab: AppTab) {
+    if (isSyncingJira) {
+      return;
+    }
+    setSelectedTab(tab);
+  }
+
   function handleOpenReleaseDetails() {
+    if (isSyncingJira) {
+      return;
+    }
     setFocusedReleaseMetricName(null);
     setSelectedTab("release-command");
   }
 
   function handleOpenReleaseMetric(metricName: keyof MetricValues) {
+    if (isSyncingJira) {
+      return;
+    }
     setFocusedReleaseMetricName(metricName);
     setSelectedTab("release-command");
   }
@@ -347,6 +361,7 @@ export default function App() {
   const showReleaseControls =
     selectedTab === "overview" || selectedTab === "release-command" || selectedTab === "release-reports";
   const workspaceContent = tabContent[selectedTab];
+  const isNavigationLocked = isSyncingJira;
 
   return (
     <div className="app-shell intelligence-shell">
@@ -359,7 +374,8 @@ export default function App() {
           <button
             type="button"
             className={`sidebar-link ${selectedTab === "overview" ? "active" : ""}`}
-            onClick={() => setSelectedTab("overview")}
+            disabled={isNavigationLocked}
+            onClick={() => requestTabChange("overview")}
           >
             <span className="nav-icon nav-overview" aria-hidden="true" />
             Overview
@@ -373,14 +389,16 @@ export default function App() {
               <button
                 type="button"
                 className={`sidebar-sublink ${selectedTab === "release-command" ? "active" : ""}`}
-                onClick={() => setSelectedTab("release-command")}
+                disabled={isNavigationLocked}
+                onClick={() => requestTabChange("release-command")}
               >
                 Command Center
               </button>
               <button
                 type="button"
                 className={`sidebar-sublink ${selectedTab === "release-reports" ? "active" : ""}`}
-                onClick={() => setSelectedTab("release-reports")}
+                disabled={isNavigationLocked}
+                onClick={() => requestTabChange("release-reports")}
               >
                 Reports &amp; Evidence
               </button>
@@ -395,14 +413,16 @@ export default function App() {
               <button
                 type="button"
                 className={`sidebar-sublink ${selectedTab === "sprint-intelligence" ? "active" : ""}`}
-                onClick={() => setSelectedTab("sprint-intelligence")}
+                disabled={isNavigationLocked}
+                onClick={() => requestTabChange("sprint-intelligence")}
               >
                 Sprint Intelligence
               </button>
               <button
                 type="button"
                 className={`sidebar-sublink ${selectedTab === "sprint-reports" ? "active" : ""}`}
-                onClick={() => setSelectedTab("sprint-reports")}
+                disabled={isNavigationLocked}
+                onClick={() => requestTabChange("sprint-reports")}
               >
                 Reports &amp; Evidence
               </button>
@@ -411,7 +431,8 @@ export default function App() {
           <button
             type="button"
             className={`sidebar-link ${selectedTab === "admin" ? "active" : ""}`}
-            onClick={() => setSelectedTab("admin")}
+            disabled={isNavigationLocked}
+            onClick={() => requestTabChange("admin")}
           >
             <span className="nav-icon nav-admin" aria-hidden="true" />
             Admin
@@ -421,15 +442,17 @@ export default function App() {
           <button
             type="button"
             className={`sidebar-link subtle ${selectedTab === "settings" ? "active" : ""}`}
-            onClick={() => setSelectedTab("settings")}
+            disabled={isNavigationLocked}
+            onClick={() => requestTabChange("settings")}
           >
             <span className="nav-icon nav-settings" aria-hidden="true" />
-            Settings - WIP
+            Settings
           </button>
           <button
             type="button"
             className={`sidebar-link subtle ${selectedTab === "about" ? "active" : ""}`}
-            onClick={() => setSelectedTab("about")}
+            disabled={isNavigationLocked}
+            onClick={() => requestTabChange("about")}
           >
             <span className="nav-icon nav-help" aria-hidden="true" />
             About
@@ -442,13 +465,14 @@ export default function App() {
           <div>
             <h1>{workspaceContent.title}</h1>
             <p>{workspaceContent.subtitle}</p>
+            {isNavigationLocked ? <p className="workspace-lock-message">Jira sync is running. Navigation is locked until it finishes.</p> : null}
           </div>
           {showReleaseControls ? (
             <div className="workspace-release-tools">
               <label className="workspace-release-select">
                 <span>Release:</span>
                 <select
-                  disabled={isLoadingReleases || releases.length === 0}
+                  disabled={isLoadingReleases || releases.length === 0 || isNavigationLocked}
                   value={selectedReleaseId ?? ""}
                   onChange={(event) => setSelectedReleaseId(event.target.value)}
                 >
@@ -460,7 +484,7 @@ export default function App() {
                   ))}
                 </select>
               </label>
-              <button type="button" className="details-link-button" onClick={handleOpenReleaseDetails}>
+              <button type="button" className="details-link-button" disabled={isNavigationLocked} onClick={handleOpenReleaseDetails}>
                 View details
               </button>
             </div>
@@ -506,7 +530,7 @@ export default function App() {
                 charts={charts}
                 signal={signal}
                 isLoading={isLoadingDetails}
-                onOpenReports={() => setSelectedTab("release-reports")}
+                onOpenReports={() => requestTabChange("release-reports")}
                 onOpenReleaseMetric={handleOpenReleaseMetric}
               />
             </>
@@ -598,13 +622,22 @@ export default function App() {
         {selectedTab === "admin" ? (
           <AdminPanel
             onRecomputeAll={handleRecomputeAll}
-            isRecomputingAll={isRecomputingAll}
-            recomputeMessage={recomputeMessage}
-            onOperationalDataChanged={handleOperationalDataChanged}
-          />
+                isRecomputingAll={isRecomputingAll}
+                recomputeMessage={recomputeMessage}
+                onOperationalDataChanged={handleOperationalDataChanged}
+                onSyncStateChange={setIsSyncingJira}
+              />
         ) : null}
 
-        {selectedTab === "settings" ? renderSettingsPanel() : null}
+        {selectedTab === "settings" ? (
+          <SettingsPanel
+            onConfigurationSaved={(config) => {
+              if (isJiraConfigurationComplete(config)) {
+                setErrorMessage(null);
+              }
+            }}
+          />
+        ) : null}
 
         {selectedTab === "about" ? renderAboutPanel() : null}
         </main>

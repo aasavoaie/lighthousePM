@@ -57,7 +57,6 @@ def _display_name(field: dict[str, Any] | None) -> str | None:
 
 
 def _normalize_changelog_entry(issue_key: str, history: dict[str, Any]) -> list[JiraChangelogEntry]:
-    author = _display_name(history.get("author"))
     changed_at = _parse_datetime(history.get("created")) or datetime.min
     entries: list[JiraChangelogEntry] = []
     for item in history.get("items", []):
@@ -68,7 +67,6 @@ def _normalize_changelog_entry(issue_key: str, history: dict[str, Any]) -> list[
                 from_value=item.get("fromString"),
                 to_value=item.get("toString"),
                 changed_at=changed_at,
-                author=author,
             )
         )
     return entries
@@ -183,9 +181,15 @@ class JiraService:
     # Public API
     # ------------------------------------------------------------------
 
-    async def validate_auth(self) -> None:
+    async def validate_auth(self) -> dict[str, Any]:
         """Verify the configured Jira credentials before running a sync."""
-        await self._request("GET", "/rest/api/3/myself")
+        return await self._request("GET", "/rest/api/3/myself")
+
+    async def aclose(self) -> None:
+        """Close the owned HTTP client, if this service created one."""
+        if self._owned_client is not None:
+            await self._owned_client.aclose()
+            self._owned_client = None
 
     async def search_issues(
         self,

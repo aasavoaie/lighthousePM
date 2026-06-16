@@ -4,6 +4,9 @@ import type {
   HealthResponse,
   Issue,
   IssueListResponse,
+  JiraConnectionTestResponse,
+  JiraConfigurationResponse,
+  JiraConfigurationUpdate,
   RecomputeAllMetricsResponse,
   RecomputeMetricsResponse,
   ReportDepth,
@@ -23,7 +26,17 @@ import type {
   SyncJiraResponse,
 } from "./types";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+function getApiBaseUrl() {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (window.lighthouseDesktop?.isElectron) {
+    return "/api";
+  }
+  return "http://localhost:8000";
+}
+
+const API_BASE_URL = getApiBaseUrl().replace(/\/$/, "");
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
@@ -39,12 +52,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const fallback = `Request failed with status ${response.status}`;
+    let detail = fallback;
     try {
       const payload = (await response.json()) as { detail?: string };
-      throw new Error(payload.detail || fallback);
+      detail = payload.detail || fallback;
     } catch {
-      throw new Error(fallback);
+      detail = fallback;
     }
+    throw new Error(detail);
   }
 
   return (await response.json()) as T;
@@ -64,12 +79,14 @@ async function requestBlob(path: string, options?: RequestInit): Promise<Blob> {
 
   if (!response.ok) {
     const fallback = `Request failed with status ${response.status}`;
+    let detail = fallback;
     try {
       const payload = (await response.json()) as { detail?: string };
-      throw new Error(payload.detail || fallback);
+      detail = payload.detail || fallback;
     } catch {
-      throw new Error(fallback);
+      detail = fallback;
     }
+    throw new Error(detail);
   }
 
   return response.blob();
@@ -147,5 +164,22 @@ export const apiClient = {
   },
   getHealth(): Promise<HealthResponse> {
     return request<HealthResponse>("/health");
+  },
+  getJiraConfiguration(): Promise<JiraConfigurationResponse> {
+    return request<JiraConfigurationResponse>("/config/jira");
+  },
+  updateJiraConfiguration(update: JiraConfigurationUpdate): Promise<JiraConfigurationResponse> {
+    return request<JiraConfigurationResponse>("/config/jira", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
+  },
+  testJiraConfiguration(update: JiraConfigurationUpdate): Promise<JiraConnectionTestResponse> {
+    return request<JiraConnectionTestResponse>("/config/jira/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
   },
 };

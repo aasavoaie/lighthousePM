@@ -11,7 +11,7 @@ from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
 from app.services.jira_errors import JiraAuthError
-from app.services.sync_service import SyncServiceError
+from app.services.sync_service import SyncAlreadyRunningError, SyncServiceError
 
 
 @pytest.fixture
@@ -85,6 +85,21 @@ def test_post_sync_jira_returns_400_for_sync_service_error(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "JIRA_PROJECT_KEY must be configured for sync"
+
+
+def test_post_sync_jira_returns_409_when_sync_is_already_running(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_sync_running(self, session: Session) -> dict[str, int | str]:
+        raise SyncAlreadyRunningError("Jira sync is already running")
+
+    monkeypatch.setattr("app.services.sync_service.SyncService.sync_from_jira", fake_sync_running)
+
+    response = client.post("/sync/jira")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Jira sync is already running"
 
 
 def test_post_sync_jira_returns_401_for_jira_auth_error(
