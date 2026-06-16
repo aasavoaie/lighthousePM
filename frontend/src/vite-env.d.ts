@@ -37,6 +37,8 @@ interface Window {
     isElectron: boolean;
     platform: string;
     storeJiraToken?: (token: string) => Promise<{ ok: boolean }>;
+    savePdf?: (payload: { filename: string; data: Uint8Array }) => Promise<LighthouseDesktopOperationResult>;
+    openExternal?: (url: string) => Promise<LighthouseDesktopOperationResult>;
     getStorageInfo?: () => Promise<LighthouseDesktopStorageInfo>;
     backupData?: () => Promise<LighthouseDesktopOperationResult>;
     restoreData?: () => Promise<LighthouseDesktopOperationResult>;

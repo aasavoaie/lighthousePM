@@ -145,3 +145,16 @@ per-launch API token, and CORS settings.
 - The backend rejects protected API calls unless Electron adds the per-launch
   bearer token.
 - Backend logs redact obvious token, password, authorization, and secret values.
+
+## Native Desktop Workflow
+
+- The app opens a startup screen while the local backend is being prepared.
+- If the backend cannot start or later exits unexpectedly, the Electron window
+  shows a backend-error screen with the backend log path.
+- Only one app instance is allowed. Launching a second instance focuses the
+  existing window.
+- PDF exports use the native operating-system save dialog in Electron. Browser
+  downloads remain the fallback when the frontend is opened outside Electron.
+- Unexpected navigation and new windows are blocked. HTTPS external links are
+  opened through the operating system browser only after main-process
+  validation.
