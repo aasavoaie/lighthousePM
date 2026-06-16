@@ -111,6 +111,13 @@ function syncScheduleLabel(config: JiraConfigurationResponse | null) {
   return minutes >= 60 && minutes % 60 === 0 ? `Every ${minutes / 60} hour(s)` : `Every ${minutes} minute(s)`;
 }
 
+function jiraTestSuccessMessage(response: { display_name: string | null; project_key: string | null; project_accessible: boolean }) {
+  const accountLabel = response.display_name ? ` as ${response.display_name}` : "";
+  const projectLabel =
+    response.project_key && response.project_accessible ? ` Project ${response.project_key} is accessible.` : "";
+  return `Jira connection verified successfully${accountLabel}.${projectLabel}`;
+}
+
 export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
   const [config, setConfig] = useState<JiraConfigurationResponse | null>(null);
   const [form, setForm] = useState<JiraSettingsForm | null>(null);
@@ -202,10 +209,10 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
     setErrorMessage(null);
     try {
       const response = await apiClient.testJiraConfiguration(toUpdate(form));
-      setTestMessage(response.message);
+      setTestMessage(response.ok ? jiraTestSuccessMessage(response) : response.message || "Jira connection test failed.");
       setTestSucceeded(response.ok);
     } catch (error) {
-      setTestMessage(error instanceof Error ? error.message : "Failed to test Jira connection.");
+      setTestMessage(error instanceof Error ? `Jira connection test failed: ${error.message}` : "Jira connection test failed.");
       setTestSucceeded(false);
     } finally {
       setIsTesting(false);

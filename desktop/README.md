@@ -30,6 +30,43 @@ npm start
 This packages the backend, builds the React frontend, starts both from local
 application resources, and opens Electron.
 
+## Rebuild After Code Changes
+
+After changing frontend, backend, or desktop code, create a fresh local build
+from `desktop/`:
+
+```bash
+npm run make
+```
+
+This regenerates the packaged backend, React build, unpacked Electron app, ZIP,
+and Windows setup installer. The latest files are written to:
+
+```text
+desktop/out/LighthousePM-win32-x64/
+desktop/out/make/squirrel.windows/x64/LighthousePM-Setup.exe
+desktop/out/make/zip/win32/x64/
+```
+
+To run the freshly rebuilt app without installing it, start:
+
+```powershell
+C:\Projects\lighthousePM\desktop\out\LighthousePM-win32-x64\LighthousePM.exe
+```
+
+To install the freshly rebuilt app, run:
+
+```powershell
+C:\Projects\lighthousePM\desktop\out\make\squirrel.windows\x64\LighthousePM-Setup.exe
+```
+
+If LighthousePM is already installed with the same version number, Windows may
+continue launching the previously installed copy. For same-version testing,
+either run the unpacked `out\LighthousePM-win32-x64\LighthousePM.exe` directly
+or uninstall LighthousePM before running the new setup EXE. For real upgrade
+testing, increment `desktop/package.json` `version`, then run `npm run make`
+again and install the new setup EXE over the old version.
+
 ## Create A Windows App Directory
 
 ```bash

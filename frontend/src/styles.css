@@ -273,6 +273,11 @@ input {
   color: #19733b;
 }
 
+.success-text.action-status,
+.error-text.action-status {
+  font-weight: 800;
+}
+
 .action-status {
   margin: 12px 0 0;
 }
@@ -2017,6 +2022,28 @@ input {
   background: rgba(125, 56, 242, 0.42);
 }
 
+.sidebar-link:disabled,
+.sidebar-sublink:disabled,
+.details-link-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sidebar-link:disabled:hover,
+.sidebar-link:disabled:focus-visible,
+.sidebar-sublink:disabled:hover,
+.sidebar-sublink:disabled:focus-visible {
+  background: transparent;
+}
+
+.sidebar-link.active:disabled {
+  background: linear-gradient(135deg, #7d38f2 0%, #4b25d2 100%);
+}
+
+.sidebar-sublink.active:disabled {
+  background: rgba(125, 56, 242, 0.42);
+}
+
 .nav-icon {
   position: relative;
   width: 22px;
@@ -2103,6 +2130,18 @@ input {
   margin: 10px 0 0;
   color: #344468;
   font-size: 1rem;
+}
+
+.workspace-header .workspace-lock-message {
+  width: fit-content;
+  margin-top: 12px;
+  padding: 7px 10px;
+  border: 1px solid #f0c36d;
+  border-radius: 7px;
+  background: #fff7df;
+  color: #7a4b14;
+  font-size: 0.86rem;
+  font-weight: 900;
 }
 
 .workspace-release-tools {
@@ -3075,6 +3114,77 @@ input {
   font-size: 0.78rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.sync-terminal {
+  margin-top: 18px;
+  border: 1px solid #d9deec;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0b1020;
+}
+
+.sync-terminal-heading {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: #111936;
+}
+
+.sync-terminal-heading h3 {
+  margin: 0;
+  color: #f6f8fc;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.sync-terminal-body {
+  height: 260px;
+  overflow: auto;
+  padding: 12px 14px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.82rem;
+}
+
+.sync-terminal-empty {
+  margin: 0;
+  color: #8fa3c7;
+}
+
+.sync-log-line {
+  display: grid;
+  grid-template-columns: 88px 72px minmax(0, 1fr);
+  gap: 10px;
+  margin: 0 0 8px;
+  color: #d8e2ff;
+}
+
+.sync-log-line span {
+  color: #8fa3c7;
+}
+
+.sync-log-line strong {
+  color: #7dd3fc;
+}
+
+.sync-log-line code {
+  min-width: 0;
+  color: inherit;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+
+.sync-log-success strong {
+  color: #86efac;
+}
+
+.sync-log-error strong,
+.sync-log-error code {
+  color: #fca5a5;
 }
 
 .product-info-panel {
