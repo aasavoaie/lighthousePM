@@ -228,6 +228,48 @@ Required checks:
   `%APPDATA%\LighthousePM` unless the user runs Factory Reset inside the app
   first.
 
+### Frontend Project-Scoping Validation
+
+Run this checklist after `npm run make` when validating project-boundary
+changes in the packaged desktop app:
+
+1. Start the rebuilt app from
+   `desktop/out/LighthousePM-win32-x64/LighthousePM.exe`.
+2. Open Settings and save a Jira project key that has release and sprint data.
+3. Confirm Releases, Overview, Sprints, charts, recommendations, and reports
+   load only data for that project key.
+4. Change Settings to a different Jira project key, then save.
+5. Confirm the release selector clears the previous release while the new
+   project loads and then shows only releases for the new project.
+6. Confirm Overview clears previous release metrics, charts, signal, and sprint
+   details while the new project loads.
+7. Confirm Sprints reloads the current sprint and closed sprint list for only
+   the new project.
+8. Confirm release comparisons and last-release signal trend include only
+   releases from the selected project.
+9. Confirm sprint trends, predictability, and heatmaps include only current and
+   closed sprints from the selected project.
+10. Switch to a project with no computed snapshots and confirm the UI shows the
+    empty states instead of data from another project:
+    `No snapshot available yet.` and `No sprint snapshot available yet.`
+
+### Project-Scoped Acceptance Criteria
+
+The project boundary is the Jira project key saved in Settings. A release is
+ready for approval only when all of the following are true:
+
+1. Changing the Jira project key changes the whole LighthousePM workspace
+   context.
+2. The release list contains only releases for the selected project key.
+3. The sprint list and current sprint contain only sprints for the selected
+   project key.
+4. Overview never displays release or sprint data from another project.
+5. Recommendations, predictions, trends, and comparisons never use snapshots
+   from another project.
+6. A new project with no snapshots shows empty or no-data states.
+7. Backend tests pass.
+8. Frontend build passes.
+
 ## Local Data
 
 The desktop application stores its mutable files under the current Windows

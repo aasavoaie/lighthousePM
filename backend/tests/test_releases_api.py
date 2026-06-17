@@ -117,6 +117,23 @@ def test_get_releases_filters_by_project_key(client: TestClient) -> None:
     assert payload["items"][0]["project_key"] == "LHPM"
 
 
+def test_get_releases_project_filter_keeps_same_names_separate(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, "LHPM-REL-1", name="Shared Release", project_key="LHPM")
+        _seed_release(session, "LHPM-REL-2", name="LHPM Only", project_key="LHPM")
+        _seed_release(session, "OTHER-REL-1", name="Shared Release", project_key="OTHER")
+
+    response = client.get("/releases?project_key=LHPM")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert [item["release_id"] for item in payload["items"]] == ["LHPM-REL-1", "LHPM-REL-2"]
+    assert {item["project_key"] for item in payload["items"]} == {"LHPM"}
+    assert "OTHER-REL-1" not in {item["release_id"] for item in payload["items"]}
+    assert [item["name"] for item in payload["items"]] == ["Shared Release", "LHPM Only"]
+
+
 def test_get_releases_project_filter_is_case_insensitive(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, "LHPM-REL-1", project_key="LHPM")

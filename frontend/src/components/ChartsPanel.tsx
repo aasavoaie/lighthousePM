@@ -22,6 +22,7 @@ import {
 import { BiggestDriverCard } from "./BiggestDriverCard";
 import { RecommendationsPanel } from "./RecommendationsPanel";
 import { SnapshotChangePanel } from "./SnapshotChangePanel";
+import { getRecentProjectReleases } from "../releaseScope";
 
 interface ChartsPanelProps {
   charts: ReleaseChartsResponse | null;
@@ -90,20 +91,6 @@ function buildSingleMetricRows(charts: ReleaseChartsResponse | null, metricName:
     snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
     value: point.value,
   }));
-}
-
-function releaseSortTime(release: Release) {
-  const primaryDate = release.release_date ?? release.created_at;
-  const parsed = Date.parse(primaryDate);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getRecentReleases(releases: Release[], projectKey: string | null) {
-  const scopedReleases = projectKey ? releases.filter((release) => release.project_key === projectKey) : releases;
-  return [...scopedReleases]
-    .sort((left, right) => releaseSortTime(right) - releaseSortTime(left))
-    .slice(0, 5)
-    .reverse();
 }
 
 function isUnreleasedRelease(release: Release) {
@@ -243,7 +230,10 @@ export function ChartsPanel({
   const readinessRows = useMemo(() => buildSingleMetricRows(charts, "readiness_pct"), [charts]);
   const riskContributionRows = useMemo(() => buildRiskContributionRows(signal), [signal]);
   const blockerAgingRows = useMemo(() => buildBlockerAgingRows(signal?.risk_aging.blockers), [signal]);
-  const recentReleases = useMemo(() => getRecentReleases(releases, selectedProjectKey), [releases, selectedProjectKey]);
+  const recentReleases = useMemo(
+    () => getRecentProjectReleases(releases, selectedProjectKey, 5),
+    [releases, selectedProjectKey]
+  );
   const [snapshotBaseline, setSnapshotBaseline] = useState<SnapshotBaseline>("previous");
   const [snapshotComparison, setSnapshotComparison] = useState<SnapshotComparisonResponse | null>(null);
   const [snapshotHistory, setSnapshotHistory] = useState<SnapshotChangeHistoryResponse | null>(null);

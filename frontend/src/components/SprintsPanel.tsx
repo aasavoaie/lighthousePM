@@ -468,6 +468,18 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
+function normalizeProjectKey(projectKey: string | null | undefined) {
+  const normalized = projectKey?.trim().toUpperCase();
+  return normalized ? normalized : null;
+}
+
+function sprintMatchesProject(sprint: Sprint | null, projectKey: string | null) {
+  if (!sprint || !projectKey) {
+    return false;
+  }
+  return normalizeProjectKey(sprint.project_key) === projectKey;
+}
+
 function buildOptions(currentSprint: Sprint | null, closedSprints: Sprint[]): SprintOption[] {
   const options: SprintOption[] = [];
   if (currentSprint) {
@@ -515,6 +527,7 @@ async function loadAllSprintIssues(sprintId: string) {
 }
 
 export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence", projectKey = null }: SprintsPanelProps) {
+  const activeProjectKey = normalizeProjectKey(projectKey);
   const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
   const [closedSprints, setClosedSprints] = useState<Sprint[]>([]);
   const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
@@ -547,18 +560,24 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   const [isRecomputing, setIsRecomputing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const options = useMemo(() => buildOptions(currentSprint, closedSprints), [currentSprint, closedSprints]);
-  const selectedSprint = options.find((option) => option.sprint.sprint_id === selectedSprintId)?.sprint ?? null;
+  const scopedCurrentSprint = sprintMatchesProject(currentSprint, activeProjectKey) ? currentSprint : null;
+  const scopedClosedSprints = useMemo(
+    () => closedSprints.filter((sprint) => sprintMatchesProject(sprint, activeProjectKey)),
+    [activeProjectKey, closedSprints]
+  );
+  const options = useMemo(() => buildOptions(scopedCurrentSprint, scopedClosedSprints), [scopedCurrentSprint, scopedClosedSprints]);
+  const selectedScopedSprintId = options.some((option) => option.sprint.sprint_id === selectedSprintId) ? selectedSprintId : null;
+  const selectedSprint = options.find((option) => option.sprint.sprint_id === selectedScopedSprintId)?.sprint ?? null;
   const recentSprints = useMemo(() => {
     const sprintsById = new Map<string, Sprint>();
-    if (currentSprint) {
-      sprintsById.set(currentSprint.sprint_id, currentSprint);
+    if (scopedCurrentSprint) {
+      sprintsById.set(scopedCurrentSprint.sprint_id, scopedCurrentSprint);
     }
-    for (const sprint of closedSprints) {
+    for (const sprint of scopedClosedSprints) {
       sprintsById.set(sprint.sprint_id, sprint);
     }
     return getRecentSprints(Array.from(sprintsById.values()));
-  }, [currentSprint, closedSprints]);
+  }, [scopedCurrentSprint, scopedClosedSprints]);
   const sprintConfidenceRows = useMemo(
     () =>
       sprintChartRows.map((row) => ({
@@ -766,29 +785,52 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   }
 
   useEffect(() => {
+    setCurrentSprint(null);
+    setClosedSprints([]);
+    setSelectedSprintId(null);
+    setMetrics(null);
+    setIssues([]);
+    setSnapshotComparison(null);
+    setSnapshotHistory(null);
+    setSnapshotChangeError(null);
+    setSprintChartRows([]);
+    setSprintConfidenceError(null);
+    setIsLoadingDetails(false);
+    setIsLoadingSnapshotChanges(false);
+    setIsLoadingSprintConfidence(false);
+  }, [activeProjectKey]);
+
+  useEffect(() => {
     let isActive = true;
 
     async function loadSprintList() {
+      if (!activeProjectKey) {
+        setCurrentSprint(null);
+        setClosedSprints([]);
+        setSelectedSprintId(null);
+        setIsLoadingList(false);
+        return;
+      }
+
       setIsLoadingList(true);
       setErrorMessage(null);
       try {
         const [currentResult, closedResult] = await Promise.allSettled([
-          apiClient.getCurrentSprint(projectKey),
-          apiClient.getClosedSprints(projectKey),
+          apiClient.getCurrentSprint(activeProjectKey),
+          apiClient.getClosedSprints(activeProjectKey),
         ]);
         if (!isActive) {
           return;
         }
-        const activeSprint = currentResult.status === "fulfilled" ? currentResult.value.item : null;
-        const closed = closedResult.status === "fulfilled" ? closedResult.value.items : [];
+        const activeSprint = currentResult.status === "fulfilled" && sprintMatchesProject(currentResult.value.item, activeProjectKey)
+          ? currentResult.value.item
+          : null;
+        const closed = closedResult.status === "fulfilled"
+          ? closedResult.value.items.filter((sprint) => sprintMatchesProject(sprint, activeProjectKey))
+          : [];
         setCurrentSprint(activeSprint);
         setClosedSprints(closed);
-        setSelectedSprintId((existing) => {
-          if (existing && [activeSprint, ...closed].some((sprint) => sprint?.sprint_id === existing)) {
-            return existing;
-          }
-          return activeSprint?.sprint_id ?? closed[0]?.sprint_id ?? null;
-        });
+        setSelectedSprintId(activeSprint?.sprint_id ?? closed[0]?.sprint_id ?? null);
         if (closedResult.status === "rejected") {
           setErrorMessage(closedResult.reason instanceof Error ? closedResult.reason.message : "Failed to load sprints.");
         }
@@ -804,16 +846,16 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     return () => {
       isActive = false;
     };
-  }, [projectKey, refreshNonce]);
+  }, [activeProjectKey, refreshNonce]);
 
   useEffect(() => {
-    if (!selectedSprintId) {
+    if (!selectedScopedSprintId) {
       setMetrics(null);
       setIssues([]);
       return;
     }
 
-    const sprintId = selectedSprintId;
+    const sprintId = selectedScopedSprintId;
     let isActive = true;
 
     async function loadSprintDetails() {
@@ -845,16 +887,16 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     return () => {
       isActive = false;
     };
-  }, [selectedSprintId]);
+  }, [selectedScopedSprintId]);
 
   useEffect(() => {
-    if (mode !== "reports" || !selectedSprintId) {
+    if (mode !== "reports" || !selectedScopedSprintId) {
       setSnapshotComparison(null);
       setSnapshotHistory(null);
       return;
     }
 
-    const sprintId = selectedSprintId;
+    const sprintId = selectedScopedSprintId;
     let isActive = true;
 
     async function loadSnapshotChanges() {
@@ -887,7 +929,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     return () => {
       isActive = false;
     };
-  }, [mode, selectedSprintId, snapshotBaseline, refreshNonce, sprintChartRefreshNonce]);
+  }, [mode, selectedScopedSprintId, snapshotBaseline, refreshNonce, sprintChartRefreshNonce]);
 
   useEffect(() => {
     if (recentSprints.length === 0) {
@@ -935,16 +977,16 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   }, [recentSprints, refreshNonce, sprintChartRefreshNonce]);
 
   async function handleRecomputeSprint() {
-    if (!selectedSprintId || isRecomputing) {
+    if (!selectedScopedSprintId || isRecomputing) {
       return;
     }
     setIsRecomputing(true);
     setErrorMessage(null);
     try {
-      await apiClient.recomputeSprint(selectedSprintId);
+      await apiClient.recomputeSprint(selectedScopedSprintId);
       const [metricsResponse, issueResponse] = await Promise.all([
-        apiClient.getSprintMetrics(selectedSprintId),
-        loadAllSprintIssues(selectedSprintId),
+        apiClient.getSprintMetrics(selectedScopedSprintId),
+        loadAllSprintIssues(selectedScopedSprintId),
       ]);
       setMetrics(metricsResponse);
       setIssues(issueResponse);
@@ -968,8 +1010,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
             </div>
             <ReportExportActions
               entity="sprint"
-              entityId={selectedSprintId}
-              filenameLabel={selectedSprint?.name ?? selectedSprintId ?? "sprint"}
+              entityId={selectedScopedSprintId}
+              filenameLabel={selectedSprint?.name ?? selectedScopedSprintId ?? "sprint"}
             />
           </div>
         </section>
@@ -1471,7 +1513,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
               <select
                 id="sprint-selector"
                 className="select-input"
-                value={selectedSprintId ?? ""}
+                value={selectedScopedSprintId ?? ""}
                 disabled={isLoadingList || options.length === 0}
                 onChange={(event) => setSelectedSprintId(event.target.value || null)}
               >
@@ -1507,7 +1549,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
               <button
                 type="button"
                 className="primary-button"
-                disabled={!selectedSprintId || isRecomputing}
+                disabled={!selectedScopedSprintId || isRecomputing}
                 onClick={handleRecomputeSprint}
               >
                 {isRecomputing ? "Recomputing..." : "Recompute Sprint"}
@@ -1539,8 +1581,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         </div>
         {isTicketSituationExpanded ? (
           <>
-            {!selectedSprintId ? <p className="muted">Select a sprint to view issues.</p> : null}
-            {selectedSprintId && !isLoadingDetails && issues.length === 0 ? (
+            {!selectedScopedSprintId ? <p className="muted">Select a sprint to view issues.</p> : null}
+            {selectedScopedSprintId && !isLoadingDetails && issues.length === 0 ? (
               <p className="muted">No issues linked to this sprint.</p>
             ) : null}
             {issues.length > 0 ? (

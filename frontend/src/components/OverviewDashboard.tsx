@@ -424,30 +424,6 @@ export function OverviewDashboard({
         </button>
       </section>
 
-      <section className="overview-card">
-        <p className="overview-card-kicker">Active Sprint</p>
-        {isLoadingSprint ? <p className="muted">Loading active sprint...</p> : null}
-        {sprintError ? <p className="error-text">{sprintError}</p> : null}
-        {!isLoadingSprint && !sprintError ? (
-          <>
-            <h2>{currentSprint?.name ?? "No active sprint"}</h2>
-            <p className="overview-copy">{sprintSnapshotStatus(currentSprint, currentSprintMetrics)}</p>
-            {currentSprint ? (
-              <dl className="confidence-inputs">
-                <dt>Project</dt>
-                <dd>{currentSprint.project_key}</dd>
-                <dt>State</dt>
-                <dd>{currentSprint.state}</dd>
-                <dt>End</dt>
-                <dd>{formatDate(currentSprint.end_date)}</dd>
-                <dt>Delivery confidence</dt>
-                <dd>{formatPercentage(currentSprintMetrics?.metrics.delivery_confidence_score)}</dd>
-              </dl>
-            ) : null}
-          </>
-        ) : null}
-      </section>
-
       <section className="overview-card risk-aging-card">
         <p className="overview-card-kicker">Risk Aging</p>
         <div className="overview-aging-grid">
@@ -483,6 +459,30 @@ export function OverviewDashboard({
           <p className="muted">No additional warnings.</p>
         )}
         <p className="overview-footnote">Addressing these warnings will improve stability.</p>
+      </section>
+
+      <section className="overview-card active-sprint-card">
+        <p className="overview-card-kicker">Active Sprint</p>
+        {isLoadingSprint ? <p className="muted">Loading active sprint...</p> : null}
+        {sprintError ? <p className="error-text">{sprintError}</p> : null}
+        {!isLoadingSprint && !sprintError ? (
+          <>
+            <h2>{currentSprint?.name ?? "No active sprint"}</h2>
+            <p className="overview-copy">{sprintSnapshotStatus(currentSprint, currentSprintMetrics)}</p>
+            {currentSprint ? (
+              <dl className="confidence-inputs">
+                <dt>Project</dt>
+                <dd>{currentSprint.project_key}</dd>
+                <dt>State</dt>
+                <dd>{currentSprint.state}</dd>
+                <dt>End</dt>
+                <dd>{formatDate(currentSprint.end_date)}</dd>
+                <dt>Delivery confidence</dt>
+                <dd>{formatPercentage(currentSprintMetrics?.metrics.delivery_confidence_score)}</dd>
+              </dl>
+            ) : null}
+          </>
+        ) : null}
       </section>
     </>
   );

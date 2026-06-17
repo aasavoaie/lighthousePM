@@ -2237,15 +2237,16 @@ input {
 }
 
 .risk-aging-card {
-  grid-column: span 4;
-}
-
-.actions-card {
   grid-column: span 5;
 }
 
-.warnings-card {
-  grid-column: span 3;
+.actions-card {
+  grid-column: span 7;
+}
+
+.warnings-card,
+.active-sprint-card {
+  grid-column: span 6;
 }
 
 .overview-card-kicker {
@@ -2485,6 +2486,39 @@ input {
   padding: 0;
 }
 
+.active-sprint-card {
+  min-height: 245px;
+}
+
+.active-sprint-card h2 {
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+.active-sprint-card .overview-copy {
+  margin-top: 0;
+  min-height: 3rem;
+}
+
+.active-sprint-card .confidence-inputs {
+  grid-template-columns: minmax(92px, 0.85fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid #e3e6f0;
+}
+
+.active-sprint-card .confidence-inputs dt,
+.active-sprint-card .confidence-inputs dd {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.active-sprint-card .confidence-inputs dd {
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
 .overview-aging-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2680,14 +2714,12 @@ input {
   .readiness-card,
   .confidence-engine-card,
   .trend-card,
-  .prediction-card {
-    grid-column: span 6;
-  }
-
+  .prediction-card,
   .risk-aging-card,
   .actions-card,
-  .warnings-card {
-    grid-column: span 12;
+  .warnings-card,
+  .active-sprint-card {
+    grid-column: span 6;
   }
 }
 
@@ -2783,6 +2815,7 @@ input {
   .confidence-engine-card,
   .trend-card,
   .prediction-card,
+  .active-sprint-card,
   .risk-aging-card,
   .actions-card,
   .warnings-card {
@@ -2832,6 +2865,14 @@ input {
 
   .overview-aging-grid {
     grid-template-columns: 1fr;
+  }
+
+  .active-sprint-card .confidence-inputs {
+    grid-template-columns: 1fr;
+  }
+
+  .active-sprint-card .confidence-inputs dd {
+    text-align: left;
   }
 
   .overview-footnote {

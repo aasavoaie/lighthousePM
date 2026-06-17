@@ -20,7 +20,14 @@ import { ReleaseSelector } from "./components/ReleaseSelector";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
-import { getCurrentReleaseId, resolveSelectedReleaseId } from "./releaseSelection";
+import { getCurrentReleaseId } from "./releaseSelection";
+import {
+  getSelectedWorkspaceReleaseId,
+  getWorkspaceReleases,
+  normalizeProjectKey,
+  releaseBelongsToProject,
+  resolveWorkspaceReleaseId,
+} from "./workspaceContext";
 
 type AppTab =
   | "overview"
@@ -151,11 +158,6 @@ function isJiraConfigurationComplete(config: JiraConfigurationResponse) {
   return config.is_complete;
 }
 
-function normalizeProjectKey(projectKey: string | null | undefined) {
-  const normalized = projectKey?.trim().toUpperCase();
-  return normalized ? normalized : null;
-}
-
 export default function App() {
   const [releases, setReleases] = useState<Release[]>([]);
   const [activeProjectKey, setActiveProjectKey] = useState<string | null>(null);
@@ -220,22 +222,17 @@ export default function App() {
     };
   }, []);
 
-  const workspaceReleases = useMemo(() => {
-    if (!activeProjectKey) {
-      return releases;
-    }
-    return releases.filter((release) => normalizeProjectKey(release.project_key) === activeProjectKey);
-  }, [activeProjectKey, releases]);
+  const workspaceReleases = useMemo(
+    () => getWorkspaceReleases(releases, activeProjectKey),
+    [activeProjectKey, releases]
+  );
 
   const selectedWorkspaceReleaseId = useMemo(() => {
-    if (!selectedReleaseId) {
-      return null;
-    }
-    return workspaceReleases.some((release) => release.release_id === selectedReleaseId) ? selectedReleaseId : null;
+    return getSelectedWorkspaceReleaseId(workspaceReleases, selectedReleaseId);
   }, [selectedReleaseId, workspaceReleases]);
 
   useEffect(() => {
-    setSelectedReleaseId((current) => resolveSelectedReleaseId(workspaceReleases, current));
+    setSelectedReleaseId((current) => resolveWorkspaceReleaseId(workspaceReleases, current));
   }, [workspaceReleases]);
 
   useEffect(() => {
@@ -374,7 +371,7 @@ export default function App() {
         if (!isActive) {
           return;
         }
-        if (activeProjectKey && normalizeProjectKey(release.project_key) !== activeProjectKey) {
+        if (!releaseBelongsToProject(release, activeProjectKey)) {
           setSelectedRelease(null);
           setMetrics(null);
           setCharts(null);

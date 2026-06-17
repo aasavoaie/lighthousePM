@@ -281,7 +281,7 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
                 "score": 14.0,
                 "maxScore": 30.0,
                 "status": "critical",
-                "explanation": "Open blockers and red-level scope churn are reducing delivery confidence.",
+                "explanation": "Open blockers and Scope churn above the red threshold are reducing delivery confidence.",
             },
             {
                 "id": "quality",
