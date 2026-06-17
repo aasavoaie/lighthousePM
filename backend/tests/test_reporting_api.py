@@ -66,13 +66,13 @@ def client() -> Generator[TestClient, None, None]:
     yield from client_fixture()
 
 
-def _seed_release(session: Session, release_id: str = "REL-1") -> None:
+def _seed_release(session: Session, release_id: str = "REL-1", project_key: str = "LHPM") -> None:
     now = datetime.now(UTC)
     session.add(
         Release(
             release_id=release_id,
             name="Release 1",
-            project_key="LHPM",
+            project_key=project_key,
             description="Seed release",
             status="active",
             start_date=now - timedelta(days=10),
@@ -112,14 +112,14 @@ def _seed_release_snapshot(
     session.commit()
 
 
-def _seed_sprint(session: Session, sprint_id: str = "12") -> None:
+def _seed_sprint(session: Session, sprint_id: str = "12", project_key: str = "LHPM") -> None:
     now = datetime.now(UTC)
     session.add(
         Sprint(
             sprint_id=sprint_id,
-            name="Sprint 12",
+            name=f"Sprint {sprint_id}",
             state="active",
-            project_key="LHPM",
+            project_key=project_key,
             board_id="1",
             start_date=now - timedelta(days=2),
             end_date=now + timedelta(days=8),
@@ -506,7 +506,7 @@ def test_overview_template_matches_dashboard_sections_and_charts(client: TestCli
     assert document.title == "Overview Dashboard Report: Release 1"
     assert [section.title for section in document.sections] == [
         "Executive Summary",
-        "Portfolio Metrics",
+        "Project Portfolio Metrics",
         "Release Metrics",
         "Sprint Metrics",
         "Confidence Metrics",
@@ -526,6 +526,8 @@ def test_overview_template_matches_dashboard_sections_and_charts(client: TestCli
     )
     assert trends.charts[0].y_max == 100
     assert trends.charts[0].value_suffix == "%"
+    portfolio = next(section for section in document.sections if section.title == "Project Portfolio Metrics")
+    assert ("Project", "LHPM") in portfolio.rows
 
 
 def test_overview_report_export_endpoint_embeds_dashboard_chart_images(client: TestClient) -> None:
@@ -545,7 +547,7 @@ def test_overview_report_export_endpoint_embeds_dashboard_chart_images(client: T
     _assert_pdf(response.content)
     text = _pdf_text(response.content)
     assert "Overview Dashboard Report" in text
-    assert "Portfolio Metrics" in text
+    assert "Project Portfolio Metrics" in text
     assert "Release Metrics" in text
     assert "Sprint Metrics" in text
     assert "Confidence Metrics" in text
@@ -570,6 +572,108 @@ def test_overview_report_handles_empty_dashboard_dataset(client: TestClient) -> 
     text = _pdf_text(pdf)
     assert "Overview Dashboard Report" in text
     assert "Metrics have not been computed yet" in text
+    assert "No snapshot available yet" in text
     assert "No release metrics have been computed yet" in text
     assert "No active sprint is available" in text
     assert "No chart data available" in text
+
+
+def test_overview_template_uses_active_sprint_from_release_project_only(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-LHPM", project_key="LHPM")
+        _seed_release(session, release_id="REL-OTHER", project_key="OTHER")
+        _seed_sprint(session, sprint_id="99", project_key="OTHER")
+        _seed_sprint_snapshot(session, "99", now, 72.0)
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-LHPM")
+        assert release is not None
+
+        document = ReportTemplateEngine().build_overview_document(
+            session=session,
+            release=release,
+            generated_at=now,
+        )
+
+    executive = next(section for section in document.sections if section.title == "Executive Summary")
+    assert ("Current sprint", "No active sprint") in executive.rows
+    assert ("Latest sprint snapshot", "No sprint snapshot available yet.") in executive.rows
+    portfolio = next(section for section in document.sections if section.title == "Project Portfolio Metrics")
+    assert ("Project", "LHPM") in portfolio.rows
+    assert ("Total releases", "1") in portfolio.rows
+    assert ("Total sprints", "0") in portfolio.rows
+
+
+def test_overview_report_for_project_a_does_not_pull_project_b_active_sprint(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-A", project_key="PROJECTA")
+        _seed_release(session, release_id="REL-B", project_key="PROJECTB")
+        _seed_sprint(session, sprint_id="B-99", project_key="PROJECTB")
+        _seed_sprint_snapshot(session, "B-99", now, 72.0)
+
+        pdf = ReportingService().generate_overview_report(session=session, release_id="REL-A")
+
+    _assert_pdf(pdf)
+    text = _pdf_text(pdf)
+    assert "Overview Dashboard Report" in text
+    assert "PROJECTA" in text
+    assert "No active sprint" in text
+    assert "Sprint B-99" not in text
+    assert "72.0%" not in text
+
+
+def test_overview_template_portfolio_rows_are_scoped_for_same_release_names(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="LHPM-REL-1", project_key="LHPM")
+        _seed_release(session, release_id="OTHER-REL-1", project_key="OTHER")
+        _seed_sprint(session, sprint_id="12", project_key="LHPM")
+        _seed_sprint(session, sprint_id="99", project_key="OTHER")
+        _seed_sprint_snapshot(session, "12", now, 81.0)
+        _seed_sprint_snapshot(session, "99", now, 42.0)
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="LHPM-REL-1")
+        assert release is not None
+
+        document = ReportTemplateEngine().build_overview_document(
+            session=session,
+            release=release,
+            generated_at=now,
+        )
+
+    executive = next(section for section in document.sections if section.title == "Executive Summary")
+    assert ("Release", "Release 1") in executive.rows
+    assert ("Project", "LHPM") in executive.rows
+    assert ("Current sprint", "Sprint 12") in executive.rows
+    assert ("Latest sprint snapshot", f"{now.strftime('%Y-%m-%d %H:%M')} UTC") in executive.rows
+
+    portfolio = next(section for section in document.sections if section.title == "Project Portfolio Metrics")
+    assert ("Project", "LHPM") in portfolio.rows
+    assert ("Total releases", "1") in portfolio.rows
+    assert ("Active releases", "1") in portfolio.rows
+    assert ("Total sprints", "1") in portfolio.rows
+    assert ("Active sprints", "1") in portfolio.rows
+
+    sprint_metrics = next(section for section in document.sections if section.title == "Sprint Metrics")
+    assert ("Sprint", "Sprint 12") in sprint_metrics.rows
+    assert ("Delivery confidence", "81.0%") in sprint_metrics.rows
+
+
+def test_overview_template_reports_missing_active_sprint_snapshot(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session)
+        _seed_sprint(session, sprint_id="12", project_key="LHPM")
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
+        assert release is not None
+
+        document = ReportTemplateEngine().build_overview_document(
+            session=session,
+            release=release,
+            generated_at=now,
+        )
+
+    executive = next(section for section in document.sections if section.title == "Executive Summary")
+    assert ("Latest release snapshot", "No snapshot available yet.") in executive.rows
+    assert ("Latest sprint snapshot", "No sprint snapshot available yet.") in executive.rows
+    sprint_metrics = next(section for section in document.sections if section.title == "Sprint Metrics")
+    assert ("Status", "No sprint snapshot available yet.") in sprint_metrics.rows

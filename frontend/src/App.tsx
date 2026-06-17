@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "./api/client";
 import type {
@@ -20,7 +20,14 @@ import { ReleaseSelector } from "./components/ReleaseSelector";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SignalSummaryPanel } from "./components/SignalSummaryPanel";
 import { SprintsPanel } from "./components/SprintsPanel";
-import { getCurrentReleaseId, resolveSelectedReleaseId } from "./releaseSelection";
+import { getCurrentReleaseId } from "./releaseSelection";
+import {
+  getSelectedWorkspaceReleaseId,
+  getWorkspaceReleases,
+  normalizeProjectKey,
+  releaseBelongsToProject,
+  resolveWorkspaceReleaseId,
+} from "./workspaceContext";
 
 type AppTab =
   | "overview"
@@ -153,6 +160,8 @@ function isJiraConfigurationComplete(config: JiraConfigurationResponse) {
 
 export default function App() {
   const [releases, setReleases] = useState<Release[]>([]);
+  const [activeProjectKey, setActiveProjectKey] = useState<string | null>(null);
+  const [isProjectContextLoaded, setIsProjectContextLoaded] = useState(false);
   const [selectedReleaseId, setSelectedReleaseId] = useState<string | null>(null);
   const [selectedRelease, setSelectedRelease] = useState<Release | null>(null);
   const [metrics, setMetrics] = useState<ReleaseMetricsResponse | null>(null);
@@ -170,40 +179,83 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSyncingJira, setIsSyncingJira] = useState(false);
 
+  function applyActiveProjectKey(projectKey: string | null | undefined) {
+    const normalizedProjectKey = normalizeProjectKey(projectKey);
+    setActiveProjectKey(normalizedProjectKey);
+    setReleases([]);
+    setSelectedReleaseId(null);
+    setSelectedRelease(null);
+    setMetrics(null);
+    setCharts(null);
+    setSignal(null);
+    setFocusedReleaseMetricName(null);
+    setIsLoadingDetails(false);
+    setIsLoadingReleases(Boolean(normalizedProjectKey));
+  }
+
   useEffect(() => {
     let isActive = true;
 
-    async function loadJiraSetupState() {
+    async function loadProjectContext() {
       try {
         const config = await apiClient.getJiraConfiguration();
-        if (isActive && !isJiraConfigurationComplete(config)) {
+        if (!isActive) {
+          return;
+        }
+        applyActiveProjectKey(config.jira_project_key);
+        if (!isJiraConfigurationComplete(config)) {
           setSelectedTab("settings");
         }
       } catch {
         // Keep the dashboard usable if setup state cannot be loaded.
+      } finally {
+        if (isActive) {
+          setIsProjectContextLoaded(true);
+        }
       }
     }
 
-    void loadJiraSetupState();
+    void loadProjectContext();
 
     return () => {
       isActive = false;
     };
   }, []);
 
+  const workspaceReleases = useMemo(
+    () => getWorkspaceReleases(releases, activeProjectKey),
+    [activeProjectKey, releases]
+  );
+
+  const selectedWorkspaceReleaseId = useMemo(() => {
+    return getSelectedWorkspaceReleaseId(workspaceReleases, selectedReleaseId);
+  }, [selectedReleaseId, workspaceReleases]);
+
+  useEffect(() => {
+    setSelectedReleaseId((current) => resolveWorkspaceReleaseId(workspaceReleases, current));
+  }, [workspaceReleases]);
+
   useEffect(() => {
     let isActive = true;
 
     async function loadReleases() {
+      if (!isProjectContextLoaded) {
+        return;
+      }
+      if (!activeProjectKey) {
+        setReleases([]);
+        setIsLoadingReleases(false);
+        return;
+      }
+
       setIsLoadingReleases(true);
       setErrorMessage(null);
       try {
-        const response = await apiClient.getReleases();
+        const response = await apiClient.getReleases(activeProjectKey);
         if (!isActive) {
           return;
         }
         setReleases(response.items);
-        setSelectedReleaseId((current) => resolveSelectedReleaseId(response.items, current));
       } catch (error) {
         if (!isActive) {
           return;
@@ -221,7 +273,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [dashboardRefreshNonce]);
+  }, [activeProjectKey, dashboardRefreshNonce, isProjectContextLoaded]);
 
   async function handleRecomputeAll() {
     if (releases.length === 0 || isRecomputingAll) {
@@ -295,7 +347,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!selectedReleaseId) {
+    if (!selectedWorkspaceReleaseId) {
       setSelectedRelease(null);
       setMetrics(null);
       setCharts(null);
@@ -303,7 +355,7 @@ export default function App() {
       return;
     }
 
-    const currentReleaseId = selectedReleaseId;
+    const currentReleaseId = selectedWorkspaceReleaseId;
     let isActive = true;
 
     async function loadReleaseDashboard() {
@@ -317,6 +369,13 @@ export default function App() {
           apiClient.getSignal(currentReleaseId),
         ]);
         if (!isActive) {
+          return;
+        }
+        if (!releaseBelongsToProject(release, activeProjectKey)) {
+          setSelectedRelease(null);
+          setMetrics(null);
+          setCharts(null);
+          setSignal(null);
           return;
         }
         setSelectedRelease(release);
@@ -340,7 +399,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [selectedReleaseId, dashboardRefreshNonce]);
+  }, [activeProjectKey, selectedWorkspaceReleaseId, dashboardRefreshNonce]);
 
   useEffect(() => {
     if (selectedTab !== "release-command" || !focusedReleaseMetricName) {
@@ -357,7 +416,15 @@ export default function App() {
     return () => window.clearTimeout(timeoutId);
   }, [focusedReleaseMetricName, selectedTab]);
 
-  const currentReleaseId = getCurrentReleaseId(releases);
+  function handleConfigurationSaved(config: JiraConfigurationResponse) {
+    applyActiveProjectKey(config.jira_project_key);
+    setDashboardRefreshNonce((current) => current + 1);
+    if (isJiraConfigurationComplete(config)) {
+      setErrorMessage(null);
+    }
+  }
+
+  const currentReleaseId = getCurrentReleaseId(workspaceReleases);
   const showReleaseControls =
     selectedTab === "overview" || selectedTab === "release-command" || selectedTab === "release-reports";
   const workspaceContent = tabContent[selectedTab];
@@ -472,12 +539,12 @@ export default function App() {
               <label className="workspace-release-select">
                 <span>Release:</span>
                 <select
-                  disabled={isLoadingReleases || releases.length === 0 || isNavigationLocked}
-                  value={selectedReleaseId ?? ""}
+                  disabled={isLoadingReleases || workspaceReleases.length === 0 || isNavigationLocked}
+                  value={selectedWorkspaceReleaseId ?? ""}
                   onChange={(event) => setSelectedReleaseId(event.target.value)}
                 >
-                  {releases.length === 0 ? <option value="">No releases</option> : null}
-                  {releases.map((release) => (
+                  {workspaceReleases.length === 0 ? <option value="">No releases</option> : null}
+                  {workspaceReleases.map((release) => (
                     <option key={release.release_id} value={release.release_id}>
                       {release.release_id === currentReleaseId ? `${release.name}` : `${release.name}`}
                     </option>
@@ -502,7 +569,7 @@ export default function App() {
             : null}
 
           {!isLoadingReleases &&
-          releases.length === 0 &&
+          workspaceReleases.length === 0 &&
           (selectedTab === "overview" || selectedTab === "release-command" || selectedTab === "release-reports") ? (
             <section className="panel empty-panel">
               <h2>No releases</h2>
@@ -510,7 +577,7 @@ export default function App() {
             </section>
           ) : null}
 
-          {selectedReleaseId && selectedTab === "overview" ? (
+          {selectedWorkspaceReleaseId && selectedTab === "overview" ? (
             <>
               <section className="panel report-export-panel overview-export-panel">
                 <div className="panel-heading">
@@ -519,16 +586,18 @@ export default function App() {
                   </div>
                   <ReportExportActions
                     entity="overview"
-                    entityId={selectedReleaseId}
-                    filenameLabel={selectedRelease?.name ?? selectedReleaseId}
+                    entityId={selectedWorkspaceReleaseId}
+                    filenameLabel={selectedRelease?.name ?? selectedWorkspaceReleaseId}
                   />
                 </div>
               </section>
               <OverviewDashboard
+                projectKey={activeProjectKey}
                 release={selectedRelease}
                 metrics={metrics}
                 charts={charts}
                 signal={signal}
+                refreshNonce={dashboardRefreshNonce}
                 isLoading={isLoadingDetails}
                 onOpenReports={() => requestTabChange("release-reports")}
                 onOpenReleaseMetric={handleOpenReleaseMetric}
@@ -536,7 +605,7 @@ export default function App() {
             </>
           ) : null}
 
-        {selectedReleaseId && selectedTab === "release-command" ? (
+        {selectedWorkspaceReleaseId && selectedTab === "release-command" ? (
           <>
             <section className="panel report-export-panel">
               <div className="panel-heading">
@@ -545,20 +614,21 @@ export default function App() {
                 </div>
                 <ReportExportActions
                   entity="release"
-                  entityId={selectedReleaseId}
-                  filenameLabel={selectedRelease?.name ?? selectedReleaseId}
+                  entityId={selectedWorkspaceReleaseId}
+                  filenameLabel={selectedRelease?.name ?? selectedWorkspaceReleaseId}
                 />
                 <ReportExportActions
                   entity="overview"
-                  entityId={selectedReleaseId}
-                  filenameLabel={selectedRelease?.name ?? selectedReleaseId}
+                  entityId={selectedWorkspaceReleaseId}
+                  filenameLabel={selectedRelease?.name ?? selectedWorkspaceReleaseId}
                 />
               </div>
             </section>
             <SignalSummaryPanel
               signal={signal}
               isLoading={isLoadingDetails}
-              releases={releases}
+              releases={workspaceReleases}
+              selectedProjectKey={activeProjectKey}
               refreshNonce={dashboardRefreshNonce}
             />
             <MetricsPanel
@@ -574,17 +644,17 @@ export default function App() {
         {selectedTab === "release-command" ? (
           <>
             <ReleaseSelector
-              releases={releases}
-              selectedReleaseId={selectedReleaseId}
+              releases={workspaceReleases}
+              selectedReleaseId={selectedWorkspaceReleaseId}
               selectedRelease={selectedRelease}
               isLoading={isLoadingReleases}
               isRecomputing={isRecomputingRelease}
               onChange={setSelectedReleaseId}
               onRecompute={handleRecomputeRelease}
             />
-            {selectedReleaseId ? (
+            {selectedWorkspaceReleaseId ? (
               <IssuesPanel
-                releaseId={selectedReleaseId}
+                releaseId={selectedWorkspaceReleaseId}
                 refreshNonce={dashboardRefreshNonce}
                 onSelectIssue={setSelectedIssueKey}
               />
@@ -592,19 +662,20 @@ export default function App() {
           </>
         ) : null}
 
-        {selectedReleaseId && selectedTab === "release-reports" ? (
+        {selectedWorkspaceReleaseId && selectedTab === "release-reports" ? (
           <>
             <ChartsPanel
               charts={charts}
               signal={signal}
               metrics={metrics}
-              releases={releases}
+              releases={workspaceReleases}
+              selectedProjectKey={activeProjectKey}
               selectedReleaseName={selectedRelease?.name ?? null}
               refreshNonce={dashboardRefreshNonce}
               isLoading={isLoadingDetails}
             />
             <IssuesPanel
-              releaseId={selectedReleaseId}
+              releaseId={selectedWorkspaceReleaseId}
               refreshNonce={dashboardRefreshNonce}
               onSelectIssue={setSelectedIssueKey}
             />
@@ -612,11 +683,21 @@ export default function App() {
         ) : null}
 
         {selectedTab === "sprint-intelligence" ? (
-          <SprintsPanel refreshNonce={dashboardRefreshNonce} onSelectIssue={setSelectedIssueKey} mode="intelligence" />
+          <SprintsPanel
+            refreshNonce={dashboardRefreshNonce}
+            onSelectIssue={setSelectedIssueKey}
+            mode="intelligence"
+            projectKey={activeProjectKey}
+          />
         ) : null}
 
         {selectedTab === "sprint-reports" ? (
-          <SprintsPanel refreshNonce={dashboardRefreshNonce} onSelectIssue={setSelectedIssueKey} mode="reports" />
+          <SprintsPanel
+            refreshNonce={dashboardRefreshNonce}
+            onSelectIssue={setSelectedIssueKey}
+            mode="reports"
+            projectKey={activeProjectKey}
+          />
         ) : null}
 
         {selectedTab === "admin" ? (
@@ -630,13 +711,7 @@ export default function App() {
         ) : null}
 
         {selectedTab === "settings" ? (
-          <SettingsPanel
-            onConfigurationSaved={(config) => {
-              if (isJiraConfigurationComplete(config)) {
-                setErrorMessage(null);
-              }
-            }}
-          />
+          <SettingsPanel onConfigurationSaved={handleConfigurationSaved} />
         ) : null}
 
         {selectedTab === "about" ? renderAboutPanel() : null}

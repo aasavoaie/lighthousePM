@@ -155,7 +155,7 @@ class ConfidenceBreakdownService:
         churn_yellow_pct = SCOPE_CHURN_YELLOW_THRESHOLD * 100
         churn_red_pct = SCOPE_CHURN_RED_THRESHOLD * 100
         if snapshot.open_blockers > OPEN_BLOCKERS_RED_THRESHOLD and snapshot.scope_churn_7d_pct > churn_red_pct:
-            return "Open blockers and red-level scope churn are reducing delivery confidence."
+            return "Open blockers and Scope churn above the red threshold are reducing delivery confidence."
         if snapshot.open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
             return "Open blockers reduce delivery confidence because blocked work can delay release completion."
         if snapshot.scope_churn_7d_pct > churn_red_pct:

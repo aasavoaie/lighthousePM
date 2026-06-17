@@ -15,6 +15,7 @@ class SprintRepository:
         skip: int,
         limit: int,
         state: str | None = None,
+        project_key: str | None = None,
     ) -> tuple[list[Sprint], int]:
         query = select(Sprint)
         count_query = select(func.count()).select_from(Sprint)
@@ -22,6 +23,10 @@ class SprintRepository:
             normalized_state = state.casefold()
             query = query.where(func.lower(Sprint.state) == normalized_state)
             count_query = count_query.where(func.lower(Sprint.state) == normalized_state)
+        if project_key is not None:
+            normalized_project_key = project_key.upper()
+            query = query.where(func.upper(Sprint.project_key) == normalized_project_key)
+            count_query = count_query.where(func.upper(Sprint.project_key) == normalized_project_key)
 
         total = session.scalar(count_query) or 0
         query = (
@@ -36,13 +41,15 @@ class SprintRepository:
         return session.scalar(select(Sprint).where(Sprint.sprint_id == sprint_id))
 
     @staticmethod
-    def get_current_sprint(session: Session) -> Sprint | None:
+    def get_current_sprint(session: Session, project_key: str | None = None) -> Sprint | None:
         query = (
             select(Sprint)
             .where(func.lower(Sprint.state) == "active")
             .order_by(Sprint.start_date.desc().nullslast(), Sprint.sprint_id)
-            .limit(1)
         )
+        if project_key is not None:
+            query = query.where(func.upper(Sprint.project_key) == project_key.upper())
+        query = query.limit(1)
         return session.scalar(query)
 
     @staticmethod

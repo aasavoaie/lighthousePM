@@ -12,11 +12,13 @@ import type {
 } from "../api/types";
 import { BiggestDriverCard } from "./BiggestDriverCard";
 import { ConfidenceBreakdownCard } from "./ConfidenceBreakdownCard";
+import { getRecentProjectReleases } from "../releaseScope";
 
 interface SignalSummaryPanelProps {
   signal: ReleaseSignalResponse | null;
   isLoading: boolean;
   releases: Release[];
+  selectedProjectKey: string | null;
   refreshNonce: number;
 }
 
@@ -168,19 +170,6 @@ function renderLast24HoursItem(item: SignalLast24HoursItem) {
   );
 }
 
-function releaseSortTime(release: Release) {
-  const primaryDate = release.release_date ?? release.created_at;
-  const parsed = Date.parse(primaryDate);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getRecentReleases(releases: Release[]) {
-  return [...releases]
-    .sort((left, right) => releaseSortTime(right) - releaseSortTime(left))
-    .slice(0, 3)
-    .reverse();
-}
-
 function signalHealthScore(signalValue: string): number | null {
   if (signalValue === "GREEN") {
     return 3;
@@ -304,8 +293,11 @@ function renderWarningsSection(signal: ReleaseSignalResponse) {
   );
 }
 
-export function SignalSummaryPanel({ signal, isLoading, releases, refreshNonce }: SignalSummaryPanelProps) {
-  const recentReleases = useMemo(() => getRecentReleases(releases), [releases]);
+export function SignalSummaryPanel({ signal, isLoading, releases, selectedProjectKey, refreshNonce }: SignalSummaryPanelProps) {
+  const recentReleases = useMemo(
+    () => getRecentProjectReleases(releases, selectedProjectKey, 3),
+    [releases, selectedProjectKey]
+  );
   const riskAgingIssueKeys = useMemo(() => {
     if (!signal) {
       return [];

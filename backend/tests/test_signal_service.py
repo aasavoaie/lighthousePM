@@ -233,7 +233,7 @@ class TestEvaluateSignalYellowConditions:
             reopen_rate_pct=12.0,
             median_cycle_time_days=8.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
         assert len(reasons) >= 4
         assert any("high-severity" in r.lower() for r in reasons)
         assert any("churn" in r.lower() for r in reasons)

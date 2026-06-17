@@ -51,6 +51,7 @@ def _seed_sprint(
     state: str,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    project_key: str = "LHPM",
 ) -> None:
     now = datetime.now(UTC)
     session.add(
@@ -58,7 +59,7 @@ def _seed_sprint(
             sprint_id=sprint_id,
             name=f"Sprint {sprint_id}",
             state=state,
-            project_key="LHPM",
+            project_key=project_key,
             board_id="1",
             start_date=start_date or now,
             end_date=end_date or now,
@@ -148,6 +149,20 @@ def test_get_current_sprint_returns_active_sprint(client: TestClient) -> None:
     assert response.json()["item"]["sprint_id"] == "12"
 
 
+def test_get_current_sprint_filters_by_project_key(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active", start_date=now - timedelta(days=2), project_key="LHPM")
+        _seed_sprint(session, "99", "active", start_date=now, project_key="OTHER")
+
+    response = client.get("/sprints/current?project_key=LHPM")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["item"]["sprint_id"] == "12"
+    assert payload["item"]["project_key"] == "LHPM"
+
+
 def test_get_closed_sprints_filters_by_state(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_sprint(session, "11", "closed")
@@ -159,6 +174,20 @@ def test_get_closed_sprints_filters_by_state(client: TestClient) -> None:
     payload = response.json()
     assert payload["total"] == 1
     assert payload["items"][0]["sprint_id"] == "11"
+
+
+def test_get_sprints_filters_by_project_key(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "11", "closed", project_key="LHPM")
+        _seed_sprint(session, "99", "closed", project_key="OTHER")
+
+    response = client.get("/sprints?state=closed&project_key=LHPM")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["sprint_id"] == "11"
+    assert payload["items"][0]["project_key"] == "LHPM"
 
 
 def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:

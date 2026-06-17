@@ -154,11 +154,18 @@ def _build_sprint_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
 @router.get("", response_model=SprintListResponse)
 def get_sprints(
     state: str | None = Query(default=None, pattern="^(active|closed|future)$"),
+    project_key: str | None = Query(default=None, min_length=1),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     session: Session = Depends(get_db_session),
 ) -> SprintListResponse:
-    sprints, total = SprintRepository.list_sprints(session=session, state=state, skip=skip, limit=limit)
+    sprints, total = SprintRepository.list_sprints(
+        session=session,
+        state=state,
+        project_key=project_key,
+        skip=skip,
+        limit=limit,
+    )
     return SprintListResponse(
         items=[SprintResponse.model_validate(sprint, from_attributes=True) for sprint in sprints],
         skip=skip,
@@ -168,8 +175,11 @@ def get_sprints(
 
 
 @router.get("/current", response_model=CurrentSprintResponse)
-def get_current_sprint(session: Session = Depends(get_db_session)) -> CurrentSprintResponse:
-    sprint = SprintRepository.get_current_sprint(session=session)
+def get_current_sprint(
+    project_key: str | None = Query(default=None, min_length=1),
+    session: Session = Depends(get_db_session),
+) -> CurrentSprintResponse:
+    sprint = SprintRepository.get_current_sprint(session=session, project_key=project_key)
     if sprint is None:
         return CurrentSprintResponse(item=None)
     return CurrentSprintResponse(item=SprintResponse.model_validate(sprint, from_attributes=True))

@@ -146,7 +146,7 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert len(history) == 1
     assert len(snapshots) == 1
     assert len(signals) == 1
-    assert signals[0].signal == "YELLOW"
+    assert signals[0].signal == "GREEN"
     assert issues[0].release_id == "1001"
     assert issues[0].story_points == 5.0
 

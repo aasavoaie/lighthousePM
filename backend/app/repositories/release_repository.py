@@ -8,9 +8,21 @@ class ReleaseRepository:
     """Read-only queries for release resources."""
 
     @staticmethod
-    def list_releases(session: Session, skip: int, limit: int) -> tuple[list[Release], int]:
-        total = session.scalar(select(func.count()).select_from(Release)) or 0
-        query = select(Release).order_by(Release.release_id).offset(skip).limit(limit)
+    def list_releases(
+        session: Session,
+        skip: int,
+        limit: int,
+        project_key: str | None = None,
+    ) -> tuple[list[Release], int]:
+        query = select(Release)
+        count_query = select(func.count()).select_from(Release)
+        if project_key is not None:
+            normalized_project_key = project_key.upper()
+            query = query.where(func.upper(Release.project_key) == normalized_project_key)
+            count_query = count_query.where(func.upper(Release.project_key) == normalized_project_key)
+
+        total = session.scalar(count_query) or 0
+        query = query.order_by(Release.release_id).offset(skip).limit(limit)
         releases = list(session.scalars(query).all())
         return releases, int(total)
 
