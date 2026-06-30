@@ -1,10 +1,14 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.availability import MetricAvailability
 from app.schemas.confidence import ConfidenceBreakdown
 from app.schemas.drivers import DriverAnalysis
 from app.schemas.recommendations import RecommendationAction
+
+ComputationStatus = Literal["COMPUTED", "PARTIAL", "NOT_COMPUTED"]
 
 
 class SprintResponse(BaseModel):
@@ -97,9 +101,12 @@ class DeliveryConfidenceDetail(BaseModel):
 class SprintMetricsResponse(BaseModel):
     sprint_id: str
     snapshot_at: datetime | None
+    computation_status: ComputationStatus
+    unavailable_reason: str | None
     metrics: SprintMetricValues
     metric_issue_keys: SprintMetricIssueKeys
     metric_names: list[str]
+    metric_availability: MetricAvailability
     delivery_confidence: DeliveryConfidenceDetail | None
     confidence_breakdown: ConfidenceBreakdown | None
     biggest_driver: DriverAnalysis | None

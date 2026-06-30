@@ -53,6 +53,33 @@ def _build_thresholds() -> SignalThresholds:
     )
 
 
+def _not_computed_signal_response(
+    release_id: str,
+    summary: str,
+    reasons: list[str],
+    updated_at=None,
+) -> ReleaseSignalResponse:
+    return ReleaseSignalResponse(
+        release_id=release_id,
+        signal=None,
+        status_label="NOT COMPUTED",
+        confidence_score=None,
+        confidence_breakdown=None,
+        biggest_driver=None,
+        summary=summary,
+        reasons=reasons,
+        reason_details=[],
+        release_gates=[],
+        critical_risks=[],
+        warnings=[],
+        primary_risk=None,
+        risk_aging=_empty_risk_aging(),
+        last_24_hours=_empty_last_24_hours(),
+        thresholds=_build_thresholds(),
+        updated_at=updated_at,
+    )
+
+
 @router.get("/{release_id}/signal", response_model=ReleaseSignalResponse)
 def get_release_signal(
     release_id: str,
@@ -63,21 +90,20 @@ def get_release_signal(
         raise HTTPException(status_code=404, detail=f"Release '{release_id}' not found")
 
     signal_row = SignalRepository.get_latest_signal(session=session, release_id=release_id)
-    if signal_row is None:
-        return ReleaseSignalResponse(
+    if ReleaseRepository.count_release_issues(session=session, release_id=release_id) == 0:
+        reasons = signal_row.reasons if signal_row is not None else ["No tickets are assigned to this release."]
+        return _not_computed_signal_response(
             release_id=release_id,
-            signal=None,
-            status_label="NOT COMPUTED",
-            confidence_score=None,
-            confidence_breakdown=None,
-            biggest_driver=None,
+            summary="Release signal is not computed because no tickets are assigned to this release.",
+            reasons=reasons,
+            updated_at=signal_row.updated_at if signal_row is not None else None,
+        )
+
+    if signal_row is None:
+        return _not_computed_signal_response(
+            release_id=release_id,
             summary="Signal has not been computed yet for this release snapshot.",
             reasons=[],
-            reason_details=[],
-            risk_aging=_empty_risk_aging(),
-            last_24_hours=_empty_last_24_hours(),
-            thresholds=_build_thresholds(),
-            updated_at=None,
         )
 
     reason_details: list[SignalReasonDetail] = []

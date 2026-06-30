@@ -158,8 +158,8 @@ def test_get_release_signal_empty_state_when_not_computed(client: TestClient) ->
         "confidence_score": None,
         "confidence_breakdown": None,
         "biggest_driver": None,
-        "summary": "Signal has not been computed yet for this release snapshot.",
-        "reasons": [],
+        "summary": "Release signal is not computed because no tickets are assigned to this release.",
+        "reasons": ["No tickets are assigned to this release."],
         "reason_details": [],
         "release_gates": [],
         "critical_risks": [],
@@ -240,6 +240,7 @@ def test_get_release_signal_after_metrics_recompute_uses_confidence_band(client:
 def test_get_release_signal_after_metrics_recompute_returns_green(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")
+        _seed_issue(session, "LHPM-1", "REL-1", "Done", is_blocker=False, issue_type="Story", priority="Medium")
         _seed_snapshot(
             session,
             release_id="REL-1",
@@ -429,6 +430,7 @@ def test_get_release_signal_returns_last_24_hours_deltas(client: TestClient) -> 
     baseline_at = latest_at - timedelta(hours=25)
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")
+        _seed_issue(session, "LHPM-1", "REL-1", "Done", is_blocker=False, issue_type="Story", priority="Medium")
         _seed_snapshot(
             session,
             release_id="REL-1",

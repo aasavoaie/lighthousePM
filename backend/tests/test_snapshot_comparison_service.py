@@ -97,3 +97,13 @@ def test_sprint_comparison_uses_delivery_confidence_component_weights() -> None:
     assert comparison.contributors[0].metric == "progress_alignment"
     assert comparison.contributors[0].impact == 8.0
     assert any(item.metric == "reopen_rate_pct" and item.impact == 0.0 for item in comparison.contributors)
+
+
+def test_sprint_comparison_keeps_confidence_delta_unavailable_when_confidence_is_missing() -> None:
+    previous = _sprint_snapshot(delivery_confidence_score=None, delivery_confidence_components=None)
+    current = _sprint_snapshot(delivery_confidence_score=None, delivery_confidence_components=None)
+
+    comparison = SnapshotComparisonService.compare_sprint_snapshots(current, previous)
+
+    assert comparison.confidence_delta is None
+    assert comparison.contributors == []

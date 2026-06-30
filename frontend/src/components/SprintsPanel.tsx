@@ -38,12 +38,16 @@ import {
   buildPredictabilityDisplayModel,
   buildScopeCreepDisplayModel,
   buildSprintWorkStateDisplayModel,
+  buildSprintStoryPointUiVisibility,
   buildVelocityHealthDisplayModel,
   buildWorkDistributionDisplayModel,
   formatPercent,
   generateFocusAreas,
   getGroupSummary,
   getMetricStatus,
+  getSprintMetricAvailabilityReason,
+  getSprintMetricUnavailableBadge,
+  getSprintStoryPointUnavailableReason,
   type MetricEvaluation,
 } from "./sprintMetrics";
 import {
@@ -602,9 +606,14 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
       })),
     [sprintChartRows]
   );
+  const storyPointUi = buildSprintStoryPointUiVisibility(metrics);
+  const storyPointUnavailableReason = getSprintStoryPointUnavailableReason(metrics);
+  const storyPointUnavailableMessage = `Story-point metrics are unavailable. ${storyPointUnavailableReason}`;
+  const hasStoryPointMetrics = storyPointUi.hasStoryPointMetrics;
   const predictabilityRows = useMemo(
     () =>
-      sprintCommitmentReliabilityRows
+      hasStoryPointMetrics
+        ? sprintCommitmentReliabilityRows
         .filter(
           (
             row
@@ -619,28 +628,32 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
           committed_story_points: row.committed_story_points,
           completed_story_points: row.completed_story_points,
           is_not_closed: row.is_not_closed,
-        })),
-    [sprintCommitmentReliabilityRows]
+        }))
+        : [],
+    [hasStoryPointMetrics, sprintCommitmentReliabilityRows]
   );
   const predictabilityCard = useMemo(
-    () => buildPredictabilityDisplayModel(predictabilityRows),
-    [predictabilityRows]
+    () => (storyPointUi.showTeamPredictability ? buildPredictabilityDisplayModel(predictabilityRows) : null),
+    [storyPointUi.showTeamPredictability, predictabilityRows]
   );
   const workDistributionCard = useMemo(() => buildWorkDistributionDisplayModel(issues), [issues]);
   const sprintWorkStateCard = useMemo(
     () => (metrics ? buildSprintWorkStateDisplayModel(metrics.metrics, issues) : null),
     [metrics, issues]
   );
+  const deliveryConfidence = storyPointUi.showPointValues ? metrics?.delivery_confidence ?? null : null;
+  const confidenceBreakdown = storyPointUi.showDeliveryConfidenceBreakdown ? metrics?.confidence_breakdown ?? null : null;
+  const biggestDeliveryDriver = hasStoryPointMetrics ? metrics?.biggest_driver ?? null : null;
   const scopeCreepCard = useMemo(
-    () => (metrics?.delivery_confidence ? buildScopeCreepDisplayModel(metrics.delivery_confidence) : null),
-    [metrics?.delivery_confidence]
+    () => (deliveryConfidence ? buildScopeCreepDisplayModel(deliveryConfidence) : null),
+    [deliveryConfidence]
   );
   const velocityHealthCard = useMemo(
-    () => (metrics?.delivery_confidence ? buildVelocityHealthDisplayModel(metrics.delivery_confidence) : null),
-    [metrics?.delivery_confidence]
+    () => (deliveryConfidence && storyPointUi.showVelocityHealth ? buildVelocityHealthDisplayModel(deliveryConfidence) : null),
+    [deliveryConfidence, storyPointUi.showVelocityHealth]
   );
-  const deliveryConfidenceStatus = metrics?.delivery_confidence
-    ? getConfidenceStatus(metrics.delivery_confidence.score)
+  const deliveryConfidenceStatus = deliveryConfidence
+    ? getConfidenceStatus(deliveryConfidence.score)
     : null;
   const metricEvaluations = useMemo(() => {
     if (!metrics) {
@@ -648,9 +661,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     }
     const evaluations: MetricEvaluation[] = [];
     if (scopeCreepCard) {
-      const value = metrics.delivery_confidence?.inputs.scope_stability_index === null || !metrics.delivery_confidence
+      const value = deliveryConfidence?.inputs.scope_stability_index === null || !deliveryConfidence
         ? null
-        : Number((metrics.delivery_confidence.inputs.scope_stability_index * 100).toFixed(2));
+        : Number((deliveryConfidence.inputs.scope_stability_index * 100).toFixed(2));
       evaluations.push({
         key: "scope_creep",
         label: "Scope creep",
@@ -662,8 +675,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
       });
     }
     if (velocityHealthCard) {
-      const average = metrics.delivery_confidence?.inputs.historical_velocity;
-      const completed = metrics.delivery_confidence?.inputs.completed_effective_points;
+      const average = deliveryConfidence?.inputs.historical_velocity;
+      const completed = deliveryConfidence?.inputs.completed_effective_points;
       const value = average && average > 0 && completed !== undefined ? Number(((completed / average) * 100).toFixed(0)) : null;
       evaluations.push({
         key: "velocity_health",
@@ -705,25 +718,25 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
       });
     }
     return evaluations;
-  }, [metrics, predictabilityCard, scopeCreepCard, velocityHealthCard, workDistributionCard]);
+  }, [deliveryConfidence, metrics, predictabilityCard, scopeCreepCard, velocityHealthCard, workDistributionCard]);
   const focusAreas = useMemo(() => generateFocusAreas(metricEvaluations), [metricEvaluations]);
   const riskHeatmapCells = useMemo(() => buildRiskHeatmapRows(sprintChartRows), [sprintChartRows]);
   const latestConfidenceDelta = sprintConfidenceRows.length > 1
     ? sprintConfidenceRows[sprintConfidenceRows.length - 1].confidence_delta
     : null;
-  const hasConfidenceTrend = hasChartData(sprintChartRows, ["delivery_confidence"]);
-  const hasConfidenceBreakdown = hasChartData(sprintChartRows, [
+  const hasConfidenceTrend = storyPointUi.showDeliveryConfidenceTrend && hasChartData(sprintChartRows, ["delivery_confidence"]);
+  const hasConfidenceBreakdown = storyPointUi.showDeliveryConfidenceBreakdown && hasChartData(sprintChartRows, [
     "progress_alignment",
     "velocity_fit",
     "scope_stability",
     "blocker_health",
   ]);
-  const hasCommitmentTrend = hasChartData(sprintCommitmentReliabilityRows, [
+  const hasCommitmentTrend = storyPointUi.showCommitmentReliability && hasChartData(sprintCommitmentReliabilityRows, [
     "committed_story_points",
     "completed_story_points",
   ]);
-  const hasReliabilityTrend = hasChartData(sprintCommitmentReliabilityRows, ["reliability_pct"]);
-  const hasPredictabilityTrend = sprintCommitmentReliabilityRows.some((row) => row.predictability_avg !== null);
+  const hasReliabilityTrend = storyPointUi.showCommitmentReliability && hasChartData(sprintCommitmentReliabilityRows, ["reliability_pct"]);
+  const hasPredictabilityTrend = storyPointUi.showTeamPredictability && sprintCommitmentReliabilityRows.some((row) => row.predictability_avg !== null);
   const hasScopeTrend = hasChartData(sprintChartRows, ["scope_change_count", "scope_creep_pct"]);
   const hasQualityCountTrend = hasChartData(sprintChartRows, [
     "open_high_severity_bugs",
@@ -768,16 +781,21 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
       return null;
     }
     const value = metrics.metrics[metricName];
-    const status = getMetricStatus(metricName, value);
+    const unavailableReason = getSprintMetricAvailabilityReason(metrics, metricName);
+    const unavailableBadge = getSprintMetricUnavailableBadge(unavailableReason);
+    const status = unavailableReason ? "neutral" : getMetricStatus(metricName, value);
     return (
       <MetricStatusCard
         key={metricName}
         title={sprintMetricLabels[metricName]}
-        value={formatMetricValue(metricName, value)}
+        value={unavailableReason ? "N/A" : formatMetricValue(metricName, value)}
         status={status}
-        comparison={getMetricContext(metricName, metrics, metrics.delivery_confidence)}
+        comparison={getMetricContext(metricName, metrics, deliveryConfidence)}
         comparisonImpact={getMetricImpact(status)}
-        infoText={sprintMetricInfoText[metricName]}
+        details={unavailableReason ? [unavailableReason] : []}
+        infoText={unavailableReason ?? sprintMetricInfoText[metricName]}
+        badge={unavailableBadge}
+        badgeTitle={unavailableReason}
       >
         {renderMetricIssueKeys(metricName, value, metrics, issuesByKey, onSelectIssue)}
       </MetricStatusCard>
@@ -1032,10 +1050,10 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                 i
               </button>
             </h2>
-            {metrics?.delivery_confidence && deliveryConfidenceStatus ? (
-              <div className="delivery-confidence-decision" aria-label={`Delivery confidence ${formatConfidencePercent(metrics.delivery_confidence.score)}, ${deliveryConfidenceStatus.label}`}>
+            {deliveryConfidence && deliveryConfidenceStatus ? (
+              <div className="delivery-confidence-decision" aria-label={`Delivery confidence ${formatConfidencePercent(deliveryConfidence.score)}, ${deliveryConfidenceStatus.label}`}>
                 <strong className={`delivery-confidence-score confidence-status-text-${deliveryConfidenceStatus.level}`}>
-                  {formatConfidencePercent(metrics.delivery_confidence.score)}
+                  {formatConfidencePercent(deliveryConfidence.score)}
                 </strong>
                 <span className={`confidence-status-pill confidence-status-${deliveryConfidenceStatus.level}`}>
                   {deliveryConfidenceStatus.label}
@@ -1044,7 +1062,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
             ) : null}
           </div>
           <div className="panel-heading-actions">
-            {metrics?.delivery_confidence ? (
+            {deliveryConfidence ? (
               <button
                 type="button"
                 className="secondary-button compact-button"
@@ -1060,16 +1078,19 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         {!isLoadingDetails && metrics && !metrics.is_computed ? (
           <p className="muted">Sprint metrics have not been computed yet.</p>
         ) : null}
-        {!isLoadingDetails && metrics?.delivery_confidence ? (
+        {!isLoadingDetails && storyPointUi.showStoryPointUnavailableMessage ? (
+          <p className="muted">{storyPointUnavailableMessage}</p>
+        ) : null}
+        {!isLoadingDetails && deliveryConfidence ? (
           <p className="delivery-confidence-summary">
-            {getDeliveryConfidenceSummary(metrics.delivery_confidence.components)}
+            {getDeliveryConfidenceSummary(deliveryConfidence.components)}
           </p>
         ) : null}
-        {!isLoadingDetails && metrics?.confidence_breakdown ? (
-          <ConfidenceBreakdownCard breakdown={metrics.confidence_breakdown} />
+        {!isLoadingDetails && confidenceBreakdown ? (
+          <ConfidenceBreakdownCard breakdown={confidenceBreakdown} />
         ) : null}
-        {!isLoadingDetails && metrics?.biggest_driver ? (
-          <BiggestDriverCard driver={metrics.biggest_driver} heading="Biggest Delivery Drag" />
+        {!isLoadingDetails && biggestDeliveryDriver ? (
+          <BiggestDriverCard driver={biggestDeliveryDriver} heading="Biggest Delivery Drag" />
         ) : null}
         {!isLoadingDetails && metrics ? (
           <RecommendationsPanel
@@ -1077,8 +1098,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
             title="Sprint Recommended Actions"
           />
         ) : null}
-        {!isLoadingDetails && metrics?.delivery_confidence && isDeliveryConfidenceExpanded
-          ? renderDeliveryConfidence(metrics.delivery_confidence)
+        {!isLoadingDetails && deliveryConfidence && isDeliveryConfidenceExpanded
+          ? renderDeliveryConfidence(deliveryConfidence)
           : null}
       </section>
       ) : null}
@@ -1115,6 +1136,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                   </ol>
                 </section>
                 <MetricCategorySection title="Delivery" summary={getGroupSummary("delivery", metricEvaluations)}>
+                  {renderSprintMetricCard("committed_scope")}
                   {renderSprintMetricCard("completed_scope_pct")}
                   {scopeCreepCard ? (
                     <MetricStatusCard
@@ -1146,15 +1168,17 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                       infoText="Compares current completed work to historical sprint velocity."
                     />
                   ) : null}
-                  <MetricStatusCard
-                    title="Team predictability"
-                    value={predictabilityCard.value}
-                    status={predictabilityCard.status}
-                    comparison={predictabilityCard.comparison}
-                    comparisonImpact={predictabilityCard.impact}
-                    details={predictabilityCard.details}
-                    infoText="Shows how reliably recent closed sprints completed committed work."
-                  />
+                  {predictabilityCard ? (
+                    <MetricStatusCard
+                      title="Team predictability"
+                      value={predictabilityCard.value}
+                      status={predictabilityCard.status}
+                      comparison={predictabilityCard.comparison}
+                      comparisonImpact={predictabilityCard.impact}
+                      details={predictabilityCard.details}
+                      infoText="Shows how reliably recent closed sprints completed committed work."
+                    />
+                  ) : null}
                 </MetricCategorySection>
                 <MetricCategorySection title="Quality" summary={getGroupSummary("quality", metricEvaluations)}>
                   {renderSprintMetricCard("open_high_severity_bugs")}
@@ -1214,19 +1238,6 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         </div>
         {isSprintChartsExpanded ? (
           <>
-            <SnapshotChangePanel
-              context="sprint"
-              comparison={snapshotComparison}
-              history={snapshotHistory}
-              baseline={snapshotBaseline}
-              isLoading={isLoadingSnapshotChanges}
-              error={snapshotChangeError}
-              onBaselineChange={setSnapshotBaseline}
-            />
-
-            {metrics?.biggest_driver ? (
-              <BiggestDriverCard driver={metrics.biggest_driver} heading="Biggest Delivery Drag" />
-            ) : null}
             {metrics ? (
               <RecommendationsPanel
                 recommendations={metrics.recommendations}
@@ -1234,147 +1245,203 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
               />
             ) : null}
 
-            <div id="delivery-confidence-history" className="chart-section-heading chart-section-hero">
-              <div>
-                <h3>Delivery Confidence Trend</h3>
-                <p className="chart-section-subtitle">
-                  Is delivery health improving or slipping across recent sprints?
-                </p>
-              </div>
-              <div className="chart-heading-meta">
-                {sprintConfidenceRows.length > 0 ? <span className="muted">Last {sprintConfidenceRows.length}</span> : null}
-                {formatDeltaText(latestConfidenceDelta) ? (
-                  <span className="chart-delta-pill">{formatDeltaText(latestConfidenceDelta)}</span>
-                ) : null}
-              </div>
-            </div>
-            {isLoadingSprintConfidence ? <p className="muted">Loading sprint chart history...</p> : null}
-            {sprintConfidenceError ? <p className="error-text">{sprintConfidenceError}</p> : null}
-            {!isLoadingSprintConfidence && !sprintConfidenceError && !hasConfidenceTrend ? (
-              <p className="muted">No sprint confidence data available yet.</p>
-            ) : null}
-            {!isLoadingSprintConfidence && !sprintConfidenceError && hasConfidenceTrend ? (
-              <MetricLineChart
-                data={sprintConfidenceRows}
-                height={380}
-                lines={[
-                  {
-                    key: "delivery_confidence",
-                    label: "Delivery confidence",
-                    color: MetricColors.sprintConfidence,
-                  },
-                ]}
-                dataKey="name"
-                formatter={formatChartValue}
-                yDomain={[0, 100]}
-                yTickFormatter={(value) => `${Math.round(value)}%`}
-                referenceLines={[
-                  { y: 80, label: "Healthy", color: MetricColors.sprintConfidence },
-                  { y: 60, label: "Watch", color: MetricColors.confidenceWatch },
-                  { y: 40, label: "Risk", color: MetricColors.confidenceCritical },
-                ]}
-              />
+            {storyPointUi.showStoryPointUnavailableMessage ? (
+              <p className="muted">{storyPointUnavailableMessage}</p>
             ) : null}
 
-            <div className="chart-section-heading">
-              <div>
-                <h3>Confidence Breakdown History</h3>
-                <p className="chart-section-subtitle">
-                  Which confidence driver is pushing recent sprints up or down?
-                </p>
-              </div>
-            </div>
-            {!isLoadingSprintConfidence && !sprintConfidenceError && hasConfidenceBreakdown ? (
-              <MetricLineChart
-                data={sprintChartRows}
-                lines={[
-                  {
-                    key: "progress_alignment",
-                    label: "Progress Alignment",
-                    color: MetricColors.progressAlignment,
-                  },
-                  {
-                    key: "velocity_fit",
-                    label: "Velocity Fit",
-                    color: MetricColors.velocityFit,
-                  },
-                  {
-                    key: "scope_stability",
-                    label: "Scope Stability",
-                    color: MetricColors.scopeStability,
-                  },
-                  {
-                    key: "blocker_health",
-                    label: "Blocker Health",
-                    color: MetricColors.blockerHealth,
-                  },
-                ]}
-                dataKey="name"
-                formatter={formatChartValue}
-                yDomain={[0, 100]}
-                yTickFormatter={(value) => `${Math.round(value)}%`}
-              />
-            ) : null}
-
-            <div className="chart-section-heading">
-              <div>
-                <h3>Sprint Commitment Reliability</h3>
-                <p className="chart-section-subtitle">
-                  Committed vs completed scope, with reliability percent and predictability trend when available.
-                </p>
-              </div>
-            </div>
-            {!isLoadingSprintConfidence && !sprintConfidenceError && !hasCommitmentTrend ? (
-              <p className="muted">No sprint commitment reliability data available yet.</p>
-            ) : null}
-            {!isLoadingSprintConfidence && !sprintConfidenceError && hasCommitmentTrend ? (
+            {storyPointUi.hasStoryPointMetrics ? (
               <>
-                <MetricMultiBarChart
-                  data={sprintCommitmentReliabilityRows}
-                  bars={[
-                    {
-                      key: "committed_story_points",
-                      label: "Committed story points",
-                      color: committedStoryPointColor,
-                    },
-                    {
-                      key: "completed_story_points",
-                      label: "Completed story points",
-                      color: completedStoryPointColor,
-                    },
-                  ]}
-                  dataKey="name"
-                  formatter={formatChartValue}
+                <SnapshotChangePanel
+                  context="sprint"
+                  comparison={snapshotComparison}
+                  history={snapshotHistory}
+                  baseline={snapshotBaseline}
+                  isLoading={isLoadingSnapshotChanges}
+                  error={snapshotChangeError}
+                  onBaselineChange={setSnapshotBaseline}
                 />
-                {hasReliabilityTrend ? (
+
+                {biggestDeliveryDriver ? (
+                  <BiggestDriverCard driver={biggestDeliveryDriver} heading="Biggest Delivery Drag" />
+                ) : null}
+
+                <div id="delivery-confidence-history" className="chart-section-heading chart-section-hero">
+                  <div>
+                    <h3>Delivery Confidence Trend</h3>
+                    <p className="chart-section-subtitle">
+                      Is delivery health improving or slipping across recent sprints?
+                    </p>
+                  </div>
+                  <div className="chart-heading-meta">
+                    {sprintConfidenceRows.length > 0 ? <span className="muted">Last {sprintConfidenceRows.length}</span> : null}
+                    {formatDeltaText(latestConfidenceDelta) ? (
+                      <span className="chart-delta-pill">{formatDeltaText(latestConfidenceDelta)}</span>
+                    ) : null}
+                  </div>
+                </div>
+                {isLoadingSprintConfidence ? <p className="muted">Loading sprint chart history...</p> : null}
+                {sprintConfidenceError ? <p className="error-text">{sprintConfidenceError}</p> : null}
+                {!isLoadingSprintConfidence && !sprintConfidenceError && !hasConfidenceTrend ? (
+                  <p className="muted">No sprint confidence data available yet.</p>
+                ) : null}
+                {!isLoadingSprintConfidence && !sprintConfidenceError && hasConfidenceTrend ? (
                   <MetricLineChart
-                    data={sprintCommitmentReliabilityRows}
-                    height={220}
+                    data={sprintConfidenceRows}
+                    height={380}
                     lines={[
                       {
-                        key: "reliability_pct",
-                        label: "Reliability %",
-                        color: MetricColors.scopeStability,
+                        key: "delivery_confidence",
+                        label: "Delivery confidence",
+                        color: MetricColors.sprintConfidence,
                       },
-                      ...(hasPredictabilityTrend
-                        ? [
-                            {
-                              key: "predictability_avg",
-                              label: "Predictability avg",
-                              color: MetricColors.velocityFit,
-                            },
-                          ]
-                        : []),
                     ]}
                     dataKey="name"
                     formatter={formatChartValue}
-                    yDomain={[0, 120]}
+                    yDomain={[0, 100]}
+                    yTickFormatter={(value) => `${Math.round(value)}%`}
+                    referenceLines={[
+                      { y: 80, label: "Healthy", color: MetricColors.sprintConfidence },
+                      { y: 60, label: "Watch", color: MetricColors.confidenceWatch },
+                      { y: 40, label: "Risk", color: MetricColors.confidenceCritical },
+                    ]}
+                  />
+                ) : null}
+
+                <div className="chart-section-heading">
+                  <div>
+                    <h3>Confidence Breakdown History</h3>
+                    <p className="chart-section-subtitle">
+                      Which confidence driver is pushing recent sprints up or down?
+                    </p>
+                  </div>
+                </div>
+                {!isLoadingSprintConfidence && !sprintConfidenceError && hasConfidenceBreakdown ? (
+                  <MetricLineChart
+                    data={sprintChartRows}
+                    lines={[
+                      {
+                        key: "progress_alignment",
+                        label: "Progress Alignment",
+                        color: MetricColors.progressAlignment,
+                      },
+                      {
+                        key: "velocity_fit",
+                        label: "Velocity Fit",
+                        color: MetricColors.velocityFit,
+                      },
+                      {
+                        key: "scope_stability",
+                        label: "Scope Stability",
+                        color: MetricColors.scopeStability,
+                      },
+                      {
+                        key: "blocker_health",
+                        label: "Blocker Health",
+                        color: MetricColors.blockerHealth,
+                      },
+                    ]}
+                    dataKey="name"
+                    formatter={formatChartValue}
+                    yDomain={[0, 100]}
                     yTickFormatter={(value) => `${Math.round(value)}%`}
                   />
                 ) : null}
-                {!hasPredictabilityTrend ? (
-                  <p className="muted chart-empty-note">Predictability trend requires at least 3 closed sprints.</p>
+
+                <div className="chart-section-heading">
+                  <div>
+                    <h3>Sprint Commitment Reliability</h3>
+                    <p className="chart-section-subtitle">
+                      Committed vs completed scope, with reliability percent and predictability trend when available.
+                    </p>
+                  </div>
+                </div>
+                {!isLoadingSprintConfidence && !sprintConfidenceError && !hasCommitmentTrend ? (
+                  <p className="muted">No sprint commitment reliability data available yet.</p>
                 ) : null}
+                {!isLoadingSprintConfidence && !sprintConfidenceError && hasCommitmentTrend ? (
+                  <>
+                    <MetricMultiBarChart
+                      data={sprintCommitmentReliabilityRows}
+                      bars={[
+                        {
+                          key: "committed_story_points",
+                          label: "Committed story points",
+                          color: committedStoryPointColor,
+                        },
+                        {
+                          key: "completed_story_points",
+                          label: "Completed story points",
+                          color: completedStoryPointColor,
+                        },
+                      ]}
+                      dataKey="name"
+                      formatter={formatChartValue}
+                    />
+                    {hasReliabilityTrend ? (
+                      <MetricLineChart
+                        data={sprintCommitmentReliabilityRows}
+                        height={220}
+                        lines={[
+                          {
+                            key: "reliability_pct",
+                            label: "Reliability %",
+                            color: MetricColors.scopeStability,
+                          },
+                          ...(hasPredictabilityTrend
+                            ? [
+                                {
+                                  key: "predictability_avg",
+                                  label: "Predictability avg",
+                                  color: MetricColors.velocityFit,
+                                },
+                              ]
+                            : []),
+                        ]}
+                        dataKey="name"
+                        formatter={formatChartValue}
+                        yDomain={[0, 120]}
+                        yTickFormatter={(value) => `${Math.round(value)}%`}
+                      />
+                    ) : null}
+                    {!hasPredictabilityTrend ? (
+                      <p className="muted chart-empty-note">Predictability trend requires at least 3 closed sprints.</p>
+                    ) : null}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+
+            {storyPointUi.showStoryPointChartEmptyState ? (
+              <>
+                <div id="delivery-confidence-history" className="chart-section-heading chart-section-hero">
+                  <div>
+                    <h3>Delivery Confidence Trend</h3>
+                    <p className="chart-section-subtitle">
+                      Is delivery health improving or slipping across recent sprints?
+                    </p>
+                  </div>
+                </div>
+                <p className="muted chart-empty-note">{storyPointUnavailableMessage}</p>
+
+                <div className="chart-section-heading">
+                  <div>
+                    <h3>Confidence Breakdown History</h3>
+                    <p className="chart-section-subtitle">
+                      Which confidence driver is pushing recent sprints up or down?
+                    </p>
+                  </div>
+                </div>
+                <p className="muted chart-empty-note">{storyPointUnavailableMessage}</p>
+
+                <div className="chart-section-heading">
+                  <div>
+                    <h3>Sprint Commitment Reliability</h3>
+                    <p className="chart-section-subtitle">
+                      Committed vs completed scope, with reliability percent and predictability trend when available.
+                    </p>
+                  </div>
+                </div>
+                <p className="muted chart-empty-note">{storyPointUnavailableMessage}</p>
               </>
             ) : null}
 

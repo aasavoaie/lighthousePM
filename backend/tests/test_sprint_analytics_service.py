@@ -111,7 +111,7 @@ def test_recompute_sprint_metrics_counts_status_buckets(db_session: Session) -> 
     assert snapshot.in_progress_count == 1
     assert snapshot.not_started_count == 1
     assert snapshot.rollover_count == 0
-    assert snapshot.delivery_confidence_score is not None
+    assert snapshot.delivery_confidence_score is None
 
 
 def test_recompute_sprint_metrics_counts_closed_sprint_rollover(db_session: Session) -> None:
@@ -256,7 +256,7 @@ def test_delivery_confidence_penalizes_blockers_and_scope_changes(db_session: Se
 def test_scope_stability_index_counts_added_and_removed_issues(db_session: Session) -> None:
     now = datetime.now(UTC)
     db_session.add(_sprint(start_date=now - timedelta(days=2), end_date=now + timedelta(days=2)))
-    db_session.add(_issue("LHPM-1", "In Progress"))
+    db_session.add(_issue("LHPM-1", "In Progress", story_points=3))
     db_session.add(_issue("LHPM-2", "To Do"))
     db_session.add(_issue("LHPM-3", "To Do"))
     db_session.add(_issue("LHPM-4", "To Do"))
@@ -298,7 +298,7 @@ def test_scope_stability_index_counts_added_and_removed_issues(db_session: Sessi
 def test_scope_stability_ignores_same_sprint_reference_from_other_project(db_session: Session) -> None:
     now = datetime.now(UTC)
     db_session.add(_sprint(start_date=now - timedelta(days=2), end_date=now + timedelta(days=2)))
-    db_session.add(_issue("LHPM-1", "In Progress"))
+    db_session.add(_issue("LHPM-1", "In Progress", story_points=3))
     db_session.add(_issue("OTHER-1", "In Progress"))
     db_session.add(_link("LHPM-1"))
     db_session.flush()
@@ -321,18 +321,18 @@ def test_scope_stability_ignores_same_sprint_reference_from_other_project(db_ses
     assert snapshot.delivery_confidence_inputs["scope_change_issue_keys"] == []
 
 
-def test_delivery_confidence_empty_sprint_scores_full_confidence(db_session: Session) -> None:
+def test_delivery_confidence_empty_sprint_is_not_computed(db_session: Session) -> None:
     db_session.add(_sprint())
     db_session.flush()
 
     snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
 
-    assert snapshot.delivery_confidence_score == 100.0
-    assert snapshot.delivery_confidence_inputs is not None
-    assert snapshot.delivery_confidence_inputs["committed_effective_points"] == 0.0
+    assert snapshot.delivery_confidence_score is None
+    assert snapshot.delivery_confidence_components is None
+    assert snapshot.delivery_confidence_inputs is None
 
 
-def test_delivery_confidence_uses_issue_count_for_missing_story_points(db_session: Session) -> None:
+def test_delivery_confidence_uses_only_story_points_when_some_issues_are_missing_points(db_session: Session) -> None:
     db_session.add(_sprint(with_dates=False))
     db_session.add(_issue("LHPM-1", "Done", story_points=3))
     db_session.add(_issue("LHPM-2", "To Do", story_points=None))
@@ -342,9 +342,9 @@ def test_delivery_confidence_uses_issue_count_for_missing_story_points(db_sessio
     snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
 
     assert snapshot.delivery_confidence_inputs is not None
-    assert snapshot.delivery_confidence_inputs["committed_effective_points"] == 4.0
+    assert snapshot.delivery_confidence_inputs["committed_effective_points"] == 3.0
     assert snapshot.delivery_confidence_inputs["completed_effective_points"] == 3.0
-    assert snapshot.delivery_confidence_inputs["remaining_effective_points"] == 1.0
+    assert snapshot.delivery_confidence_inputs["remaining_effective_points"] == 0.0
     assert snapshot.delivery_confidence_components is not None
     assert snapshot.delivery_confidence_components["progress_alignment"] == 100.0
-    assert snapshot.delivery_confidence_components["velocity_fit"] == 50.0
+    assert snapshot.delivery_confidence_components["velocity_fit"] == 100.0

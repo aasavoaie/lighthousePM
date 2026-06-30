@@ -12,7 +12,7 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import MetricSnapshot, Release, ReleaseSignal, Sprint, SprintMetricSnapshot
+from app.models import Issue, IssueSprint, MetricSnapshot, Release, ReleaseSignal, Sprint, SprintMetricSnapshot
 from app.repositories.release_repository import ReleaseRepository
 from app.services.reporting_service import ChartExportService, ChartSpec, PDFThemeProvider, ReportTemplateEngine, ReportingService
 
@@ -91,7 +91,25 @@ def _seed_release_snapshot(
     snapshot_at: datetime,
     open_blockers: int,
     scope_completed_pct: float,
+    seed_issue: bool = True,
+    story_points: float | None = 3.0,
 ) -> None:
+    issue_key = f"{release_id}-ISSUE"
+    if seed_issue and session.query(Issue).filter(Issue.issue_key == issue_key).first() is None:
+        session.add(
+            Issue(
+                issue_key=issue_key,
+                summary="Release issue",
+                issue_type="Story",
+                status="Done",
+                priority="Medium",
+                assignee="alex",
+                story_points=story_points,
+                release_id=release_id,
+                is_blocker=False,
+                created_at=datetime.now(UTC),
+            )
+        )
     session.add(
         MetricSnapshot(
             release_id=release_id,
@@ -112,7 +130,12 @@ def _seed_release_snapshot(
     session.commit()
 
 
-def _seed_sprint(session: Session, sprint_id: str = "12", project_key: str = "LHPM") -> None:
+def _seed_sprint(
+    session: Session,
+    sprint_id: str = "12",
+    project_key: str = "LHPM",
+    seed_story_points: bool = True,
+) -> None:
     now = datetime.now(UTC)
     session.add(
         Sprint(
@@ -127,7 +150,33 @@ def _seed_sprint(session: Session, sprint_id: str = "12", project_key: str = "LH
             goal="Ship safely",
         )
     )
+    if seed_story_points:
+        _seed_sprint_issue(session, sprint_id=sprint_id, issue_key=f"{project_key}-{sprint_id}-1", story_points=3.0)
     session.commit()
+
+
+def _seed_sprint_issue(
+    session: Session,
+    sprint_id: str,
+    issue_key: str,
+    story_points: float | None,
+    status: str = "To Do",
+) -> None:
+    session.add(
+        Issue(
+            issue_key=issue_key,
+            summary="Sprint issue",
+            issue_type="Story",
+            status=status,
+            priority="Medium",
+            assignee=None,
+            story_points=story_points,
+            release_id=None,
+            is_blocker=False,
+            created_at=datetime.now(UTC),
+        )
+    )
+    session.add(IssueSprint(issue_key=issue_key, sprint_id=sprint_id))
 
 
 def _seed_sprint_snapshot(session: Session, sprint_id: str, snapshot_at: datetime, confidence: float) -> None:
@@ -401,6 +450,72 @@ def test_release_report_handles_empty_dataset(client: TestClient) -> None:
     assert "No chart data available" in text
 
 
+def test_release_report_suppresses_confidence_for_zero_ticket_release(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-empty-snapshot")
+        _seed_release_snapshot(
+            session,
+            "REL-empty-snapshot",
+            now,
+            open_blockers=0,
+            scope_completed_pct=100.0,
+            seed_issue=False,
+        )
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-empty-snapshot")
+        assert release is not None
+
+        document = ReportTemplateEngine().build_release_document(
+            session=session,
+            release=release,
+            depth="full",
+            generated_at=now,
+        )
+
+    summary = next(section for section in document.sections if section.title == "Executive Summary")
+    assert ("Signal", "NOT COMPUTED") in summary.rows
+    assert ("Confidence", "N/A") in summary.rows
+    assert summary.lines == ["Release signal is not computed because no tickets are available for this scope."]
+
+    confidence_breakdown = next(section for section in document.sections if section.title == "Confidence Breakdown")
+    assert confidence_breakdown.rows == [("Status", "No confidence breakdown available.")]
+
+    evidence = next(section for section in document.sections if section.title == "Evidence Metrics")
+    assert ("Status", "No tickets are available for this scope.") in evidence.rows
+    assert ("Scope completed", "N/A | No tickets are available for this scope.") in evidence.rows
+
+    confidence_trend = next(section for section in document.sections if section.title == "Confidence Trend")
+    assert [value for _, value in confidence_trend.charts[0].points] == [None]
+    assert [value for _, value in confidence_trend.charts[1].points] == [None]
+
+
+def test_release_report_marks_story_point_metrics_unavailable(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-no-points")
+        _seed_release_snapshot(
+            session,
+            "REL-no-points",
+            now,
+            open_blockers=0,
+            scope_completed_pct=75.0,
+            story_points=None,
+        )
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-no-points")
+        assert release is not None
+
+        document = ReportTemplateEngine().build_release_document(
+            session=session,
+            release=release,
+            depth="full",
+            generated_at=now,
+        )
+
+    evidence = next(section for section in document.sections if section.title == "Evidence Metrics")
+    assert ("Story-point metrics", "N/A | No tickets in this scope have story points.") in evidence.rows
+    assert ("Scope completed", "75.0%") in evidence.rows
+
+
 def test_release_report_export_endpoint_returns_pdf(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session)
@@ -461,6 +576,47 @@ def test_sprint_report_generation_and_export_workflow(client: TestClient) -> Non
     assert "Historical Trends" in text
     assert "BI /W" in text
     assert "Scale: 0% / 50% / 100%" in text
+
+
+def test_sprint_report_suppresses_story_point_sections_without_story_points(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, seed_story_points=False)
+        _seed_sprint_issue(session, sprint_id="12", issue_key="LHPM-0", story_points=None)
+        _seed_sprint_snapshot(session, "12", now - timedelta(hours=4), 62.0)
+        _seed_sprint_snapshot(session, "12", now, 72.0)
+        session.commit()
+        sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
+
+        document = ReportTemplateEngine().build_sprint_document(
+            session=session,
+            sprint=sprint,
+            depth="full",
+            generated_at=now,
+        )
+
+    delivery = next(section for section in document.sections if section.title == "Delivery Confidence")
+    assert ("Status", "Story-point metrics are unavailable because no tickets in this sprint have story points.") in delivery.rows
+    assert ("Score", "N/A") in delivery.rows
+    assert ("Committed scope", "10") in delivery.rows
+    assert delivery.charts == []
+
+    velocity = next(section for section in document.sections if section.title == "Velocity Health")
+    assert velocity.rows == [
+        ("Status", "Story-point metrics are unavailable because no tickets in this sprint have story points.")
+    ]
+
+    snapshot_changes = next(section for section in document.sections if section.title == "Snapshot Changes")
+    assert snapshot_changes.lines == [
+        "Story-point metrics are unavailable because no tickets in this sprint have story points."
+    ]
+
+    historical = next(section for section in document.sections if section.title == "Historical Trends")
+    chart_titles = {chart.title for chart in historical.charts}
+    assert "Historical Delivery Confidence" not in chart_titles
+    assert "Historical Velocity Fit" not in chart_titles
+    assert "Historical Scope Completion" in chart_titles
+    assert "Historical High-Severity Bugs" in chart_titles
 
 
 def test_sprint_summary_report_export_endpoint_returns_leadership_pdf(client: TestClient) -> None:

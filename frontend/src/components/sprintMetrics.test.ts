@@ -1,8 +1,9 @@
-import type { DeliveryConfidenceDetail, SprintMetricValues } from "../api/types";
+import type { DeliveryConfidenceDetail, SprintMetricValues, SprintMetricsResponse } from "../api/types";
 import {
   buildPredictabilityDisplayModel,
   buildScopeCreepDisplayModel,
   buildSprintWorkStateDisplayModel,
+  buildSprintStoryPointUiVisibility,
   buildVelocityHealthDisplayModel,
   buildWorkDistributionDisplayModel,
   calculateDelta,
@@ -12,6 +13,10 @@ import {
   getGroupHealth,
   getGroupSummary,
   getMetricStatus,
+  getSprintMetricAvailabilityReason,
+  getSprintMetricUnavailableBadge,
+  getSprintStoryPointUnavailableReason,
+  hasSprintStoryPoints,
   type MetricEvaluation,
 } from "./sprintMetrics";
 
@@ -77,6 +82,39 @@ const metrics: SprintMetricValues = {
   delivery_confidence_score: 55,
 };
 
+function sprintMetricsResponse(hasStoryPoints: boolean): SprintMetricsResponse {
+  return {
+    sprint_id: "12",
+    snapshot_at: "2026-06-01T10:00:00Z",
+    computation_status: hasStoryPoints ? "PARTIAL" : "PARTIAL",
+    unavailable_reason: hasStoryPoints ? "No Jira changelog history is available for this scope." : "No tickets in this scope have story points.",
+    metrics,
+    metric_issue_keys: {
+      open_blockers: [],
+      open_high_severity_bugs: [],
+      bugs_created_during_sprint: [],
+    },
+    metric_names: [],
+    metric_availability: {
+      context: {
+        has_tickets: true,
+        has_story_points: hasStoryPoints,
+        has_completed_tickets: true,
+        has_release_scope: false,
+        has_sprint_scope: true,
+        has_changelog: false,
+      },
+      metrics: {},
+    },
+    delivery_confidence: hasStoryPoints ? confidence : null,
+    confidence_breakdown: null,
+    biggest_driver: null,
+    recommendations: [],
+    is_computed: true,
+    snapshot_age_hours: 1,
+  };
+}
+
 const evaluations: MetricEvaluation[] = [
   {
     key: "completed_scope_pct",
@@ -122,6 +160,100 @@ assertEqual(getMetricStatus("open_blockers", 1), "critical", "open blocker is cr
 assertEqual(classifyWorkDistribution(34), "good", "top load under 35 is healthy");
 assertEqual(classifyWorkDistribution(35), "warning", "top load at 35 is watch");
 assertEqual(classifyWorkDistribution(51), "critical", "top load over 50 is critical");
+assertEqual(
+  hasSprintStoryPoints(sprintMetricsResponse(true)),
+  true,
+  "story-point helper reads availability context"
+);
+assertEqual(
+  hasSprintStoryPoints(sprintMetricsResponse(false)),
+  false,
+  "story-point helper rejects unavailable story points"
+);
+assertEqual(hasSprintStoryPoints(undefined), false, "story-point helper defaults missing metrics to unavailable");
+const noStoryPointUi = buildSprintStoryPointUiVisibility(sprintMetricsResponse(false));
+assertEqual(noStoryPointUi.showPointValues, false, "no-story-point sprint does not render point values");
+assertEqual(noStoryPointUi.showRiskDrivers, false, "no-story-point sprint does not render delivery risk drivers");
+assertEqual(noStoryPointUi.showVelocityHealth, false, "no-story-point sprint does not render velocity health");
+assertEqual(noStoryPointUi.showTeamPredictability, false, "no-story-point sprint does not render team predictability");
+assertEqual(
+  noStoryPointUi.showCommitmentReliability,
+  false,
+  "no-story-point sprint does not render commitment reliability"
+);
+assertEqual(
+  noStoryPointUi.showStoryPointUnavailableMessage,
+  true,
+  "no-story-point sprint renders a story-point unavailable state"
+);
+assertEqual(
+  noStoryPointUi.showStoryPointChartEmptyState,
+  true,
+  "no-story-point sprint renders story-point chart empty states"
+);
+assertEqual(noStoryPointUi.showTicketCountMetrics, true, "no-story-point sprint still renders ticket-count metrics");
+assertEqual(
+  getSprintStoryPointUnavailableReason(sprintMetricsResponse(false)),
+  "No tickets in this scope have story points.",
+  "story-point unavailable reason comes from metric availability"
+);
+assertEqual(
+  getSprintMetricUnavailableBadge("No tickets in this scope have story points."),
+  "No story points",
+  "story-point unavailable reason maps to a muted badge"
+);
+assertEqual(
+  getSprintMetricUnavailableBadge("No Jira changelog history is available for this scope."),
+  "No history",
+  "changelog unavailable reason maps to a muted badge"
+);
+const loadingStoryPointUi = buildSprintStoryPointUiVisibility(null);
+assertEqual(loadingStoryPointUi.showPointValues, false, "loading sprint state does not render point values");
+assertEqual(
+  loadingStoryPointUi.showDeliveryConfidenceTrend,
+  false,
+  "loading sprint state does not render stale confidence trends"
+);
+assertEqual(
+  loadingStoryPointUi.showStoryPointUnavailableMessage,
+  false,
+  "loading sprint state waits for computed availability before showing unavailable message"
+);
+assertEqual(
+  loadingStoryPointUi.showStoryPointChartEmptyState,
+  false,
+  "loading sprint state does not render story-point chart empty states"
+);
+
+const pointedStoryPointUi = buildSprintStoryPointUiVisibility(sprintMetricsResponse(true));
+assertEqual(pointedStoryPointUi.showPointValues, true, "pointed sprint can render point values");
+assertEqual(pointedStoryPointUi.showVelocityHealth, true, "pointed sprint can render velocity health");
+assertEqual(pointedStoryPointUi.showCommitmentReliability, true, "pointed sprint can render commitment reliability");
+assertEqual(
+  pointedStoryPointUi.showStoryPointChartEmptyState,
+  false,
+  "pointed sprint renders real story-point charts instead of empty states"
+);
+assertEqual(
+  getSprintMetricAvailabilityReason(
+    {
+      ...sprintMetricsResponse(true),
+      metric_availability: {
+        ...sprintMetricsResponse(true).metric_availability!,
+        metrics: {
+          median_cycle_time_days: {
+            available: false,
+            reason: "No Jira changelog history is available for this scope.",
+            depends_on: ["ticket_count", "completed_tickets", "history_changelog", "sprint_assignment"],
+          },
+        },
+      },
+    },
+    "median_cycle_time_days"
+  ),
+  "No Jira changelog history is available for this scope.",
+  "metric availability reason is returned for unavailable sprint cards"
+);
 
 assertEqual(calculateDelta(18, 10), 8, "delta subtracts previous from current");
 assertEqual(formatDelta(0, (value) => `${value}%`), "Unchanged since last snapshot", "zero delta is unchanged");
@@ -180,8 +312,43 @@ assertEqual(workDistribution.status, "critical", "work distribution flags top lo
 assertEqual(workDistribution.comparison, "Top assignee: Unassigned", "work distribution names top assignee");
 assertDeepEqual(
   workDistribution.details,
-  ["60% of active work", "Top 3 assignees", "Unassigned: 60%", "Mira: 40%"],
+  ["60% of pointed active work", "Top 3 assignees", "Unassigned: 60%", "Mira: 40%"],
   "work distribution includes top three assignee detail"
+);
+
+const unpointedWorkDistribution = buildWorkDistributionDisplayModel([
+  { assignee: "Unassigned", story_points: null, status: "In Progress" },
+  { assignee: "Mira", story_points: null, status: "To Do" },
+]);
+assertEqual(unpointedWorkDistribution.value, "Unavailable", "work distribution is unavailable without story points");
+assertEqual(
+  unpointedWorkDistribution.comparison,
+  "Requires story points on active sprint work.",
+  "work distribution explains missing story points"
+);
+assertDeepEqual(
+  unpointedWorkDistribution.details,
+  ["No active sprint tickets have story points."],
+  "work distribution does not invent fallback points"
+);
+
+const partialPointWorkDistribution = buildWorkDistributionDisplayModel([
+  { assignee: "Mira", story_points: 3, status: "In Progress" },
+  { assignee: "Sam", story_points: null, status: "To Do" },
+  { assignee: "Mira", story_points: null, status: "In Progress" },
+  { assignee: "Noor", story_points: 1, status: "To Do" },
+]);
+assertEqual(partialPointWorkDistribution.value, "75%", "work distribution computes from pointed active tickets");
+assertDeepEqual(
+  partialPointWorkDistribution.details,
+  [
+    "2 active tickets excluded because story points are missing.",
+    "75% of pointed active work",
+    "Top 3 assignees",
+    "Mira: 75%",
+    "Noor: 25%",
+  ],
+  "work distribution warns when active tickets are unpointed"
 );
 
 const workState = buildSprintWorkStateDisplayModel(metrics, [

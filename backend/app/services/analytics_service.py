@@ -133,9 +133,9 @@ class AnalyticsService:
             rollover_count=self._count_sprint_rollover(session, sprint_id, sprint.state, field_mapper),
             median_cycle_time_days=self._compute_sprint_median_cycle_time_days(session, sprint_id, field_mapper),
             reopen_rate_pct=self._compute_sprint_reopen_rate_pct(session, sprint_id, field_mapper),
-            delivery_confidence_score=delivery_confidence["score"],
-            delivery_confidence_components=delivery_confidence["components"],
-            delivery_confidence_inputs=delivery_confidence["inputs"],
+            delivery_confidence_score=delivery_confidence["score"] if delivery_confidence is not None else None,
+            delivery_confidence_components=delivery_confidence["components"] if delivery_confidence is not None else None,
+            delivery_confidence_inputs=delivery_confidence["inputs"] if delivery_confidence is not None else None,
         )
         session.add(snapshot)
         OperationalStatusRepository.mark_metrics_recomputed(session=session)
@@ -705,12 +705,15 @@ class AnalyticsService:
         snapshot_at: datetime,
         field_mapper: JiraFieldMapper,
         open_blockers: int,
-    ) -> dict[str, object]:
+    ) -> dict[str, object] | None:
         sprint_issues = AnalyticsService._list_sprint_issues(session, sprint.sprint_id)
         committed_issue_count = len(sprint_issues)
-        committed_effective_points = sum(_effective_points(issue) for issue in sprint_issues)
+        if not any(issue.story_points is not None for issue in sprint_issues):
+            return None
+
+        committed_effective_points = sum(_story_points(issue) for issue in sprint_issues)
         completed_effective_points = sum(
-            _effective_points(issue)
+            _story_points(issue)
             for issue in sprint_issues
             if field_mapper.is_done_status(issue.status)
         )
@@ -815,7 +818,7 @@ class AnalyticsService:
         field_mapper: JiraFieldMapper,
     ) -> float:
         issues = AnalyticsService._list_sprint_issues(session=session, sprint_id=sprint_id)
-        return sum(_effective_points(issue) for issue in issues if field_mapper.is_done_status(issue.status))
+        return sum(_story_points(issue) for issue in issues if field_mapper.is_done_status(issue.status))
 
     @staticmethod
     def _list_velocity_baseline_sprints(session: Session, sprint: Sprint) -> list[Sprint]:
@@ -907,10 +910,10 @@ class AnalyticsService:
         )
 
 
-def _effective_points(issue: Issue) -> float:
+def _story_points(issue: Issue) -> float:
     if issue.story_points is not None and issue.story_points >= 0:
         return float(issue.story_points)
-    return 1.0
+    return 0.0
 
 
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:

@@ -26,6 +26,8 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
   return {
     sprint_id: "sprint-1",
     snapshot_at: "2026-06-01T10:00:00Z",
+    computation_status: "COMPUTED",
+    unavailable_reason: null,
     is_computed: true,
     snapshot_age_hours: 1,
     metric_names: [],
@@ -33,6 +35,17 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
       open_blockers: [],
       open_high_severity_bugs: [],
       bugs_created_during_sprint: [],
+    },
+    metric_availability: {
+      context: {
+        has_tickets: true,
+        has_story_points: true,
+        has_completed_tickets: true,
+        has_release_scope: false,
+        has_sprint_scope: true,
+        has_changelog: true,
+      },
+      metrics: {},
     },
     metrics: {
       committed_scope: 10,
@@ -200,3 +213,28 @@ assertEqual(partialHistory.length, 1, "computed sprint metrics render without de
 assertEqual(partialHistory[0].delivery_confidence, null, "missing delivery confidence stays unavailable");
 assertEqual(partialHistory[0].open_high_severity_bugs, 1, "quality data is preserved without delivery confidence");
 assertEqual(partialHistory[0].quality_status, "watch", "quality heatmap can render from metric data only");
+
+const unavailableStoryPointHistory = buildSprintChartHistory([
+  {
+    sprint_id: "no-points",
+    name: "No points",
+    is_not_closed: false,
+    metrics: metricsResponse({
+      sprint_id: "no-points",
+      metric_availability: {
+        context: {
+          has_tickets: true,
+          has_story_points: false,
+          has_completed_tickets: true,
+          has_release_scope: false,
+          has_sprint_scope: true,
+          has_changelog: true,
+        },
+        metrics: {},
+      },
+    }),
+  },
+]);
+assertEqual(unavailableStoryPointHistory[0].delivery_confidence, null, "story-point unavailable sprint suppresses confidence");
+assertEqual(unavailableStoryPointHistory[0].committed_story_points, null, "story-point unavailable sprint suppresses committed points");
+assertEqual(unavailableStoryPointHistory[0].completed_story_points, null, "story-point unavailable sprint suppresses completed points");

@@ -1367,6 +1367,21 @@ input {
   font-weight: 800;
 }
 
+.metric-muted-badge {
+  max-width: 118px;
+  overflow: hidden;
+  padding: 4px 8px;
+  border: 1px solid #d8e0ed;
+  border-radius: 999px;
+  color: #58677c;
+  background: #eef3f8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .metric-status-actions {
   display: inline-flex;
   align-items: center;
@@ -2286,6 +2301,13 @@ input {
   margin-top: 16px;
   font-size: 4.15rem;
   line-height: 0.95;
+}
+
+.readiness-score-unavailable {
+  max-width: 100%;
+  font-size: 2.15rem;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
 }
 
 .readiness-critical,
