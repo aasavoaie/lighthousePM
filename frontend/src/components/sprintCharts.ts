@@ -1,6 +1,6 @@
 import type { DeliveryConfidenceDetail, SprintMetricValues, SprintMetricsResponse } from "../api/types";
 import type { MetricStatus } from "./MetricCards";
-import { getMetricStatus } from "./sprintMetrics";
+import { getMetricStatus, hasSprintStoryPoints } from "./sprintMetrics";
 
 export type RiskHeatmapStatus = "healthy" | "watch" | "risk" | "critical" | "neutral";
 
@@ -192,7 +192,7 @@ function baseChartRow(source: SprintChartSource): SprintChartHistoryPoint | null
     return null;
   }
 
-  const confidence = metrics.delivery_confidence;
+  const confidence = hasSprintStoryPoints(metrics) ? metrics.delivery_confidence : null;
   const scope = confidence
     ? normalizeScopeChange(confidence)
     : {

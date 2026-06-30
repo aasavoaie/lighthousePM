@@ -1,10 +1,14 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.availability import MetricAvailability
 from app.schemas.confidence import ConfidenceBreakdown
 from app.schemas.drivers import DriverAnalysis
 from app.schemas.recommendations import RecommendationAction
+
+ComputationStatus = Literal["COMPUTED", "PARTIAL", "NOT_COMPUTED"]
 
 
 class MetricValues(BaseModel):
@@ -38,10 +42,14 @@ class MetricThresholds(BaseModel):
 class ReleaseMetricsResponse(BaseModel):
     release_id: str
     snapshot_at: datetime | None
+    computation_status: ComputationStatus
+    unavailable_reason: str | None
     metrics: MetricValues
     metric_issue_keys: MetricIssueKeys
     metric_names: list[str]
+    metric_availability: MetricAvailability
     metric_thresholds: MetricThresholds | None
+    confidence_score: float | None
     confidence_breakdown: ConfidenceBreakdown | None
     biggest_driver: DriverAnalysis | None
     recommendations: list[RecommendationAction]

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
+from app.config import get_settings
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.schemas.metrics import (
@@ -31,6 +32,11 @@ from app.schemas.deltas import (
 from app.services.analytics_service import AnalyticsService
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 from app.services.driver_analysis_service import DriverAnalysisService
+from app.services.jira_field_mapper import JiraFieldMapper
+from app.services.metric_availability_service import (
+    MetricAvailabilityService,
+    UNAVAILABLE_REASON_RELEASE_EMPTY,
+)
 from app.services.recommendation_engine import RecommendationEngine
 from app.services.signal_service import SignalService
 from app.services.snapshot_comparison_service import SnapshotComparisonService
@@ -181,11 +187,24 @@ def get_release_metrics(
     if release is None:
         raise HTTPException(status_code=404, detail=f"Release '{release_id}' not found")
 
+    field_mapper = JiraFieldMapper(get_settings())
+    metric_availability = MetricAvailabilityService.build_release_availability(
+        session=session,
+        release_id=release_id,
+        field_mapper=field_mapper,
+    )
     snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
     if snapshot is None:
+        computation_status, unavailable_reason = MetricAvailabilityService.computation_state(
+            metric_availability,
+            is_computed=False,
+            empty_scope_reason=UNAVAILABLE_REASON_RELEASE_EMPTY,
+        )
         return ReleaseMetricsResponse(
             release_id=release_id,
             snapshot_at=None,
+            computation_status=computation_status,
+            unavailable_reason=unavailable_reason,
             metrics=MetricValues(
                 open_blockers=None,
                 open_high_severity_bugs=None,
@@ -202,7 +221,9 @@ def get_release_metrics(
                 open_high_severity_bugs=[],
             ),
             metric_names=METRIC_NAMES,
+            metric_availability=metric_availability,
             metric_thresholds=None,
+            confidence_score=None,
             confidence_breakdown=None,
             biggest_driver=None,
             recommendations=[],
@@ -221,9 +242,18 @@ def get_release_metrics(
         3,
     )
 
+    has_release_tickets = metric_availability.context.has_tickets
+    computation_status, unavailable_reason = MetricAvailabilityService.computation_state(
+        metric_availability,
+        is_computed=True,
+        empty_scope_reason=UNAVAILABLE_REASON_RELEASE_EMPTY,
+    )
+    confidence_score = SignalService._confidence_score_for_snapshot(snapshot) if has_release_tickets else None
     return ReleaseMetricsResponse(
         release_id=release_id,
         snapshot_at=snapshot.snapshot_at,
+        computation_status=computation_status,
+        unavailable_reason=unavailable_reason,
         metrics=MetricValues(
             open_blockers=snapshot.open_blockers,
             open_high_severity_bugs=snapshot.open_high_severity_bugs,
@@ -240,10 +270,19 @@ def get_release_metrics(
             open_high_severity_bugs=snapshot.open_high_severity_bug_issue_keys,
         ),
         metric_names=METRIC_NAMES,
+        metric_availability=metric_availability,
         metric_thresholds=_build_metric_thresholds(),
-        confidence_breakdown=ConfidenceBreakdownService.build_release_breakdown(snapshot),
-        biggest_driver=DriverAnalysisService.build_release_driver(snapshot),
-        recommendations=RecommendationEngine.build_release_recommendations(snapshot),
+        confidence_score=confidence_score,
+        confidence_breakdown=ConfidenceBreakdownService.build_release_breakdown(snapshot) if has_release_tickets else None,
+        biggest_driver=DriverAnalysisService.build_release_driver(snapshot) if has_release_tickets else None,
+        recommendations=(
+            RecommendationEngine.build_release_recommendations(
+                snapshot,
+                metric_availability=metric_availability,
+            )
+            if has_release_tickets
+            else []
+        ),
         is_computed=True,
         snapshot_age_hours=snapshot_age_hours,
     )
@@ -270,10 +309,11 @@ def get_release_charts(
         from_at=from_ts,
         to_at=to_ts,
     )
+    has_release_tickets = ReleaseRepository.count_release_issues(session=session, release_id=release_id) > 0
     release_gate_values = {
         snapshot.id: _build_release_gate_values(snapshot)
         for snapshot in snapshots
-    }
+    } if has_release_tickets else {}
 
     return ReleaseChartsResponse(
         release_id=release_id,
@@ -317,22 +357,28 @@ def get_release_charts(
             confidence_score=[
                 ChartPoint(
                     snapshot_at=snapshot.snapshot_at,
-                    value=SignalService._confidence_score_for_snapshot(snapshot),
+                    value=SignalService._confidence_score_for_snapshot(snapshot) if has_release_tickets else None,
                 )
                 for snapshot in snapshots
             ],
             gates_passed_count=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=release_gate_values[snapshot.id][0])
+                ChartPoint(
+                    snapshot_at=snapshot.snapshot_at,
+                    value=release_gate_values[snapshot.id][0] if has_release_tickets else None,
+                )
                 for snapshot in snapshots
             ],
             readiness_pct=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=release_gate_values[snapshot.id][2])
+                ChartPoint(
+                    snapshot_at=snapshot.snapshot_at,
+                    value=release_gate_values[snapshot.id][2] if has_release_tickets else None,
+                )
                 for snapshot in snapshots
             ],
         ),
         metric_names=CHART_METRIC_NAMES,
         point_count=len(snapshots),
-        release_gates_total=_release_gates_total(),
+        release_gates_total=_release_gates_total() if has_release_tickets else 0,
     )
 
 

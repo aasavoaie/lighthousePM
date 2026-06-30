@@ -202,35 +202,102 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     assert metrics_response.status_code == 200
     payload = metrics_response.json()
     assert payload["is_computed"] is True
-    assert payload["metrics"]["committed_scope"] == 1
-    assert payload["metrics"]["delivery_confidence_score"] == 100.0
-    assert payload["delivery_confidence"]["score"] == 100.0
-    assert payload["confidence_breakdown"]["totalScore"] == 100.0
-    assert payload["biggest_driver"] == {
-        "title": "No Delivery Drag",
-        "category": "None",
-        "impact": 0.0,
-        "contributionPercent": 0.0,
-        "explanation": "No delivery confidence component is currently reducing the sprint score.",
-        "recommendation": "Maintain the current delivery posture and continue monitoring progress, velocity, blockers, and scope stability.",
+    assert payload["computation_status"] == "PARTIAL"
+    assert payload["unavailable_reason"] == "No tickets in this scope have story points."
+    assert payload["metric_availability"]["context"] == {
+        "has_tickets": True,
+        "has_story_points": False,
+        "has_completed_tickets": True,
+        "has_release_scope": False,
+        "has_sprint_scope": True,
+        "has_changelog": False,
     }
+    assert payload["metric_availability"]["metrics"]["delivery_confidence_score"] == {
+        "available": False,
+        "reason": "No tickets in this scope have story points.",
+        "depends_on": ["ticket_count", "story_points", "sprint_assignment"],
+    }
+    assert payload["metric_availability"]["metrics"]["median_cycle_time_days"] == {
+        "available": False,
+        "reason": "No Jira changelog history is available for this scope.",
+        "depends_on": ["ticket_count", "completed_tickets", "history_changelog", "sprint_assignment"],
+    }
+    assert payload["metrics"]["committed_scope"] == 1
+    assert payload["metrics"]["completed_scope_pct"] == 100.0
+    assert payload["metrics"]["delivery_confidence_score"] is None
+    assert payload["delivery_confidence"] is None
+    assert payload["confidence_breakdown"] is None
+    assert payload["biggest_driver"] is None
     assert payload["recommendations"] == []
-    assert [component["id"] for component in payload["confidence_breakdown"]["components"]] == [
-        "progress_alignment",
-        "velocity_fit",
-        "scope_stability",
-        "blocker_health",
-    ]
-    assert all(component["score"] == 100.0 for component in payload["confidence_breakdown"]["components"])
-    assert all(component["maxScore"] == 100.0 for component in payload["confidence_breakdown"]["components"])
-    assert all(component["status"] == "good" for component in payload["confidence_breakdown"]["components"])
-    assert payload["delivery_confidence"]["inputs"]["initial_commitment_count"] == 1
-    assert payload["delivery_confidence"]["inputs"]["scope_stability_index"] == 0.0
-    assert payload["delivery_confidence"]["inputs"]["committed_effective_points"] == 1.0
+    recommendation_text = " ".join(
+        f"{item['title']} {item['description']}".lower() for item in payload["recommendations"]
+    )
+    assert "velocity" not in recommendation_text
+    assert "predictability" not in recommendation_text
     assert payload["metric_issue_keys"] == {
         "open_blockers": [],
         "open_high_severity_bugs": [],
         "bugs_created_during_sprint": [],
+    }
+
+
+def test_get_sprint_metrics_suppresses_legacy_confidence_without_story_points(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1", story_points=None)
+        _seed_sprint_snapshot(
+            session=session,
+            sprint_id="12",
+            snapshot_at=datetime.now(UTC),
+            confidence=72.0,
+            progress_alignment=80.0,
+            velocity_fit=65.0,
+        )
+        session.commit()
+
+    response = client.get("/sprints/12/metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["is_computed"] is True
+    assert payload["computation_status"] == "PARTIAL"
+    assert payload["unavailable_reason"] == "No tickets in this scope have story points."
+    assert payload["metric_availability"]["context"]["has_story_points"] is False
+    assert payload["metrics"]["committed_scope"] == 10
+    assert payload["metrics"]["delivery_confidence_score"] is None
+    assert payload["delivery_confidence"] is None
+    assert payload["confidence_breakdown"] is None
+    assert payload["biggest_driver"] is None
+    recommendation_text = " ".join(
+        f"{item['title']} {item['description']}".lower() for item in payload["recommendations"]
+    )
+    assert "velocity" not in recommendation_text
+    assert "predictability" not in recommendation_text
+
+
+def test_get_sprint_metrics_returns_availability_when_snapshot_missing(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+
+    response = client.get("/sprints/12/metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["is_computed"] is False
+    assert payload["computation_status"] == "NOT_COMPUTED"
+    assert payload["unavailable_reason"] == "No tickets are available for this scope."
+    assert payload["metric_availability"]["context"] == {
+        "has_tickets": False,
+        "has_story_points": False,
+        "has_completed_tickets": False,
+        "has_release_scope": False,
+        "has_sprint_scope": False,
+        "has_changelog": False,
+    }
+    assert payload["metric_availability"]["metrics"]["committed_scope"] == {
+        "available": False,
+        "reason": "No tickets are available for this scope.",
+        "depends_on": ["ticket_count", "sprint_assignment"],
     }
 
 
@@ -314,6 +381,7 @@ def test_get_current_sprint_not_found(client: TestClient) -> None:
 def test_get_sprint_snapshot_comparison_uses_previous_snapshot(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1", story_points=3.0)
         base = datetime(2026, 4, 1, tzinfo=UTC)
         _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
         _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
@@ -330,9 +398,29 @@ def test_get_sprint_snapshot_comparison_uses_previous_snapshot(client: TestClien
     assert payload["comparison"]["contributors"][0]["impact"] == 8.0
 
 
+def test_get_sprint_snapshot_comparison_is_unavailable_without_story_points(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1", story_points=None)
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
+        _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
+        session.commit()
+
+    response = client.get("/sprints/12/snapshot-comparison?baseline=previous")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["entity_id"] == "12"
+    assert payload["has_baseline"] is True
+    assert payload["comparison"]["confidenceDelta"] is None
+    assert payload["comparison"]["contributors"] == []
+
+
 def test_get_sprint_snapshot_change_history_returns_primary_driver(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1", story_points=3.0)
         base = datetime(2026, 4, 1, tzinfo=UTC)
         _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
         _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
@@ -346,3 +434,25 @@ def test_get_sprint_snapshot_change_history_returns_primary_driver(client: TestC
     assert payload["items"][0]["primary_driver"] == "Baseline snapshot"
     assert payload["items"][1]["delta"] == 12.0
     assert payload["items"][1]["primary_driver"] == "progress_alignment"
+
+
+def test_get_sprint_snapshot_change_history_is_unavailable_without_story_points(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1", story_points=None)
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
+        _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
+        session.commit()
+
+    response = client.get("/sprints/12/snapshot-change-history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 2
+    assert payload["items"][0]["confidence"] is None
+    assert payload["items"][0]["delta"] is None
+    assert payload["items"][0]["primary_driver"] == "Not available"
+    assert payload["items"][1]["confidence"] is None
+    assert payload["items"][1]["delta"] is None
+    assert payload["items"][1]["primary_driver"] == "Not available"

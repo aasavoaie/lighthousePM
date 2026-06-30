@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+from app.schemas.availability import MetricAvailability
 from app.schemas.recommendations import RecommendationAction, RecommendationEffort
 from app.utils.constants import (
     CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
@@ -145,17 +146,31 @@ class RecommendationEngine:
     WORKLOAD_CONCENTRATION_YELLOW_PCT = 35.0
 
     @staticmethod
-    def build_release_recommendations(snapshot: Any) -> list[RecommendationAction]:
+    def build_release_recommendations(
+        snapshot: Any,
+        metric_availability: MetricAvailability | None = None,
+    ) -> list[RecommendationAction]:
         candidates: list[_RecommendationRule] = []
-        if snapshot.open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
+        if RecommendationEngine._release_metric_available(metric_availability, "open_blockers") and snapshot.open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
             candidates.append(RecommendationEngine.RELEASE_RULES["open_blockers"])
-        if snapshot.open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
+        if (
+            RecommendationEngine._release_metric_available(metric_availability, "open_high_severity_bugs")
+            and snapshot.open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD
+        ):
             candidates.append(RecommendationEngine.RELEASE_RULES["open_high_severity_bugs"])
-        if snapshot.scope_churn_7d_pct > SCOPE_CHURN_YELLOW_THRESHOLD * 100:
+        if (
+            RecommendationEngine._release_metric_available(metric_availability, "scope_churn_7d_pct")
+            and snapshot.scope_churn_7d_pct > SCOPE_CHURN_YELLOW_THRESHOLD * 100
+        ):
             candidates.append(RecommendationEngine.RELEASE_RULES["scope_churn_7d_pct"])
-        if snapshot.reopen_rate_pct > REOPEN_RATE_YELLOW_THRESHOLD * 100:
+        if (
+            RecommendationEngine._release_metric_available(metric_availability, "reopen_rate_pct")
+            and snapshot.reopen_rate_pct > REOPEN_RATE_YELLOW_THRESHOLD * 100
+        ):
             candidates.append(RecommendationEngine.RELEASE_RULES["reopen_rate_pct"])
         if (
+            RecommendationEngine._release_metric_available(metric_availability, "median_cycle_time_days")
+            and
             snapshot.median_cycle_time_days is not None
             and snapshot.median_cycle_time_days > CYCLE_TIME_YELLOW_THRESHOLD_DAYS
         ):
@@ -163,19 +178,29 @@ class RecommendationEngine:
         return RecommendationEngine._prioritize(candidates, RecommendationEngine.RELEASE_ORDER)
 
     @staticmethod
+    def _release_metric_available(metric_availability: MetricAvailability | None, metric_name: str) -> bool:
+        if metric_availability is None:
+            return True
+        item = metric_availability.metrics.get(metric_name)
+        return item.available if item is not None else False
+
+    @staticmethod
     def build_sprint_recommendations(
         snapshot: Any,
         sprint_issues: list[Any] | None = None,
+        include_story_point_rules: bool = True,
     ) -> list[RecommendationAction]:
         candidates: list[_RecommendationRule] = []
-        components = snapshot.delivery_confidence_components or {}
-        inputs = snapshot.delivery_confidence_inputs or {}
+        components = (snapshot.delivery_confidence_components or {}) if include_story_point_rules else {}
+        inputs = (snapshot.delivery_confidence_inputs or {}) if include_story_point_rules else {}
 
-        if int(inputs.get("scope_change_count") or 0) > 0 or float(components.get("scope_stability", 100.0)) < 100.0:
+        if include_story_point_rules and (
+            int(inputs.get("scope_change_count") or 0) > 0 or float(components.get("scope_stability", 100.0)) < 100.0
+        ):
             candidates.append(RecommendationEngine.SPRINT_RULES["scope_stability"])
         if snapshot.open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
             candidates.append(RecommendationEngine.SPRINT_RULES["open_blockers"])
-        if (
+        if include_story_point_rules and (
             snapshot.completed_scope_pct < 100.0
             or float(inputs.get("remaining_effective_points") or 0.0) > 0.0
             or float(components.get("progress_alignment", 100.0)) < 100.0
@@ -226,6 +251,8 @@ class RecommendationEngine:
             if RecommendationEngine._is_done_status(str(getattr(issue, "status", ""))):
                 continue
             points = RecommendationEngine._effective_points(getattr(issue, "story_points", None))
+            if points is None:
+                continue
             assignee = str(getattr(issue, "assignee", None) or "Unassigned")
             active_points_by_assignee[assignee] = active_points_by_assignee.get(assignee, 0.0) + points
             total_active_points += points
@@ -236,11 +263,11 @@ class RecommendationEngine:
         return top_assignee_pct >= RecommendationEngine.WORKLOAD_CONCENTRATION_YELLOW_PCT
 
     @staticmethod
-    def _effective_points(value: float | int | None) -> float:
+    def _effective_points(value: float | int | None) -> float | None:
         if value is None:
-            return 1.0
+            return None
         points = float(value)
-        return points if points > 0 else 1.0
+        return points if points >= 0 else None
 
     @staticmethod
     def _is_done_status(status: str) -> bool:

@@ -16,7 +16,7 @@ class SnapshotDeltaContributor(BaseModel):
 
 
 class SnapshotDeltaComparison(BaseModel):
-    confidence_delta: float = Field(serialization_alias="confidenceDelta")
+    confidence_delta: float | None = Field(serialization_alias="confidenceDelta")
     contributors: list[SnapshotDeltaContributor]
 
 

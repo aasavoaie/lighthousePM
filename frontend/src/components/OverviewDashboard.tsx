@@ -23,6 +23,7 @@ import type {
 } from "../api/types";
 import { apiClient } from "../api/client";
 import { RecommendationsPanel } from "./RecommendationsPanel";
+import { getReleaseScoreDisplay } from "./releaseAvailability";
 
 interface OverviewDashboardProps {
   projectKey: string | null;
@@ -267,6 +268,7 @@ export function OverviewDashboard({
   const [isLoadingSprint, setIsLoadingSprint] = useState(false);
   const [sprintError, setSprintError] = useState<string | null>(null);
   const confidenceScore = getConfidenceScore(signal, charts);
+  const scoreDisplay = getReleaseScoreDisplay(metrics);
   const tone = getSignalTone(signal);
   const riskDrivers = getRiskDrivers(signal);
   const trendRows = buildConfidenceTrendRows(charts);
@@ -277,6 +279,7 @@ export function OverviewDashboard({
   const summary = hasReleaseSnapshot
     ? signal?.summary ?? "Signal data has not been computed for this release yet."
     : "No snapshot available yet.";
+  const readinessSummary = scoreDisplay.isAvailable ? summary : scoreDisplay.reason;
   const warnings = signal?.warnings ?? [];
   const blockers = getMetricValue(metrics, "open_blockers");
   const bugs = getMetricValue(metrics, "open_high_severity_bugs");
@@ -339,10 +342,12 @@ export function OverviewDashboard({
     <>
       <section className="overview-card readiness-card">
         <p className="overview-card-kicker">Release Readiness</p>
-        <strong className={`readiness-score readiness-${tone}`}>{formatPercentage(confidenceScore)}</strong>
-        <span className="readiness-label">Confidence</span>
+        <strong className={`readiness-score readiness-${scoreDisplay.isAvailable ? tone : "neutral"} ${scoreDisplay.isAvailable ? "" : "readiness-score-unavailable"}`}>
+          {scoreDisplay.value ?? formatPercentage(confidenceScore)}
+        </strong>
+        <span className="readiness-label">{scoreDisplay.label}</span>
         <span className={`readiness-pill readiness-${tone}`}>{getStatusLabel(signal)}</span>
-        <p className="overview-copy">{summary}</p>
+        <p className="overview-copy">{readinessSummary}</p>
       </section>
 
       <section className="overview-card confidence-engine-card">

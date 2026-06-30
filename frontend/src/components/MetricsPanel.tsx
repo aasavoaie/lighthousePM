@@ -11,6 +11,7 @@ import {
   formatSignedDelta,
   getDeltaImpact,
 } from "./MetricCards";
+import { getReleaseMetricDisplay } from "./releaseAvailability";
 
 interface MetricsPanelProps {
   metrics: ReleaseMetricsResponse | null;
@@ -230,19 +231,27 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
     }
 
     const value = metrics.metrics[metricName];
+    const availabilityDisplay = getReleaseMetricDisplay(metrics, metricName);
     const sparklineData = buildSparklineData(charts, metricName);
     const comparison = buildComparison(charts, metricName);
+    const details = [
+      ...(availabilityDisplay.reason ? [availabilityDisplay.reason] : []),
+      ...(options?.details ?? []),
+    ];
     return (
       <MetricStatusCard
         id={`release-metric-${metricName}`}
         key={metricName}
         title={metricLabels[metricName]}
-        value={formatMetricValue(metricName, value)}
-        status={getReleaseMetricStatus(metricName, value, metrics)}
+        value={availabilityDisplay.value ?? formatMetricValue(metricName, value)}
+        status={availabilityDisplay.isAvailable ? getReleaseMetricStatus(metricName, value, metrics) : "neutral"}
         isHighlighted={focusedMetricName === metricName}
         comparison={comparison.text}
         comparisonImpact={comparison.impact}
-        details={options?.details}
+        details={details}
+        infoText={availabilityDisplay.reason ?? undefined}
+        badge={availabilityDisplay.badge}
+        badgeTitle={availabilityDisplay.reason}
       >
         <MetricSparkline
           data={sparklineData}

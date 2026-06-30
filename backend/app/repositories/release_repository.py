@@ -37,6 +37,11 @@ class ReleaseRepository:
         return list(session.scalars(query).all())
 
     @staticmethod
+    def count_release_issues(session: Session, release_id: str) -> int:
+        query = select(func.count()).select_from(Issue).where(Issue.release_id == release_id)
+        return int(session.scalar(query) or 0)
+
+    @staticmethod
     def list_release_issues(
         session: Session, release_id: str, skip: int, limit: int
     ) -> tuple[list[Issue], int]:

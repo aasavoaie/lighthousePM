@@ -137,6 +137,20 @@ class SignalService:
         release = ReleaseRepository.get_release_by_id(session=session, release_id=release_id)
         if release is None:
             raise ValueError(f"Release not found: {release_id!r}")
+        if ReleaseRepository.count_release_issues(session=session, release_id=release_id) == 0:
+            reasons = ["No tickets are assigned to this release."]
+            OperationalStatusRepository.mark_signal_recomputed(session=session)
+            logger.info(
+                "signal_recompute_not_computed release_id=%s reason=%s",
+                release_id,
+                reasons[0],
+            )
+            return SignalRepository.upsert_signal(
+                session=session,
+                release_id=release_id,
+                signal="NOT_COMPUTED",
+                reasons=reasons,
+            )
 
         # Analytics recompute may have just added a new MetricSnapshot in this
         # transaction; flush so subsequent SELECT sees pending rows.

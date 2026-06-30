@@ -53,7 +53,10 @@ function formatSigned(value: number) {
   return `${value > 0 ? "+" : ""}${Number(value.toFixed(2))}`;
 }
 
-function formatConfidenceDelta(value: number) {
+function formatConfidenceDelta(value: number | null) {
+  if (value === null) {
+    return "Confidence unavailable";
+  }
   if (value === 0) {
     return "Confidence unchanged";
   }
@@ -178,7 +181,7 @@ export function SnapshotChangePanel({
       {error ? <p className="error-text">{error}</p> : null}
       {!isLoading && !error ? (
         <div className="snapshot-change-summary">
-          <strong>{formatConfidenceDelta(comparison?.comparison.confidenceDelta ?? 0)}</strong>
+          <strong>{formatConfidenceDelta(comparison?.comparison.confidenceDelta ?? null)}</strong>
           {hasBaseline ? (
             contributors.length > 0 ? (
               <ul className="snapshot-change-list">{contributors.map(renderContributor)}</ul>

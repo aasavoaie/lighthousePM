@@ -10,6 +10,7 @@ import zlib
 
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import MetricSnapshot, Release, Sprint, SprintMetricSnapshot
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
@@ -17,12 +18,28 @@ from app.repositories.signal_repository import SignalRepository
 from app.repositories.sprint_repository import SprintRepository
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 from app.services.driver_analysis_service import DriverAnalysisService
+from app.services.jira_field_mapper import JiraFieldMapper
+from app.services.metric_availability_service import MetricAvailabilityService
+from app.schemas.availability import MetricAvailability
 from app.services.recommendation_engine import RecommendationEngine
 from app.services.signal_service import SignalService
 from app.services.snapshot_comparison_service import SnapshotComparisonService
 
 
 ReportDepth = Literal["summary", "full"]
+SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE = (
+    "Story-point metrics are unavailable because no tickets in this sprint have story points."
+)
+RELEASE_NO_TICKETS_MESSAGE = "No tickets are available for this scope."
+RELEASE_NO_STORY_POINTS_MESSAGE = "No tickets in this scope have story points."
+
+
+def _release_metric_availability(session: Session, release_id: str):
+    return MetricAvailabilityService.build_release_availability(
+        session=session,
+        release_id=release_id,
+        field_mapper=JiraFieldMapper(get_settings()),
+    )
 
 
 @dataclass(frozen=True)
@@ -718,16 +735,34 @@ class ReportTemplateEngine:
         sprint_snapshots: list[SprintMetricSnapshot],
     ) -> list[ReportSection]:
         readiness = self._release_readiness(session, release.release_id, snapshot)
-        recommendations = RecommendationEngine.build_release_recommendations(snapshot) if snapshot else []
+        release_availability = _release_metric_availability(session, release.release_id)
+        recommendations = (
+            RecommendationEngine.build_release_recommendations(
+                snapshot,
+                metric_availability=release_availability,
+            )
+            if snapshot
+            else []
+        )
         sprint_issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id) if sprint else []
+        sprint_has_story_points = _sprint_has_story_points(sprint_issues)
         sprint_recommendations = (
-            RecommendationEngine.build_sprint_recommendations(sprint_snapshot, sprint_issues=sprint_issues)
+            RecommendationEngine.build_sprint_recommendations(
+                sprint_snapshot,
+                sprint_issues=sprint_issues,
+                include_story_point_rules=sprint_has_story_points,
+            )
             if sprint_snapshot
             else []
         )
+        sprint_delivery_confidence = (
+            sprint_snapshot.delivery_confidence_score
+            if sprint_snapshot and sprint_has_story_points
+            else None
+        )
         confidence_score = readiness.get("confidence_score")
         confidence_delta = _first_last_delta(
-            [SignalService._confidence_score_for_snapshot(item) for item in snapshots]
+            [_release_confidence_for_report(item, release_availability) for item in snapshots]
         )
         return [
             ReportSection(
@@ -744,8 +779,11 @@ class ReportTemplateEngine:
                 ],
             ),
             ReportSection("Project Portfolio Metrics", rows=self._portfolio_metric_rows(session, release.project_key)),
-            ReportSection("Release Metrics", rows=release_metric_rows(snapshot)),
-            ReportSection("Sprint Metrics", rows=overview_sprint_metric_rows(sprint, sprint_snapshot)),
+            ReportSection("Release Metrics", rows=release_metric_rows(snapshot, release_availability)),
+            ReportSection(
+                "Sprint Metrics",
+                rows=overview_sprint_metric_rows(sprint, sprint_snapshot, sprint_has_story_points),
+            ),
             ReportSection(
                 "Confidence Metrics",
                 rows=[
@@ -755,18 +793,24 @@ class ReportTemplateEngine:
                     ("Readiness", format_percent(readiness.get("readiness_pct"))),
                     (
                         "Sprint delivery confidence",
-                        format_percent(sprint_snapshot.delivery_confidence_score if sprint_snapshot else None),
+                        format_percent(sprint_delivery_confidence),
                     ),
                     (
                         "Sprint confidence band",
-                        confidence_band(sprint_snapshot.delivery_confidence_score if sprint_snapshot else None),
+                        confidence_band(sprint_delivery_confidence),
                     ),
                 ],
             ),
             ReportSection("Risk Indicators", bullets=overview_risk_bullets(readiness, snapshot, sprint_snapshot)),
             ReportSection("Signals", rows=overview_signal_rows(readiness)),
-            ReportSection("Trends", charts=self._overview_charts(snapshots, sprint_snapshots)),
-            ReportSection("Health Indicators", rows=overview_health_rows(readiness, snapshot, sprint_snapshot)),
+            ReportSection(
+                "Trends",
+                charts=self._overview_charts(snapshots, sprint_snapshots, sprint_has_story_points, release_availability),
+            ),
+            ReportSection(
+                "Health Indicators",
+                rows=overview_health_rows(readiness, snapshot, sprint_snapshot, sprint_has_story_points),
+            ),
             ReportSection(
                 "Recommendations",
                 bullets=overview_recommendation_bullets(recommendations, sprint_recommendations),
@@ -806,13 +850,15 @@ class ReportTemplateEngine:
         self,
         snapshots: list[MetricSnapshot],
         sprint_snapshots: list[SprintMetricSnapshot],
+        sprint_has_story_points: bool = True,
+        release_availability: MetricAvailability | None = None,
     ) -> list[ChartSpec]:
         charts = [
             ChartSpec(
                 title="Overview Confidence Trend",
                 kind="line",
                 points=[
-                    (format_short_datetime(snapshot.snapshot_at), SignalService._confidence_score_for_snapshot(snapshot))
+                    (format_short_datetime(snapshot.snapshot_at), _release_confidence_for_report(snapshot, release_availability))
                     for snapshot in snapshots
                 ],
                 color=self.theme.metric_colors["velocityFit"].rgb,
@@ -823,13 +869,13 @@ class ReportTemplateEngine:
                 title="Overview Readiness Trend",
                 kind="line",
                 points=[
-                    (format_short_datetime(snapshot.snapshot_at), self._release_gate_passed_count("", snapshot))
+                    (format_short_datetime(snapshot.snapshot_at), self._release_gate_passed_count("", snapshot, release_availability))
                     for snapshot in snapshots
                 ],
                 color=self.theme.metric_colors["gatesPassed"].rgb,
             ),
         ]
-        if sprint_snapshots:
+        if sprint_snapshots and sprint_has_story_points:
             charts.append(
                 ChartSpec(
                     title="Overview Sprint Delivery Trend",
@@ -855,7 +901,18 @@ class ReportTemplateEngine:
         readiness = self._release_readiness(session, release.release_id, snapshot)
         confidence_breakdown = ConfidenceBreakdownService.build_release_breakdown(snapshot) if snapshot else None
         biggest_driver = DriverAnalysisService.build_release_driver(snapshot) if snapshot else None
-        recommendations = RecommendationEngine.build_release_recommendations(snapshot) if snapshot else []
+        release_availability = _release_metric_availability(session, release.release_id)
+        if not release_availability.context.has_tickets:
+            confidence_breakdown = None
+            biggest_driver = None
+        recommendations = (
+            RecommendationEngine.build_release_recommendations(
+                snapshot,
+                metric_availability=release_availability,
+            )
+            if snapshot
+            else []
+        )
         return [
             ReportSection(
                 "Executive Summary",
@@ -877,7 +934,10 @@ class ReportTemplateEngine:
                     ChartSpec(
                         title="Confidence Score",
                         kind="line",
-                        points=[(format_short_datetime(item.snapshot_at), SignalService._confidence_score_for_snapshot(item)) for item in snapshots],
+                        points=[
+                            (format_short_datetime(item.snapshot_at), _release_confidence_for_report(item, release_availability))
+                            for item in snapshots
+                        ],
                         color=self.theme.metric_colors["sprintConfidence"].rgb,
                         y_max=100,
                         value_suffix="%",
@@ -885,7 +945,13 @@ class ReportTemplateEngine:
                     ChartSpec(
                         title="Readiness %",
                         kind="line",
-                        points=[(format_short_datetime(item.snapshot_at), self._release_readiness(session, release.release_id, item).get("readiness_pct")) for item in snapshots],
+                        points=[
+                            (
+                                format_short_datetime(item.snapshot_at),
+                                self._release_readiness(session, release.release_id, item).get("readiness_pct"),
+                            )
+                            for item in snapshots
+                        ],
                         color=self.theme.metric_colors["readiness"].rgb,
                         y_max=100,
                         value_suffix="%",
@@ -905,8 +971,11 @@ class ReportTemplateEngine:
             ),
             ReportSection("Recommended Actions", bullets=recommendation_bullets(recommendations)),
             ReportSection("Release Gates", rows=gate_rows(readiness.get("release_gates", []))),
-            ReportSection("Evidence Metrics", rows=release_metric_rows(snapshot)),
-            ReportSection("Historical Trends", charts=self._release_historical_charts(release.release_id, snapshots)),
+            ReportSection("Evidence Metrics", rows=release_metric_rows(snapshot, release_availability)),
+            ReportSection(
+                "Historical Trends",
+                charts=self._release_historical_charts(release.release_id, snapshots, release_availability),
+            ),
         ]
 
     def _release_summary_sections(
@@ -919,7 +988,18 @@ class ReportTemplateEngine:
         confidence_score = readiness.get("confidence_score")
         confidence_breakdown = ConfidenceBreakdownService.build_release_breakdown(snapshot) if snapshot else None
         biggest_driver = DriverAnalysisService.build_release_driver(snapshot) if snapshot else None
-        recommendations = RecommendationEngine.build_release_recommendations(snapshot) if snapshot else []
+        release_availability = _release_metric_availability(session, release.release_id)
+        if not release_availability.context.has_tickets:
+            confidence_breakdown = None
+            biggest_driver = None
+        recommendations = (
+            RecommendationEngine.build_release_recommendations(
+                snapshot,
+                metric_availability=release_availability,
+            )
+            if snapshot
+            else []
+        )
         return [
             ReportSection(
                 "Executive Summary",
@@ -954,6 +1034,8 @@ class ReportTemplateEngine:
         snapshot: SprintMetricSnapshot | None,
         snapshots: list[SprintMetricSnapshot],
     ) -> list[ReportSection]:
+        issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id)
+        has_story_points = _sprint_has_story_points(issues)
         confidence_breakdown = (
             ConfidenceBreakdownService.build_sprint_breakdown(
                 score=snapshot.delivery_confidence_score,
@@ -961,6 +1043,7 @@ class ReportTemplateEngine:
                 inputs=snapshot.delivery_confidence_inputs,
             )
             if snapshot
+            and has_story_points
             and snapshot.delivery_confidence_score is not None
             and snapshot.delivery_confidence_components is not None
             and snapshot.delivery_confidence_inputs is not None
@@ -971,11 +1054,22 @@ class ReportTemplateEngine:
                 score=snapshot.delivery_confidence_score,
                 components=snapshot.delivery_confidence_components,
             )
-            if snapshot and snapshot.delivery_confidence_score is not None and snapshot.delivery_confidence_components is not None
+            if snapshot
+            and has_story_points
+            and snapshot.delivery_confidence_score is not None
+            and snapshot.delivery_confidence_components is not None
             else None
         )
-        issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id)
-        recommendations = RecommendationEngine.build_sprint_recommendations(snapshot, sprint_issues=issues) if snapshot else []
+        recommendations = (
+            RecommendationEngine.build_sprint_recommendations(
+                snapshot,
+                sprint_issues=issues,
+                include_story_point_rules=has_story_points,
+            )
+            if snapshot
+            else []
+        )
+        delivery_confidence_score = snapshot.delivery_confidence_score if snapshot and has_story_points else None
         return [
             ReportSection(
                 "Executive Summary",
@@ -987,13 +1081,14 @@ class ReportTemplateEngine:
                     ("Start", format_datetime(sprint.start_date)),
                     ("End", format_datetime(sprint.end_date)),
                     ("Latest snapshot", format_datetime(snapshot.snapshot_at if snapshot else None)),
-                    ("Delivery confidence", format_percent(snapshot.delivery_confidence_score if snapshot else None)),
+                    ("Delivery confidence", format_percent(delivery_confidence_score)),
                 ],
             ),
             ReportSection(
                 "Delivery Confidence",
                 rows=[
-                    ("Score", format_percent(snapshot.delivery_confidence_score if snapshot else None)),
+                    *([] if has_story_points else [("Status", SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE)]),
+                    ("Score", format_percent(delivery_confidence_score)),
                     ("Committed scope", format_number(snapshot.committed_scope if snapshot else None)),
                     ("Completed scope", format_percent(snapshot.completed_scope_pct if snapshot else None)),
                     ("Open blockers", format_number(snapshot.open_blockers if snapshot else None)),
@@ -1007,17 +1102,17 @@ class ReportTemplateEngine:
                         y_max=100,
                         value_suffix="%",
                     )
-                ],
+                ] if has_story_points else [],
             ),
             ReportSection("Confidence Breakdown", rows=breakdown_rows(confidence_breakdown)),
-            self._sprint_snapshot_changes(sprint.sprint_id, snapshots),
+            self._sprint_snapshot_changes(sprint.sprint_id, snapshots, has_story_points),
             ReportSection("Biggest Driver", rows=driver_rows(biggest_driver)),
-            ReportSection("Velocity Health", rows=sprint_velocity_rows(snapshot)),
-            ReportSection("Scope Stability", rows=sprint_scope_rows(snapshot)),
+            ReportSection("Velocity Health", rows=sprint_velocity_rows(snapshot, has_story_points)),
+            ReportSection("Scope Stability", rows=sprint_scope_rows(snapshot, has_story_points)),
             ReportSection("Quality Signals", rows=sprint_quality_rows(snapshot)),
             ReportSection("Risk Drivers", bullets=sprint_risk_bullets(snapshot)),
             ReportSection("Recommended Actions", bullets=recommendation_bullets(recommendations)),
-            ReportSection("Historical Trends", charts=self._sprint_historical_charts(snapshots)),
+            ReportSection("Historical Trends", charts=self._sprint_historical_charts(snapshots, has_story_points)),
         ]
 
     def _sprint_summary_sections(
@@ -1026,6 +1121,8 @@ class ReportTemplateEngine:
         sprint: Sprint,
         snapshot: SprintMetricSnapshot | None,
     ) -> list[ReportSection]:
+        issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id)
+        has_story_points = _sprint_has_story_points(issues)
         confidence_breakdown = (
             ConfidenceBreakdownService.build_sprint_breakdown(
                 score=snapshot.delivery_confidence_score,
@@ -1033,6 +1130,7 @@ class ReportTemplateEngine:
                 inputs=snapshot.delivery_confidence_inputs,
             )
             if snapshot
+            and has_story_points
             and snapshot.delivery_confidence_score is not None
             and snapshot.delivery_confidence_components is not None
             and snapshot.delivery_confidence_inputs is not None
@@ -1043,11 +1141,22 @@ class ReportTemplateEngine:
                 score=snapshot.delivery_confidence_score,
                 components=snapshot.delivery_confidence_components,
             )
-            if snapshot and snapshot.delivery_confidence_score is not None and snapshot.delivery_confidence_components is not None
+            if snapshot
+            and has_story_points
+            and snapshot.delivery_confidence_score is not None
+            and snapshot.delivery_confidence_components is not None
             else None
         )
-        issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id)
-        recommendations = RecommendationEngine.build_sprint_recommendations(snapshot, sprint_issues=issues) if snapshot else []
+        recommendations = (
+            RecommendationEngine.build_sprint_recommendations(
+                snapshot,
+                sprint_issues=issues,
+                include_story_point_rules=has_story_points,
+            )
+            if snapshot
+            else []
+        )
+        delivery_confidence_score = snapshot.delivery_confidence_score if snapshot and has_story_points else None
         return [
             ReportSection(
                 "Executive Summary",
@@ -1064,8 +1173,9 @@ class ReportTemplateEngine:
             ReportSection(
                 "Delivery Confidence",
                 rows=[
-                    ("Score", format_percent(snapshot.delivery_confidence_score if snapshot else None)),
-                    ("Band", confidence_band(snapshot.delivery_confidence_score if snapshot else None)),
+                    *([] if has_story_points else [("Status", SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE)]),
+                    ("Score", format_percent(delivery_confidence_score)),
+                    ("Band", confidence_band(delivery_confidence_score)),
                     ("Committed scope", format_number(snapshot.committed_scope if snapshot else None)),
                     ("Completed scope", format_percent(snapshot.completed_scope_pct if snapshot else None)),
                 ],
@@ -1077,6 +1187,7 @@ class ReportTemplateEngine:
         ]
 
     def _release_readiness(self, session: Session, release_id: str, snapshot: MetricSnapshot | None) -> dict[str, object]:
+        release_availability = _release_metric_availability(session, release_id)
         if snapshot is None:
             signal = SignalRepository.get_latest_signal(session=session, release_id=release_id)
             return {
@@ -1085,6 +1196,18 @@ class ReportTemplateEngine:
                 "summary": "Metrics have not been computed yet for this release.",
                 "confidence_score": None,
                 "reasons": signal.reasons if signal else [],
+                "release_gates": [],
+                "critical_risks": [],
+                "warnings": [],
+                "readiness_pct": None,
+            }
+        if not release_availability.context.has_tickets:
+            return {
+                "signal": None,
+                "status_label": "NOT COMPUTED",
+                "summary": "Release signal is not computed because no tickets are available for this scope.",
+                "confidence_score": None,
+                "reasons": [RELEASE_NO_TICKETS_MESSAGE],
                 "release_gates": [],
                 "critical_risks": [],
                 "warnings": [],
@@ -1124,13 +1247,18 @@ class ReportTemplateEngine:
             ],
         )
 
-    def _release_historical_charts(self, release_id: str, snapshots: list[MetricSnapshot]) -> list[ChartSpec]:
+    def _release_historical_charts(
+        self,
+        release_id: str,
+        snapshots: list[MetricSnapshot],
+        release_availability: MetricAvailability | None = None,
+    ) -> list[ChartSpec]:
         return [
             ChartSpec(
                 title="Historical Confidence",
                 kind="line",
                 points=[
-                    (format_short_datetime(snapshot.snapshot_at), SignalService._confidence_score_for_snapshot(snapshot))
+                    (format_short_datetime(snapshot.snapshot_at), _release_confidence_for_report(snapshot, release_availability))
                     for snapshot in snapshots
                 ],
                 color=self.theme.metric_colors["sprintConfidence"].rgb,
@@ -1141,7 +1269,7 @@ class ReportTemplateEngine:
                 title="Historical Release Gates Passed",
                 kind="line",
                 points=[
-                    (format_short_datetime(snapshot.snapshot_at), self._release_gate_passed_count(release_id, snapshot))
+                    (format_short_datetime(snapshot.snapshot_at), self._release_gate_passed_count(release_id, snapshot, release_availability))
                     for snapshot in snapshots
                 ],
                 color=self.theme.metric_colors["gatesPassed"].rgb,
@@ -1195,8 +1323,15 @@ class ReportTemplateEngine:
             ),
         ]
 
-    def _release_gate_passed_count(self, release_id: str, snapshot: MetricSnapshot) -> int:
+    def _release_gate_passed_count(
+        self,
+        release_id: str,
+        snapshot: MetricSnapshot,
+        release_availability: MetricAvailability | None = None,
+    ) -> int | None:
         _ = release_id
+        if release_availability is not None and not release_availability.context.has_tickets:
+            return None
         readiness = SignalService._build_release_readiness_details(
             signal=None,
             open_blockers=snapshot.open_blockers,
@@ -1210,7 +1345,14 @@ class ReportTemplateEngine:
             return 0
         return sum(1 for gate in gates if isinstance(gate, dict) and gate.get("passed") is True)
 
-    def _sprint_snapshot_changes(self, sprint_id: str, snapshots: list[SprintMetricSnapshot]) -> ReportSection:
+    def _sprint_snapshot_changes(
+        self,
+        sprint_id: str,
+        snapshots: list[SprintMetricSnapshot],
+        has_story_points: bool = True,
+    ) -> ReportSection:
+        if not has_story_points:
+            return ReportSection("Snapshot Changes", lines=[SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE])
         if len(snapshots) < 2:
             return ReportSection("Snapshot Changes", lines=["No baseline snapshot is available yet."])
         comparison = SnapshotComparisonService.compare_sprint_snapshots(
@@ -1228,8 +1370,12 @@ class ReportTemplateEngine:
             ],
         )
 
-    def _sprint_historical_charts(self, snapshots: list[SprintMetricSnapshot]) -> list[ChartSpec]:
-        return [
+    def _sprint_historical_charts(
+        self,
+        snapshots: list[SprintMetricSnapshot],
+        has_story_points: bool = True,
+    ) -> list[ChartSpec]:
+        story_point_charts = [
             ChartSpec(
                 title="Historical Delivery Confidence",
                 kind="line",
@@ -1282,6 +1428,8 @@ class ReportTemplateEngine:
                 y_max=100,
                 value_suffix="%",
             ),
+        ] if has_story_points else []
+        ticket_count_charts = [
             ChartSpec(
                 title="Historical Scope Completion",
                 kind="line",
@@ -1335,6 +1483,7 @@ class ReportTemplateEngine:
                 value_suffix="%",
             ),
         ]
+        return [*story_point_charts, *ticket_count_charts]
 
 
 class ReportingService:
@@ -1531,7 +1680,11 @@ def _overview_sprint_snapshot_label(sprint: Sprint | None, snapshot: SprintMetri
     return format_datetime(snapshot.snapshot_at) if snapshot else "No sprint snapshot available yet."
 
 
-def overview_sprint_metric_rows(sprint: Sprint | None, snapshot: SprintMetricSnapshot | None) -> list[tuple[str, str]]:
+def overview_sprint_metric_rows(
+    sprint: Sprint | None,
+    snapshot: SprintMetricSnapshot | None,
+    has_story_points: bool = True,
+) -> list[tuple[str, str]]:
     if sprint is None:
         return [("Status", "No active sprint is available for the overview dashboard.")]
     if snapshot is None:
@@ -1540,7 +1693,7 @@ def overview_sprint_metric_rows(sprint: Sprint | None, snapshot: SprintMetricSna
             ("State", sprint.state),
             ("Status", "No sprint snapshot available yet."),
         ]
-    return [
+    rows = [
         ("Sprint", sprint.name),
         ("State", sprint.state),
         ("Goal", sprint.goal or "N/A"),
@@ -1550,8 +1703,12 @@ def overview_sprint_metric_rows(sprint: Sprint | None, snapshot: SprintMetricSna
         ("Completed scope", format_percent(snapshot.completed_scope_pct if snapshot else None)),
         ("Open blockers", format_number(snapshot.open_blockers if snapshot else None)),
         ("High severity bugs", format_number(snapshot.open_high_severity_bugs if snapshot else None)),
-        ("Delivery confidence", format_percent(snapshot.delivery_confidence_score if snapshot else None)),
     ]
+    if has_story_points:
+        rows.append(("Delivery confidence", format_percent(snapshot.delivery_confidence_score if snapshot else None)))
+    else:
+        rows.append(("Story-point metrics", SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE))
+    return rows
 
 
 def overview_risk_bullets(
@@ -1595,6 +1752,7 @@ def overview_health_rows(
     readiness: dict[str, object],
     snapshot: MetricSnapshot | None,
     sprint_snapshot: SprintMetricSnapshot | None,
+    sprint_has_story_points: bool = True,
 ) -> list[tuple[str, str]]:
     gates = readiness.get("release_gates", [])
     gate_count = len(gates) if isinstance(gates, list) else 0
@@ -1604,7 +1762,14 @@ def overview_health_rows(
         ("Release confidence band", confidence_band(readiness.get("confidence_score"))),
         ("Release scope completed", format_percent(snapshot.scope_completed_pct if snapshot else None)),
         ("Release cycle time", format_number(snapshot.median_cycle_time_days if snapshot else None)),
-        ("Sprint delivery band", confidence_band(sprint_snapshot.delivery_confidence_score if sprint_snapshot else None)),
+        (
+            "Sprint delivery band",
+            confidence_band(
+                sprint_snapshot.delivery_confidence_score
+                if sprint_snapshot and sprint_has_story_points
+                else None
+            ),
+        ),
         ("Sprint completed scope", format_percent(sprint_snapshot.completed_scope_pct if sprint_snapshot else None)),
         ("Sprint reopen rate", format_percent(sprint_snapshot.reopen_rate_pct if sprint_snapshot else None)),
     ]
@@ -1619,11 +1784,28 @@ def overview_recommendation_bullets(release_recommendations, sprint_recommendati
     return bullets or ["No deterministic recommendations are active for the overview dashboard."]
 
 
+def _sprint_has_story_points(issues: list[object]) -> bool:
+    return any(
+        isinstance(getattr(issue, "story_points", None), int | float)
+        and float(getattr(issue, "story_points")) >= 0
+        for issue in issues
+    )
+
+
 def _first_last_delta(values: list[float | None]) -> float | None:
     numeric_values = [float(value) for value in values if isinstance(value, int | float)]
     if len(numeric_values) < 2:
         return None
     return numeric_values[-1] - numeric_values[0]
+
+
+def _release_confidence_for_report(
+    snapshot: MetricSnapshot,
+    release_availability: MetricAvailability | None = None,
+) -> float | None:
+    if release_availability is not None and not release_availability.context.has_tickets:
+        return None
+    return SignalService._confidence_score_for_snapshot(snapshot)
 
 
 def gate_rows(gates: object) -> list[tuple[str, str]]:
@@ -1643,23 +1825,59 @@ def gate_rows(gates: object) -> list[tuple[str, str]]:
     return rows or [("Status", "No release gates available.")]
 
 
-def release_metric_rows(snapshot: MetricSnapshot | None) -> list[tuple[str, str]]:
+def release_metric_rows(
+    snapshot: MetricSnapshot | None,
+    availability: MetricAvailability | None = None,
+) -> list[tuple[str, str]]:
     if snapshot is None:
         return [("Status", "No release metrics have been computed yet.")]
-    return [
-        ("Open blockers", format_number(snapshot.open_blockers)),
-        ("Open high-severity bugs", format_number(snapshot.open_high_severity_bugs)),
-        ("Scope completed", format_percent(snapshot.scope_completed_pct)),
-        ("Completed tickets", format_number(snapshot.completed_tickets)),
-        ("Scope churn 7d", format_percent(snapshot.scope_churn_7d_pct)),
-        ("Scope added 7d", format_number(snapshot.scope_added_7d_count)),
-        ("Scope removed 7d", format_number(snapshot.scope_removed_7d_count)),
-        ("Median cycle time", f"{format_number(snapshot.median_cycle_time_days)} days"),
-        ("Reopen rate", format_percent(snapshot.reopen_rate_pct)),
-    ]
+    rows = []
+    if availability is not None and not availability.context.has_tickets:
+        rows.append(("Status", RELEASE_NO_TICKETS_MESSAGE))
+    rows.extend(
+        [
+            ("Open blockers", _release_metric_value(snapshot, availability, "open_blockers", format_number)),
+            (
+                "Open high-severity bugs",
+                _release_metric_value(snapshot, availability, "open_high_severity_bugs", format_number),
+            ),
+            ("Scope completed", _release_metric_value(snapshot, availability, "scope_completed_pct", format_percent)),
+            ("Completed tickets", _release_metric_value(snapshot, availability, "completed_tickets", format_number)),
+            ("Scope churn 7d", _release_metric_value(snapshot, availability, "scope_churn_7d_pct", format_percent)),
+            ("Scope added 7d", _release_metric_value(snapshot, availability, "scope_added_7d_count", format_number)),
+            ("Scope removed 7d", _release_metric_value(snapshot, availability, "scope_removed_7d_count", format_number)),
+            (
+                "Median cycle time",
+                _release_metric_value(
+                    snapshot,
+                    availability,
+                    "median_cycle_time_days",
+                    lambda value: f"{format_number(value)} days",
+                ),
+            ),
+            ("Reopen rate", _release_metric_value(snapshot, availability, "reopen_rate_pct", format_percent)),
+        ]
+    )
+    if availability is not None and availability.context.has_tickets and not availability.context.has_story_points:
+        rows.append(("Story-point metrics", f"N/A | {RELEASE_NO_STORY_POINTS_MESSAGE}"))
+    return rows
 
 
-def sprint_velocity_rows(snapshot: SprintMetricSnapshot | None) -> list[tuple[str, str]]:
+def _release_metric_value(
+    snapshot: MetricSnapshot,
+    availability: MetricAvailability | None,
+    metric_name: str,
+    formatter,
+) -> str:
+    item = availability.metrics.get(metric_name) if availability is not None else None
+    if item is not None and not item.available:
+        return f"N/A | {item.reason or 'Metric is unavailable.'}"
+    return formatter(getattr(snapshot, metric_name))
+
+
+def sprint_velocity_rows(snapshot: SprintMetricSnapshot | None, has_story_points: bool = True) -> list[tuple[str, str]]:
+    if not has_story_points:
+        return [("Status", SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE)]
     if snapshot is None or not snapshot.delivery_confidence_inputs:
         return [("Status", "No velocity baseline is available.")]
     inputs = snapshot.delivery_confidence_inputs
@@ -1676,7 +1894,9 @@ def sprint_velocity_rows(snapshot: SprintMetricSnapshot | None) -> list[tuple[st
     ]
 
 
-def sprint_scope_rows(snapshot: SprintMetricSnapshot | None) -> list[tuple[str, str]]:
+def sprint_scope_rows(snapshot: SprintMetricSnapshot | None, has_story_points: bool = True) -> list[tuple[str, str]]:
+    if not has_story_points:
+        return [("Status", SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE)]
     if snapshot is None or not snapshot.delivery_confidence_inputs:
         return [("Status", "No scope stability data is available.")]
     inputs = snapshot.delivery_confidence_inputs

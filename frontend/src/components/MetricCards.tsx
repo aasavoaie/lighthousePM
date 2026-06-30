@@ -13,6 +13,8 @@ interface MetricStatusCardProps {
   comparisonImpact?: MetricImpact;
   details?: string[];
   infoText?: string;
+  badge?: string | null;
+  badgeTitle?: string | null;
   children?: ReactNode;
 }
 
@@ -39,6 +41,8 @@ export function MetricStatusCard({
   comparisonImpact = "unknown",
   details = [],
   infoText,
+  badge,
+  badgeTitle,
   children,
 }: MetricStatusCardProps) {
   return (
@@ -54,6 +58,11 @@ export function MetricStatusCard({
             <button type="button" className="info-button compact-info-button" title={infoText} aria-label={`${title} info`}>
               i
             </button>
+          ) : null}
+          {badge ? (
+            <span className="metric-muted-badge" title={badgeTitle ?? undefined}>
+              {badge}
+            </span>
           ) : null}
           <span className="metric-status-label">{statusLabels[status]}</span>
         </div>

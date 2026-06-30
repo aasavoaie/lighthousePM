@@ -146,10 +146,10 @@ def make_history(
 # ============================================================================
 
 
-def test_pipeline_baseline_green_empty_release(db_session: Session) -> None:
+def test_pipeline_empty_release_signal_is_not_computed(db_session: Session) -> None:
     """
     Scenario: Release exists but has no issues.
-    Expected: Metrics all zero; signal GREEN.
+    Expected: Metrics all zero; signal not computed.
     """
     # Setup
     make_release(db_session, release_id="REL-1")
@@ -167,9 +167,9 @@ def test_pipeline_baseline_green_empty_release(db_session: Session) -> None:
     assert snapshot.reopen_rate_pct == 0.0
     assert snapshot.median_cycle_time_days is None
 
-    # Verify: Signal computed
-    assert signal.signal == "GREEN"
-    assert signal.reasons == ["No major risk indicators"]
+    # Verify: Signal not computed
+    assert signal.signal == "NOT_COMPUTED"
+    assert signal.reasons == ["No tickets are assigned to this release."]
 
 
 def test_pipeline_red_from_open_blocker(db_session: Session) -> None:
@@ -444,7 +444,7 @@ def test_pipeline_idempotency_same_signal(db_session: Session) -> None:
     AnalyticsService().recompute_release_metrics(db_session, "REL-1")
     signal1 = SignalService().recompute_release_signal(db_session, "REL-1")
     db_session.commit()  # Persist metrics and signal
-    
+
     snapshot1_id = (
         db_session.query(MetricSnapshot)
         .filter_by(release_id="REL-1")
@@ -461,7 +461,7 @@ def test_pipeline_idempotency_same_signal(db_session: Session) -> None:
     AnalyticsService().recompute_release_metrics(db_session, "REL-1")
     signal2 = SignalService().recompute_release_signal(db_session, "REL-1")
     db_session.commit()  # Persist new metrics and signal
-    
+
     snapshot2_id = (
         db_session.query(MetricSnapshot)
         .filter_by(release_id="REL-1")
@@ -473,7 +473,7 @@ def test_pipeline_idempotency_same_signal(db_session: Session) -> None:
 
     # Verify: Snapshots get new IDs (separate rows per recompute)
     assert snapshot1_id != snapshot2_id  # New snapshot created
-    
+
     # Signal remains same ID (upserted in place, not replaced)
     assert signal1_id == signal2_id  # Same signal row, updated in-place
 

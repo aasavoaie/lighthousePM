@@ -43,6 +43,7 @@ export interface CurrentSprintResponse {
 }
 
 export type ReportDepth = "summary" | "full";
+export type ComputationStatus = "COMPUTED" | "PARTIAL" | "NOT_COMPUTED";
 
 export interface SprintMetricValues {
   committed_scope: number | null;
@@ -142,12 +143,35 @@ export interface RecommendationAction {
   category: string;
 }
 
+export interface MetricAvailabilityContext {
+  has_tickets: boolean;
+  has_story_points: boolean;
+  has_completed_tickets: boolean;
+  has_release_scope: boolean;
+  has_sprint_scope: boolean;
+  has_changelog: boolean;
+}
+
+export interface MetricAvailabilityItem {
+  available: boolean;
+  reason: string | null;
+  depends_on: string[];
+}
+
+export interface MetricAvailability {
+  context: MetricAvailabilityContext;
+  metrics: Record<string, MetricAvailabilityItem>;
+}
+
 export interface SprintMetricsResponse {
   sprint_id: string;
   snapshot_at: string | null;
+  computation_status: ComputationStatus;
+  unavailable_reason: string | null;
   metrics: SprintMetricValues;
   metric_issue_keys: MetricIssueKeys;
   metric_names: string[];
+  metric_availability?: MetricAvailability;
   delivery_confidence: DeliveryConfidenceDetail | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;
@@ -188,10 +212,14 @@ export interface MetricThresholds {
 export interface ReleaseMetricsResponse {
   release_id: string;
   snapshot_at: string | null;
+  computation_status: ComputationStatus;
+  unavailable_reason: string | null;
   metrics: MetricValues;
   metric_issue_keys: MetricIssueKeys;
   metric_names: string[];
+  metric_availability?: MetricAvailability;
   metric_thresholds: MetricThresholds | null;
+  confidence_score: number | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;
   recommendations: RecommendationAction[];
@@ -237,7 +265,7 @@ export interface SnapshotDeltaContributor {
 }
 
 export interface SnapshotDeltaComparison {
-  confidenceDelta: number;
+  confidenceDelta: number | null;
   contributors: SnapshotDeltaContributor[];
 }
 

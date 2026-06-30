@@ -23,6 +23,7 @@ import { BiggestDriverCard } from "./BiggestDriverCard";
 import { RecommendationsPanel } from "./RecommendationsPanel";
 import { SnapshotChangePanel } from "./SnapshotChangePanel";
 import { getRecentProjectReleases } from "../releaseScope";
+import { getReleaseChartEmptyMessage } from "./releaseAvailability";
 
 interface ChartsPanelProps {
   charts: ReleaseChartsResponse | null;
@@ -87,10 +88,12 @@ function buildSingleMetricRows(charts: ReleaseChartsResponse | null, metricName:
     return [];
   }
 
-  return charts.series[metricName].map((point) => ({
-    snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
-    value: point.value,
-  }));
+  return charts.series[metricName]
+    .filter((point) => point.value !== null)
+    .map((point) => ({
+      snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
+      value: point.value,
+    }));
 }
 
 function isUnreleasedRelease(release: Release) {
@@ -228,6 +231,18 @@ export function ChartsPanel({
   const confidenceRows = useMemo(() => buildSingleMetricRows(charts, "confidence_score"), [charts]);
   const gateRows = useMemo(() => buildSingleMetricRows(charts, "gates_passed_count"), [charts]);
   const readinessRows = useMemo(() => buildSingleMetricRows(charts, "readiness_pct"), [charts]);
+  const confidenceEmptyMessage = getReleaseChartEmptyMessage(
+    metrics,
+    charts,
+    "confidence_score",
+    "No confidence history available yet."
+  );
+  const readinessEmptyMessage = getReleaseChartEmptyMessage(
+    metrics,
+    charts,
+    "readiness_pct",
+    "No readiness history available yet."
+  );
   const riskContributionRows = useMemo(() => buildRiskContributionRows(signal), [signal]);
   const blockerAgingRows = useMemo(() => buildBlockerAgingRows(signal?.risk_aging.blockers), [signal]);
   const recentReleases = useMemo(
@@ -384,7 +399,7 @@ export function ChartsPanel({
             yDomain={[0, 100]}
             yTickFormatter={(value) => `${value}%`}
             empty={!isLoading && confidenceRows.length === 0}
-            emptyMessage="No confidence history available yet."
+            emptyMessage={confidenceEmptyMessage}
             loading={isLoading}
           />
 
@@ -454,7 +469,7 @@ export function ChartsPanel({
             yDomain={[0, 100]}
             yTickFormatter={(value) => `${value}%`}
             empty={!isLoading && readinessRows.length === 0}
-            emptyMessage="No readiness history available yet."
+            emptyMessage={readinessEmptyMessage}
             loading={isLoading}
           />
 

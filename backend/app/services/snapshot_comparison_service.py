@@ -118,7 +118,7 @@ class SnapshotComparisonService:
             ),
         ]
         return SnapshotDeltaComparison(
-            confidence_delta=SnapshotComparisonService._rounded_delta(current_confidence, previous_confidence) or 0.0,
+            confidence_delta=SnapshotComparisonService._rounded_delta(current_confidence, previous_confidence),
             contributors=SnapshotComparisonService._build_contributors(
                 current_snapshot=current_snapshot,
                 previous_snapshot=previous_snapshot,
