@@ -20,7 +20,6 @@ import {
   formatPercentage,
 } from "./ChartComponents";
 import { BiggestDriverCard } from "./BiggestDriverCard";
-import { RecommendationsPanel } from "./RecommendationsPanel";
 import { SnapshotChangePanel } from "./SnapshotChangePanel";
 import { getRecentProjectReleases } from "../releaseScope";
 import { getReleaseChartEmptyMessage } from "./releaseAvailability";
@@ -370,13 +369,6 @@ export function ChartsPanel({
           {signal?.biggest_driver ? (
             <BiggestDriverCard driver={signal.biggest_driver} heading="Biggest Confidence Drag" />
           ) : null}
-          {metrics ? (
-            <RecommendationsPanel
-              recommendations={metrics.recommendations}
-              title="Report Recommendations"
-            />
-          ) : null}
-
           <div className="chart-section-heading">
             <div>
               <h3>Confidence Evolution</h3>

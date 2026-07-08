@@ -33,6 +33,15 @@ def export_overview_report_pdf(
     return _pdf_response(pdf, filename=f"lighthousepm-overview-{release_id}.pdf")
 
 
+@router.get("/reports/documentation.pdf")
+def export_documentation_report_pdf() -> Response:
+    try:
+        pdf = ReportingService().generate_documentation_report()
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _pdf_response(pdf, filename="lighthousepm-documentation.pdf")
+
+
 @router.get("/releases/{release_id}/reports/{depth}.pdf")
 def export_release_report_pdf(
     release_id: str,

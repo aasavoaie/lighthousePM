@@ -11,7 +11,7 @@ interface ReportExportActionsProps {
   filenameLabel: string;
 }
 
-async function saveBlob(blob: Blob, filename: string) {
+export async function savePdfBlob(blob: Blob, filename: string) {
   if (window.lighthouseDesktop?.savePdf) {
     const data = new Uint8Array(await blob.arrayBuffer());
     const response = await window.lighthouseDesktop.savePdf({ filename, data });
@@ -53,7 +53,7 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
     setStatus(null);
     try {
       const blob = await apiClient.downloadOverviewReport(entityId);
-      setStatus(await saveBlob(blob, overviewFilename(entityId, filenameLabel)));
+      setStatus(await savePdfBlob(blob, overviewFilename(entityId, filenameLabel)));
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Failed to export PDF report.");
     } finally {
@@ -73,7 +73,7 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
         entity === "release"
           ? await apiClient.downloadReleaseReport(entityId, depth)
           : await apiClient.downloadSprintReport(entityId, depth);
-      setStatus(await saveBlob(blob, reportFilename(entity, entityId, depth, filenameLabel)));
+      setStatus(await savePdfBlob(blob, reportFilename(entity, entityId, depth, filenameLabel)));
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Failed to export PDF report.");
     } finally {

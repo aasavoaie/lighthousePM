@@ -117,6 +117,7 @@ input {
 .metrics-panel,
 .charts-panel,
 .report-export-panel,
+.release-command-recommendations-panel,
 .admin-panel {
   grid-column: 1 / -1;
 }
@@ -910,6 +911,12 @@ input {
 .recommendations-heading h3 {
   margin: 0;
   color: #111832;
+}
+
+.release-command-recommendations-panel .recommendations-heading {
+  align-items: flex-start;
+  border-bottom: 1px solid #e6e9f2;
+  padding-bottom: 14px;
 }
 
 .recommendation-filters {
@@ -1827,6 +1834,7 @@ input {
   .admin-panel,
   .metrics-panel,
   .charts-panel,
+  .release-command-recommendations-panel,
   .error-panel,
   .empty-panel {
     grid-column: 1 / -1;
@@ -2949,6 +2957,18 @@ input {
   text-transform: uppercase;
 }
 
+.detail-hero-side {
+  min-width: min(560px, 100%);
+  display: grid;
+  align-content: start;
+  justify-items: end;
+  gap: 14px;
+}
+
+.detail-hero-side .workspace-release-tools {
+  justify-content: flex-end;
+}
+
 .detail-release-meta {
   min-width: min(420px, 100%);
   display: grid;
@@ -3483,9 +3503,133 @@ input {
     #ffffff;
 }
 
+.about-summary-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.about-documentation-export {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.about-export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.about-export-icon {
+  position: relative;
+  width: 14px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+}
+
+.about-export-icon::before {
+  content: "";
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  background: #0b6bcb;
+}
+
+.about-export-icon::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 -4px 0 currentColor;
+}
+
+.about-export-message {
+  margin: 0;
+  max-width: 320px;
+  text-align: right;
+}
+
+.about-overview-guide,
+.about-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.about-guide-card {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid #e0e4ef;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 20, 60, 0.035);
+}
+
+.about-guide-card h3,
+.about-guide-card h4 {
+  margin: 0;
+  color: #101733;
+}
+
+.about-guide-card h3 {
+  font-size: 1rem;
+}
+
+.about-guide-card h4 {
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.about-guide-card p,
+.about-guide-card li,
+.about-guide-steps li {
+  color: #344468;
+  line-height: 1.58;
+}
+
+.about-guide-card p {
+  margin: 0;
+}
+
+.about-guide-card ul,
+.about-guide-steps {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.about-guide-card li + li,
+.about-guide-steps li + li {
+  margin-top: 6px;
+}
+
 @media (max-width: 1180px) {
   .detail-hero {
     flex-direction: column;
+  }
+
+  .detail-hero-side {
+    justify-items: stretch;
+  }
+
+  .detail-hero-side .workspace-release-tools {
+    justify-content: flex-start;
   }
 
   .detail-release-meta,
@@ -3494,7 +3638,9 @@ input {
   .settings-checklist,
   .storage-summary,
   .settings-fieldset,
-  .product-info-grid {
+  .product-info-grid,
+  .about-overview-guide,
+  .about-guide-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -3516,8 +3662,29 @@ input {
   .settings-checklist,
   .storage-summary,
   .settings-fieldset,
-  .product-info-grid {
+  .product-info-grid,
+  .about-overview-guide,
+  .about-guide-grid {
     grid-template-columns: 1fr;
+  }
+
+  .about-summary-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .about-documentation-export {
+    justify-items: start;
+  }
+
+  .about-export-button {
+    justify-content: center;
+    white-space: normal;
+    width: 100%;
+  }
+
+  .about-export-message {
+    text-align: left;
   }
 }
 
@@ -3550,6 +3717,7 @@ input {
 .intelligence-shell .chart-section-heading h3,
 .intelligence-shell .product-info-card h3,
 .intelligence-shell .about-product-summary h3,
+.intelligence-shell .about-guide-card h3,
 .intelligence-shell .metric-card h3 {
   font-size: 1.125rem;
 }
