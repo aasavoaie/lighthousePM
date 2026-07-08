@@ -121,6 +121,34 @@ def _test_settings() -> Settings:
 
 
 @pytest.mark.asyncio
+async def test_sync_from_jira_returns_clear_error_when_manual_sync_disabled(db_session: Session) -> None:
+    class UnexpectedJiraService(FakeJiraService):
+        async def validate_auth(self) -> None:
+            raise AssertionError("Jira should not be called when manual sync is disabled")
+
+    settings = _test_settings()
+    settings.jira_sync_enabled = False
+    service = SyncService(jira_service=UnexpectedJiraService(), settings=settings)
+
+    with pytest.raises(SyncServiceError, match="Jira sync is disabled by configuration"):
+        await service.sync_from_jira(session=db_session)
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_allows_manual_sync_when_scheduler_is_disabled(db_session: Session) -> None:
+    settings = _test_settings()
+    settings.jira_sync_enabled = True
+    settings.jira_sync_interval_seconds = 0
+    service = SyncService(jira_service=FakeJiraService(), settings=settings)
+
+    result = await service.sync_from_jira(session=db_session)
+
+    assert result["project_key"] == "LHPM"
+    assert result["releases_fetched"] == 1
+    assert result["issues_fetched"] == 1
+
+
+@pytest.mark.asyncio
 async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> None:
     service = SyncService(jira_service=FakeJiraService(), settings=_test_settings())
 
