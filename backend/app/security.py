@@ -5,7 +5,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.config import Settings
 
-AUTH_EXEMPT_PATHS = frozenset({"/health"})
+AUTH_EXEMPT_PATHS = frozenset({"/health", "/ready"})
 
 
 async def enforce_local_api_auth(request: Request, settings: Settings) -> Response | None:
