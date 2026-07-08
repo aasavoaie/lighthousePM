@@ -9,7 +9,7 @@ a = Analysis(
     ["desktop_entry.py"],
     pathex=["."],
     binaries=[],
-    datas=[("pyproject.toml", ".")],
+    datas=[("pyproject.toml", "."), ("../ABOUT.md", ".")],
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},

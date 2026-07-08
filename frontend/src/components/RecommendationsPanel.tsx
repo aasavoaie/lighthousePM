@@ -11,6 +11,7 @@ interface RecommendationsPanelProps {
   recommendations: RecommendationAction[];
   title?: string;
   emptyMessage?: string;
+  className?: string;
 }
 
 function formatEffort(value: string) {
@@ -21,6 +22,7 @@ export function RecommendationsPanel({
   recommendations,
   title = "Recommended Actions",
   emptyMessage = "No recommended actions at this confidence level.",
+  className = "",
 }: RecommendationsPanelProps) {
   const [filter, setFilter] = useState<RecommendationFilter>("All");
   const visibleRecommendations = useMemo(
@@ -29,7 +31,7 @@ export function RecommendationsPanel({
   );
 
   return (
-    <section className="recommendations-panel">
+    <section className={`recommendations-panel ${className}`.trim()}>
       <div className="recommendations-heading">
         <h3>{title}</h3>
         <div className="recommendation-filters" aria-label="Recommendation category filter">

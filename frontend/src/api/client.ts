@@ -164,6 +164,9 @@ export const apiClient = {
   downloadOverviewReport(releaseId: string): Promise<Blob> {
     return requestBlob(`/releases/${releaseId}/reports/overview.pdf`);
   },
+  downloadDocumentationReport(): Promise<Blob> {
+    return requestBlob("/reports/documentation.pdf");
+  },
   recomputeRelease(releaseId: string): Promise<RecomputeMetricsResponse> {
     return request<RecomputeMetricsResponse>(`/releases/${releaseId}/recompute`, { method: "POST" });
   },

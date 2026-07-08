@@ -1238,13 +1238,6 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         </div>
         {isSprintChartsExpanded ? (
           <>
-            {metrics ? (
-              <RecommendationsPanel
-                recommendations={metrics.recommendations}
-                title="Report Recommendations"
-              />
-            ) : null}
-
             {storyPointUi.showStoryPointUnavailableMessage ? (
               <p className="muted">{storyPointUnavailableMessage}</p>
             ) : null}

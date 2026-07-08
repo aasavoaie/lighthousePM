@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
+import sys
 import tomllib
 from typing import Literal
 import zlib
@@ -310,6 +311,7 @@ class ReportSection:
     rows: list[tuple[str, str]] = field(default_factory=list)
     bullets: list[str] = field(default_factory=list)
     charts: list[ChartSpec] = field(default_factory=list)
+    heading_color: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -381,7 +383,7 @@ class SimplePdfRenderer:
         if self._section_index > 0:
             self._section_divider()
         self._section_index += 1
-        self.heading(section.title, size=self.theme.typography.section_size)
+        self.heading(section.title, size=self.theme.typography.section_size, color=section.heading_color)
         for line in section.lines:
             self.wrapped_text(line)
         if section.rows:
@@ -392,7 +394,7 @@ class SimplePdfRenderer:
             self.chart(chart)
         self.spacer(self.theme.spacing.section_gap + 12)
 
-    def heading(self, value: str, size: int) -> None:
+    def heading(self, value: str, size: int, color: tuple[float, float, float] | None = None) -> None:
         self._ensure_space(size + 10)
         self._text(
             self.margin,
@@ -400,7 +402,7 @@ class SimplePdfRenderer:
             value,
             size=size,
             font=self.theme.typography.heading_font,
-            color=self.theme.section.heading.rgb,
+            color=color or self.theme.section.heading.rgb,
         )
         self._y -= size + 7
 
@@ -722,6 +724,17 @@ class ReportTemplateEngine:
                 sprint_snapshot=sprint_snapshot,
                 sprint_snapshots=sprint_snapshots,
             ),
+        )
+
+    def build_documentation_document(self, generated_at: datetime) -> ReportDocument:
+        title, sections = _documentation_sections_from_markdown(_read_about_documentation())
+        return ReportDocument(
+            title=title,
+            subtitle="Product documentation for Overview, Releases, and Sprints",
+            entity_id="documentation",
+            generated_at=generated_at,
+            version=application_version(),
+            sections=sections,
         )
 
     def _overview_sections(
@@ -1538,6 +1551,111 @@ class ReportingService:
             theme=self._theme,
             chart_export_service=self._chart_export_service,
         ).render(document)
+
+    def generate_documentation_report(self) -> bytes:
+        generated_at = datetime.now(UTC)
+        document = self._template_engine.build_documentation_document(generated_at)
+        return SimplePdfRenderer(
+            generated_at=generated_at,
+            version=document.version,
+            theme=self._theme,
+            chart_export_service=self._chart_export_service,
+        ).render(document)
+
+
+def _read_about_documentation() -> str:
+    for path in _about_documentation_paths():
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+    raise ValueError("ABOUT.md documentation was not found")
+
+
+def _about_documentation_paths() -> list[Path]:
+    bundled_root = Path(getattr(sys, "_MEIPASS", ""))
+    service_path = Path(__file__).resolve()
+    return [
+        bundled_root / "ABOUT.md",
+        service_path.parents[3] / "ABOUT.md",
+        Path.cwd() / "ABOUT.md",
+        Path.cwd().parent / "ABOUT.md",
+    ]
+
+
+def _documentation_sections_from_markdown(markdown: str) -> tuple[str, list[ReportSection]]:
+    document_title = "Lighthouse PM Documentation"
+    sections: list[ReportSection] = []
+    current_title: str | None = None
+    current_lines: list[str] = []
+    current_bullets: list[str] = []
+    current_heading_color: tuple[float, float, float] | None = None
+    current_include_empty = False
+    current_page = ""
+
+    def flush_section() -> None:
+        nonlocal current_title, current_lines, current_bullets, current_heading_color, current_include_empty
+        if current_title and (current_lines or current_bullets or current_include_empty):
+            sections.append(
+                ReportSection(
+                    title=current_title,
+                    lines=current_lines,
+                    bullets=current_bullets,
+                    heading_color=current_heading_color,
+                )
+            )
+        current_title = None
+        current_lines = []
+        current_bullets = []
+        current_heading_color = None
+        current_include_empty = False
+
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("# "):
+            document_title = line[2:].strip()
+            continue
+        if line.startswith("## "):
+            flush_section()
+            current_page = line[3:].strip()
+            current_title = current_page
+            current_heading_color = _documentation_heading_color(current_page)
+            current_include_empty = True
+            continue
+        if line.startswith("### "):
+            flush_section()
+            heading = line[4:].strip()
+            current_title = heading
+            current_heading_color = _documentation_heading_color(current_page)
+            continue
+        if line.startswith("#### "):
+            flush_section()
+            heading = line[5:].strip()
+            current_title = heading
+            current_heading_color = _documentation_heading_color(current_page)
+            continue
+        if line.startswith("- "):
+            current_bullets.append(line[2:].strip())
+            continue
+        if "." in line:
+            number, text = line.split(".", 1)
+            if number.isdigit() and text.startswith(" "):
+                current_bullets.append(text.strip())
+                continue
+        current_lines.append(line)
+
+    flush_section()
+    return document_title, sections
+
+
+def _documentation_heading_color(page: str) -> tuple[float, float, float] | None:
+    colors = {
+        "Overview": "#4b22d4",
+        "Releases": "#0b6bcb",
+        "Sprints": "#237445",
+    }
+    color = colors.get(page)
+    return pdf_color(color).rgb if color else None
 
 
 def application_version() -> str:
