@@ -1,0 +1,21 @@
+{
+  "extends": "C:\\Projects\\lighthousePM\\frontend\\tsconfig.app.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "outDir": "C:\\Projects\\lighthousePM\\frontend\\.tmp-tests",
+    "noEmit": false,
+    "incremental": false
+  },
+  "include": [],
+  "files": [
+    "C:\\Projects\\lighthousePM\\frontend\\src\\components\\confidenceBreakdown.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\components\\deliveryConfidence.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\components\\recommendations.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\components\\releaseAvailability.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\components\\sprintCharts.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\components\\sprintMetrics.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\releaseScope.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\releaseSelection.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\workspaceContext.test.ts"
+  ]
+}
