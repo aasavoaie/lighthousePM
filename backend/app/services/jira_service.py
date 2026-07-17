@@ -63,7 +63,7 @@ def _normalize_changelog_entry(issue_key: str, history: dict[str, Any]) -> list[
         entries.append(
             JiraChangelogEntry(
                 issue_key=issue_key,
-                field_name=item.get("field", ""),
+                field_name=item.get("fieldId") or item.get("field", ""),
                 from_value=item.get("fromString"),
                 to_value=item.get("toString"),
                 changed_at=changed_at,
@@ -217,6 +217,7 @@ class JiraService:
                 self._field_mapper.normalize_issue_summary(
                     raw=issue,
                     updated=_parse_datetime(issue.get("fields", {}).get("updated")),
+                    created=_parse_datetime(issue.get("fields", {}).get("created")),
                 )
                 for issue in data.get("issues", [])
             ]
@@ -237,6 +238,7 @@ class JiraService:
             return self._field_mapper.normalize_issue_detail(
                 raw=data,
                 updated=_parse_datetime(data.get("fields", {}).get("updated")),
+                created=_parse_datetime(data.get("fields", {}).get("created")),
             )
         except (KeyError, TypeError) as exc:
             raise JiraResponseParseError(

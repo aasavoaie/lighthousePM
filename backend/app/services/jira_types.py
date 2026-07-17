@@ -34,6 +34,7 @@ class JiraIssueSummary:
     priority: str | None
     assignee: str | None
     updated: datetime | None
+    created: datetime | None = None
     fix_versions: list[str] = field(default_factory=list)
     sprints: list[JiraSprintRef] = field(default_factory=list)
 
@@ -49,6 +50,7 @@ class JiraIssueDetail:
     priority: str | None
     assignee: str | None
     updated: datetime | None
+    created: datetime | None = None
     fix_versions: list[str] = field(default_factory=list)
     sprints: list[JiraSprintRef] = field(default_factory=list)
     story_points: float | None = None

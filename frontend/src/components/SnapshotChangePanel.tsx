@@ -122,6 +122,7 @@ function renderHistory(history: SnapshotChangeHistoryResponse | null) {
         <thead>
           <tr>
             <th>Date</th>
+            <th>Ruleset</th>
             <th>Confidence</th>
             <th>Delta</th>
             <th>Primary driver</th>
@@ -131,9 +132,10 @@ function renderHistory(history: SnapshotChangeHistoryResponse | null) {
           {history.items.map((item) => (
             <tr key={item.date}>
               <td>{new Date(item.date).toLocaleString()}</td>
+              <td>{`v${item.ruleset_version}${item.version_boundary ? " starts" : ""}`}</td>
               <td>{item.confidence === null ? "N/A" : `${Math.round(item.confidence)}%`}</td>
               <td>{item.delta === null ? "N/A" : `${formatSigned(item.delta)}%`}</td>
-              <td>{metricLabel(item.primary_driver)}</td>
+              <td title={item.comparison_unavailable_reason ?? undefined}>{metricLabel(item.primary_driver)}</td>
             </tr>
           ))}
         </tbody>
@@ -182,8 +184,9 @@ export function SnapshotChangePanel({
       {!isLoading && !error ? (
         <div className="snapshot-change-summary">
           <strong>{formatConfidenceDelta(comparison?.comparison.confidenceDelta ?? null)}</strong>
+          {comparison?.unavailable_reason ? <p className="muted">{comparison.unavailable_reason}</p> : null}
           {hasBaseline ? (
-            contributors.length > 0 ? (
+            comparison?.unavailable_reason ? null : contributors.length > 0 ? (
               <ul className="snapshot-change-list">{contributors.map(renderContributor)}</ul>
             ) : (
               <p className="muted">No measured contributor changed.</p>

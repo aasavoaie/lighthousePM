@@ -28,12 +28,19 @@ router = APIRouter(prefix="/releases", tags=["signals"])
 
 
 def _empty_risk_aging() -> dict[str, object]:
-    empty_group = {"count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []}
+    empty_group = {
+        "count": 0,
+        "known_count": 0,
+        "unknown_count": 0,
+        "oldest_age_days": None,
+        "average_age_days": None,
+        "tickets": [],
+    }
     return {"blockers": empty_group, "high_severity_bugs": empty_group, "as_of": None}
 
 
 def _empty_last_24_hours() -> dict[str, object]:
-    return {"as_of": None, "baseline_at": None, "has_baseline": False, "items": []}
+    return {"as_of": None, "baseline_at": None, "has_baseline": False, "unavailable_reason": None, "items": []}
 
 
 def _build_thresholds() -> SignalThresholds:
@@ -57,10 +64,18 @@ def _not_computed_signal_response(
     release_id: str,
     summary: str,
     reasons: list[str],
+    release_date=None,
+    latest_snapshot=None,
+    metric_snapshot_id=None,
+    ruleset_version=0,
+    calculated_at=None,
     updated_at=None,
 ) -> ReleaseSignalResponse:
+    last_24_hours = _empty_last_24_hours()
     return ReleaseSignalResponse(
         release_id=release_id,
+        metric_snapshot_id=metric_snapshot_id,
+        ruleset_version=ruleset_version,
         signal=None,
         status_label="NOT COMPUTED",
         confidence_score=None,
@@ -74,8 +89,19 @@ def _not_computed_signal_response(
         warnings=[],
         primary_risk=None,
         risk_aging=_empty_risk_aging(),
-        last_24_hours=_empty_last_24_hours(),
-        thresholds=_build_thresholds(),
+        last_24_hours=last_24_hours,
+        release_outlook=SignalService._build_release_outlook(
+            release_date=release_date,
+            latest_snapshot=latest_snapshot,
+            final_signal=None,
+            confidence_score=None,
+            release_gates=[],
+            critical_risks=[],
+            warnings=[],
+            last_24_hours=last_24_hours,
+        ),
+        thresholds=_build_thresholds() if ruleset_version > 0 else None,
+        calculated_at=calculated_at,
         updated_at=updated_at,
     )
 
@@ -90,12 +116,18 @@ def get_release_signal(
         raise HTTPException(status_code=404, detail=f"Release '{release_id}' not found")
 
     signal_row = SignalRepository.get_latest_signal(session=session, release_id=release_id)
+    latest_snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
     if ReleaseRepository.count_release_issues(session=session, release_id=release_id) == 0:
         reasons = signal_row.reasons if signal_row is not None else ["No tickets are assigned to this release."]
         return _not_computed_signal_response(
             release_id=release_id,
             summary="Release signal is not computed because no tickets are assigned to this release.",
             reasons=reasons,
+            release_date=release.release_date,
+            latest_snapshot=latest_snapshot,
+            metric_snapshot_id=signal_row.metric_snapshot_id if signal_row is not None else None,
+            ruleset_version=signal_row.ruleset_version if signal_row is not None else 0,
+            calculated_at=signal_row.calculated_at if signal_row is not None else None,
             updated_at=signal_row.updated_at if signal_row is not None else None,
         )
 
@@ -104,6 +136,9 @@ def get_release_signal(
             release_id=release_id,
             summary="Signal has not been computed yet for this release snapshot.",
             reasons=[],
+            release_date=release.release_date,
+            latest_snapshot=latest_snapshot,
+            ruleset_version=0,
         )
 
     reason_details: list[SignalReasonDetail] = []
@@ -112,63 +147,70 @@ def get_release_signal(
     last_24_hours: dict[str, object] = _empty_last_24_hours()
     confidence_breakdown = None
     biggest_driver = None
-    latest_snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
     if latest_snapshot is not None:
-        _, _, details = SignalService._evaluate_signal_with_details(
-            open_blockers=latest_snapshot.open_blockers,
-            open_high_severity_bugs=latest_snapshot.open_high_severity_bugs,
-            scope_churn_7d_pct=latest_snapshot.scope_churn_7d_pct,
-            reopen_rate_pct=latest_snapshot.reopen_rate_pct,
-            median_cycle_time_days=latest_snapshot.median_cycle_time_days,
-        )
-        reason_details = [SignalReasonDetail.model_validate(detail) for detail in details]
-        readiness_details = SignalService._build_release_readiness_details(
-            signal=signal_row.signal,
-            open_blockers=latest_snapshot.open_blockers,
-            open_high_severity_bugs=latest_snapshot.open_high_severity_bugs,
-            scope_churn_7d_pct=latest_snapshot.scope_churn_7d_pct,
-            reopen_rate_pct=latest_snapshot.reopen_rate_pct,
-            median_cycle_time_days=latest_snapshot.median_cycle_time_days,
-        )
-        risk_aging = SignalService._build_release_risk_aging(
-            session=session,
-            release_id=release_id,
-            as_of=latest_snapshot.snapshot_at,
-            open_blocker_issue_keys=(
-                latest_snapshot.open_blocker_issue_keys
-                if latest_snapshot.open_blocker_issue_keys or latest_snapshot.open_blockers == 0
-                else None
-            ),
-            open_high_severity_bug_issue_keys=(
-                latest_snapshot.open_high_severity_bug_issue_keys
-                if latest_snapshot.open_high_severity_bug_issue_keys or latest_snapshot.open_high_severity_bugs == 0
-                else None
-            ),
-        )
+        if signal_row.ruleset_version > 0 and signal_row.metric_snapshot_id == latest_snapshot.id:
+            reason_details = [
+                SignalReasonDetail.model_validate(detail) for detail in signal_row.reason_details
+            ]
+            readiness_details = signal_row.readiness_evidence
+            risk_aging = signal_row.risk_aging_evidence or _empty_risk_aging()
         last_24_hours = SignalService._build_last_24_hours(
             session=session,
             release_id=release_id,
             latest_snapshot=latest_snapshot,
         )
-        confidence_breakdown = ConfidenceBreakdownService.build_release_breakdown(latest_snapshot)
-        biggest_driver = DriverAnalysisService.build_release_driver(latest_snapshot)
+        outputs = (latest_snapshot.calculation_provenance or {}).get("component_outputs", {})
+        if latest_snapshot.ruleset_version > 0 and isinstance(outputs, dict):
+            confidence_breakdown = outputs.get("confidence_breakdown")
+            biggest_driver = outputs.get("biggest_driver")
 
+    response_signal = readiness_details.get("signal") or (signal_row.signal if signal_row.signal != "NOT_COMPUTED" else None)
+    final_signal = response_signal if signal_row.ruleset_version > 0 else None
+    release_gates = signal_row.release_gates if signal_row.ruleset_version > 0 else []
+    critical_risks = readiness_details.get("critical_risks", [])
+    warnings = readiness_details.get("warnings", [])
+    confidence_score = signal_row.confidence_score if signal_row.ruleset_version > 0 else None
     return ReleaseSignalResponse(
         release_id=signal_row.release_id,
-        signal=readiness_details.get("signal", signal_row.signal),
-        status_label=readiness_details.get("status_label"),
-        confidence_score=readiness_details.get("confidence_score"),
+        metric_snapshot_id=signal_row.metric_snapshot_id,
+        ruleset_version=signal_row.ruleset_version,
+        signal=response_signal,
+        status_label=(
+            readiness_details.get("status_label")
+            if signal_row.ruleset_version > 0
+            else "Unversioned legacy result"
+        ),
+        confidence_score=confidence_score,
         confidence_breakdown=confidence_breakdown,
         biggest_driver=biggest_driver,
         summary=readiness_details.get("summary"),
         reasons=signal_row.reasons,
         reason_details=reason_details,
-        release_gates=readiness_details.get("release_gates", []),
-        critical_risks=readiness_details.get("critical_risks", []),
-        warnings=readiness_details.get("warnings", []),
+        release_gates=release_gates,
+        critical_risks=critical_risks,
+        warnings=warnings,
         primary_risk=readiness_details.get("primary_risk"),
         risk_aging=risk_aging,
         last_24_hours=last_24_hours,
-        thresholds=_build_thresholds(),
+        release_outlook=SignalService._build_release_outlook(
+            release_date=release.release_date,
+            latest_snapshot=latest_snapshot,
+            final_signal=final_signal,
+            confidence_score=confidence_score,
+            release_gates=release_gates,
+            critical_risks=critical_risks,
+            warnings=warnings,
+            last_24_hours=last_24_hours,
+        ),
+        thresholds=(
+            SignalThresholds.model_validate(
+                (latest_snapshot.calculation_provenance or {}).get("thresholds", {})
+            )
+            if latest_snapshot is not None
+            and latest_snapshot.ruleset_version > 0
+            and (latest_snapshot.calculation_provenance or {}).get("thresholds")
+            else None
+        ),
+        calculated_at=signal_row.calculated_at,
         updated_at=signal_row.updated_at,
     )

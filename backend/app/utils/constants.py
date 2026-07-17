@@ -1,3 +1,6 @@
+# Approved product-rules contract implemented by release and sprint services.
+RULESET_VERSION = 1
+
 # Deterministic signal threshold placeholders for later implementation.
 OPEN_BLOCKERS_RED_THRESHOLD = 0
 HIGH_SEVERITY_BUGS_RED_THRESHOLD = 1
@@ -19,6 +22,14 @@ CONFIDENCE_SCORE_RED_MAX = 60.0
 CONFIDENCE_SCORE_YELLOW_MIN = 61.0
 CONFIDENCE_SCORE_YELLOW_MAX = 90.0
 CONFIDENCE_SCORE_GREEN_MIN = 91.0
+
+# Sprint story-point coverage. Delivery confidence is inconclusive below this
+# threshold and partial until every current sprint ticket has valid points.
+MIN_STORY_POINT_COVERAGE_PCT = 50.0
+DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED = "NOT_COMPUTED"
+DELIVERY_CONFIDENCE_STATUS_INCONCLUSIVE = "INCONCLUSIVE"
+DELIVERY_CONFIDENCE_STATUS_PARTIAL = "PARTIAL"
+DELIVERY_CONFIDENCE_STATUS_COMPUTED = "COMPUTED"
 
 # ---------------------------------------------------------------------------
 # Jira field value mappings

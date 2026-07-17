@@ -26,14 +26,20 @@ class SnapshotComparisonResponse(BaseModel):
     current_snapshot_at: datetime | None
     baseline_snapshot_at: datetime | None
     has_baseline: bool
+    current_ruleset_version: int | None = None
+    baseline_ruleset_version: int | None = None
+    unavailable_reason: str | None = None
     comparison: SnapshotDeltaComparison
 
 
 class SnapshotChangeHistoryItem(BaseModel):
     date: datetime
+    ruleset_version: int
+    version_boundary: bool = False
     confidence: float | None
     delta: float | None
     primary_driver: str
+    comparison_unavailable_reason: str | None = None
 
 
 class SnapshotChangeHistoryResponse(BaseModel):

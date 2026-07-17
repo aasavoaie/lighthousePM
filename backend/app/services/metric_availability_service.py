@@ -11,7 +11,9 @@ COMPUTATION_STATUS_COMPUTED = "COMPUTED"
 COMPUTATION_STATUS_PARTIAL = "PARTIAL"
 COMPUTATION_STATUS_NOT_COMPUTED = "NOT_COMPUTED"
 UNAVAILABLE_REASON_NO_TICKETS = "No tickets are available for this scope."
-UNAVAILABLE_REASON_NO_STORY_POINTS = "No tickets in this scope have story points."
+UNAVAILABLE_REASON_NO_STORY_POINTS = (
+    "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
+)
 UNAVAILABLE_REASON_NO_CHANGELOG = "No Jira changelog history is available for this scope."
 UNAVAILABLE_REASON_RELEASE_EMPTY = UNAVAILABLE_REASON_NO_TICKETS
 UNAVAILABLE_REASON_SPRINT_EMPTY = UNAVAILABLE_REASON_NO_TICKETS
@@ -109,6 +111,7 @@ class MetricAvailabilityService:
             .where(
                 Issue.release_id == release_id,
                 Issue.story_points.is_not(None),
+                Issue.story_points >= 0,
             ),
         )
         completed_tickets = _scalar_count(
@@ -157,6 +160,7 @@ class MetricAvailabilityService:
             .where(
                 Issue.issue_key.in_(sprint_issue_keys),
                 Issue.story_points.is_not(None),
+                Issue.story_points >= 0,
             ),
         )
         completed_tickets = _scalar_count(
@@ -176,7 +180,9 @@ class MetricAvailabilityService:
         )
         context = MetricAvailabilityContext(
             has_tickets=total_tickets > 0,
-            has_story_points=story_point_tickets > 0,
+            has_story_points=(
+                total_tickets > 0 and 100.0 * story_point_tickets / total_tickets >= 50.0
+            ),
             has_completed_tickets=completed_tickets > 0,
             has_release_scope=False,
             has_sprint_scope=total_tickets > 0,

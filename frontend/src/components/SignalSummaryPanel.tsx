@@ -135,6 +135,7 @@ function renderRiskAgingCard(
           </ul>
           <p className="signal-aging-summary">
             Oldest: {formatAgeDays(group.oldest_age_days)}, Average: {formatAgeDays(group.average_age_days)}
+            {group.unknown_count > 0 ? ` · ${group.unknown_count} age${group.unknown_count === 1 ? "" : "s"} unavailable` : ""}
           </p>
         </>
       ) : (

@@ -2255,7 +2255,7 @@ input {
 .readiness-card,
 .confidence-engine-card,
 .trend-card,
-.prediction-card {
+.outlook-card {
   grid-column: span 3;
 }
 
@@ -2319,7 +2319,7 @@ input {
 }
 
 .readiness-critical,
-.prediction-card strong {
+.outlook-card strong {
   color: #e42d39;
 }
 
@@ -2497,20 +2497,20 @@ input {
   font-weight: 800;
 }
 
-.prediction-card strong {
+.outlook-card strong {
   display: block;
   margin: 22px 0 10px;
   font-size: 2.08rem;
   line-height: 1;
 }
 
-.prediction-card span {
+.outlook-card span {
   color: #111832;
   font-weight: 800;
   line-height: 1.65;
 }
 
-.prediction-card .overview-link-button {
+.outlook-card .overview-link-button {
   width: fit-content;
   margin-top: auto;
   padding: 0;
@@ -2744,7 +2744,7 @@ input {
   .readiness-card,
   .confidence-engine-card,
   .trend-card,
-  .prediction-card,
+  .outlook-card,
   .risk-aging-card,
   .actions-card,
   .warnings-card,
@@ -2844,7 +2844,7 @@ input {
   .readiness-card,
   .confidence-engine-card,
   .trend-card,
-  .prediction-card,
+  .outlook-card,
   .active-sprint-card,
   .risk-aging-card,
   .actions-card,

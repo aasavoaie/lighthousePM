@@ -75,6 +75,9 @@ class SyncRepository:
                 story_points=issue_detail.story_points,
                 release_id=release_id,
                 is_blocker=is_blocker,
+                jira_created_at=issue_detail.created,
+                jira_updated_at=issue_detail.updated,
+                jira_blocker_flag=issue_detail.blocker_flag,
             )
             session.add(issue)
             session.flush()
@@ -88,8 +91,19 @@ class SyncRepository:
         existing.story_points = issue_detail.story_points
         existing.release_id = release_id
         existing.is_blocker = is_blocker
+        existing.jira_created_at = issue_detail.created
+        existing.jira_updated_at = issue_detail.updated
+        existing.jira_blocker_flag = issue_detail.blocker_flag
         session.flush()
         return existing, False
+
+    @staticmethod
+    def mark_issue_changelog_complete(session: Session, issue_key: str) -> None:
+        issue = session.scalar(select(Issue).where(Issue.issue_key == issue_key))
+        if issue is None:
+            raise ValueError(f"Issue not found: {issue_key!r}")
+        issue.jira_changelog_complete = True
+        session.flush()
 
     @staticmethod
     def upsert_sprint(session: Session, sprint_ref: JiraSprintRef, project_key: str) -> tuple[Sprint, bool]:

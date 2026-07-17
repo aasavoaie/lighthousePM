@@ -13,6 +13,8 @@ class IssueResponse(BaseModel):
     story_points: float | None
     release_id: str | None
     is_blocker: bool
+    jira_created_at: datetime | None
+    jira_updated_at: datetime | None
     created_at: datetime
     updated_at: datetime
 

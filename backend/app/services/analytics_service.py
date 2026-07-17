@@ -1,6 +1,7 @@
+import logging
+import math
 import statistics
 from datetime import UTC, datetime, timedelta
-import logging
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -9,6 +10,33 @@ from app.config import get_settings
 from app.models import Issue, IssueHistory, IssueSprint, MetricSnapshot, Release, Sprint, SprintMetricSnapshot
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.services.jira_field_mapper import JiraFieldMapper
+from app.services.confidence_breakdown_service import ConfidenceBreakdownService
+from app.services.metric_availability_service import (
+    MetricAvailabilityService,
+    UNAVAILABLE_REASON_RELEASE_EMPTY,
+    UNAVAILABLE_REASON_SPRINT_EMPTY,
+)
+from app.services.signal_service import SignalService
+from app.utils.constants import (
+    DELIVERY_CONFIDENCE_STATUS_COMPUTED,
+    DELIVERY_CONFIDENCE_STATUS_INCONCLUSIVE,
+    DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED,
+    DELIVERY_CONFIDENCE_STATUS_PARTIAL,
+    MIN_STORY_POINT_COVERAGE_PCT,
+    RULESET_VERSION,
+    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
+    CONFIDENCE_SCORE_GREEN_MIN,
+    CONFIDENCE_SCORE_RED_MAX,
+    CONFIDENCE_SCORE_YELLOW_MAX,
+    CONFIDENCE_SCORE_YELLOW_MIN,
+    HIGH_SEVERITY_BUGS_RED_THRESHOLD,
+    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
+    OPEN_BLOCKERS_RED_THRESHOLD,
+    REOPEN_RATE_RED_THRESHOLD,
+    REOPEN_RATE_YELLOW_THRESHOLD,
+    SCOPE_CHURN_RED_THRESHOLD,
+    SCOPE_CHURN_YELLOW_THRESHOLD,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,20 +86,52 @@ class AnalyticsService:
             field_mapper=field_mapper,
         )
 
+        snapshot_at = datetime.now(UTC)
+        ticket_count = int(
+            session.scalar(
+                select(func.count()).select_from(Issue).where(Issue.release_id == release_id)
+            )
+            or 0
+        )
+        scope_completed_pct = self._compute_scope_completed_pct(session, release_id, field_mapper)
+        completed_tickets = self._count_completed_tickets(session, release_id, field_mapper)
+        reopen_rate_pct = self._compute_reopen_rate_pct(session, release_id, field_mapper)
+        median_cycle_time_days = self._compute_median_cycle_time_days(session, release_id, field_mapper)
+        confidence_score = (
+            SignalService._compute_release_confidence_score(
+                open_blockers=len(open_blocker_issue_keys),
+                open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
+                scope_churn_7d_pct=scope_churn_7d["scope_churn_7d_pct"],
+                reopen_rate_pct=reopen_rate_pct,
+                median_cycle_time_days=median_cycle_time_days,
+            )
+            if ticket_count > 0
+            else None
+        )
         snapshot = MetricSnapshot(
             release_id=release_id,
-            snapshot_at=datetime.now(UTC),
+            snapshot_at=snapshot_at,
+            ruleset_version=RULESET_VERSION,
+            confidence_score=confidence_score,
+            confidence_status="COMPUTED" if confidence_score is not None else "NOT_COMPUTED",
             open_blockers=len(open_blocker_issue_keys),
             open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
             open_blocker_issue_keys=open_blocker_issue_keys,
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
-            scope_completed_pct=self._compute_scope_completed_pct(session, release_id, field_mapper),
-            completed_tickets=self._count_completed_tickets(session, release_id, field_mapper),
+            scope_completed_pct=scope_completed_pct,
+            completed_tickets=completed_tickets,
             scope_churn_7d_pct=scope_churn_7d["scope_churn_7d_pct"],
             scope_added_7d_count=scope_churn_7d["scope_added_7d_count"],
             scope_removed_7d_count=scope_churn_7d["scope_removed_7d_count"],
-            reopen_rate_pct=self._compute_reopen_rate_pct(session, release_id, field_mapper),
-            median_cycle_time_days=self._compute_median_cycle_time_days(session, release_id, field_mapper),
+            reopen_rate_pct=reopen_rate_pct,
+            median_cycle_time_days=median_cycle_time_days,
+        )
+        snapshot.calculation_provenance = self._release_calculation_provenance(
+            session=session,
+            release_id=release_id,
+            snapshot=snapshot,
+            field_mapper=field_mapper,
+            ticket_count=ticket_count,
         )
         session.add(snapshot)
         OperationalStatusRepository.mark_metrics_recomputed(session=session)
@@ -104,7 +164,7 @@ class AnalyticsService:
             field_mapper,
         )
         snapshot_at = datetime.now(UTC)
-        bugs_created_during_sprint_issue_keys = self._list_bugs_created_during_sprint_issue_keys(
+        bugs_created_during_sprint = self._compute_bugs_created_during_sprint(
             session=session,
             sprint=sprint,
             snapshot_at=snapshot_at,
@@ -120,22 +180,40 @@ class AnalyticsService:
         snapshot = SprintMetricSnapshot(
             sprint_id=sprint_id,
             snapshot_at=snapshot_at,
+            ruleset_version=RULESET_VERSION,
             committed_scope=self._count_sprint_issues(session, sprint_id),
             completed_scope_pct=self._compute_sprint_completed_scope_pct(session, sprint_id, field_mapper),
             open_blockers=len(open_blocker_issue_keys),
             open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
-            bugs_created_during_sprint=len(bugs_created_during_sprint_issue_keys),
+            bugs_created_during_sprint=len(bugs_created_during_sprint["issue_keys"]),
             open_blocker_issue_keys=open_blocker_issue_keys,
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
-            bugs_created_during_sprint_issue_keys=bugs_created_during_sprint_issue_keys,
+            bugs_created_during_sprint_issue_keys=bugs_created_during_sprint["issue_keys"],
+            bugs_created_during_sprint_status=bugs_created_during_sprint["status"],
+            bugs_created_during_sprint_missing_created_at_issue_keys=bugs_created_during_sprint[
+                "missing_created_at_issue_keys"
+            ],
             in_progress_count=self._count_sprint_in_progress(session, sprint_id, field_mapper),
             not_started_count=self._count_sprint_not_started(session, sprint_id, field_mapper),
             rollover_count=self._count_sprint_rollover(session, sprint_id, sprint.state, field_mapper),
             median_cycle_time_days=self._compute_sprint_median_cycle_time_days(session, sprint_id, field_mapper),
             reopen_rate_pct=self._compute_sprint_reopen_rate_pct(session, sprint_id, field_mapper),
-            delivery_confidence_score=delivery_confidence["score"] if delivery_confidence is not None else None,
-            delivery_confidence_components=delivery_confidence["components"] if delivery_confidence is not None else None,
-            delivery_confidence_inputs=delivery_confidence["inputs"] if delivery_confidence is not None else None,
+            delivery_confidence_score=delivery_confidence["score"],
+            delivery_confidence_components=delivery_confidence["components"],
+            delivery_confidence_inputs=delivery_confidence["inputs"],
+            story_point_total_count=delivery_confidence["coverage"]["total_ticket_count"],
+            story_point_pointed_count=delivery_confidence["coverage"]["pointed_ticket_count"],
+            story_point_unpointed_count=delivery_confidence["coverage"]["unpointed_ticket_count"],
+            story_point_coverage_pct=delivery_confidence["coverage"]["coverage_pct"],
+            story_point_unpointed_issue_keys=delivery_confidence["coverage"]["unpointed_issue_keys"],
+            delivery_confidence_status=delivery_confidence["status"],
+            delivery_confidence_explanations=delivery_confidence["explanations"],
+        )
+        snapshot.calculation_provenance = self._sprint_calculation_provenance(
+            session=session,
+            sprint_id=sprint_id,
+            snapshot=snapshot,
+            field_mapper=field_mapper,
         )
         session.add(snapshot)
         OperationalStatusRepository.mark_metrics_recomputed(session=session)
@@ -146,6 +224,213 @@ class AnalyticsService:
             snapshot.completed_scope_pct,
         )
         return snapshot
+
+    @staticmethod
+    def _classification_provenance(field_mapper: JiraFieldMapper) -> dict[str, object]:
+        return {
+            "done_statuses": sorted(field_mapper.done_statuses),
+            "in_progress_statuses": sorted(field_mapper.in_progress_statuses),
+            "high_severity_values": sorted(field_mapper.high_severity_values),
+            "severity_field": field_mapper.mapping.severity_field,
+            "story_points_field": field_mapper.mapping.story_points_field,
+            "release_field": field_mapper.mapping.release_field,
+            "sprint_field": field_mapper.mapping.sprint_field,
+            "blocker_field": field_mapper.mapping.blocker_field,
+            "blocker_true_values": sorted(field_mapper.mapping.blocker_true_values),
+        }
+
+    @staticmethod
+    def _history_completeness_evidence(
+        session: Session,
+        issue_keys_query,
+    ) -> dict[str, object]:
+        issues = list(
+            session.scalars(
+                select(Issue).where(Issue.issue_key.in_(issue_keys_query)).order_by(Issue.issue_key)
+            ).all()
+        )
+        complete_keys = [issue.issue_key for issue in issues if issue.jira_changelog_complete]
+        incomplete_keys = [issue.issue_key for issue in issues if not issue.jira_changelog_complete]
+        return {
+            "complete_issue_keys": complete_keys,
+            "incomplete_issue_keys": incomplete_keys,
+            "complete_count": len(complete_keys),
+            "incomplete_count": len(incomplete_keys),
+        }
+
+    @staticmethod
+    def _release_calculation_provenance(
+        session: Session,
+        release_id: str,
+        snapshot: MetricSnapshot,
+        field_mapper: JiraFieldMapper,
+        ticket_count: int,
+    ) -> dict[str, object]:
+        from app.services.driver_analysis_service import DriverAnalysisService
+
+        readiness = (
+            SignalService._build_release_readiness_details(
+                signal=None,
+                open_blockers=snapshot.open_blockers,
+                open_high_severity_bugs=snapshot.open_high_severity_bugs,
+                scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
+                reopen_rate_pct=snapshot.reopen_rate_pct,
+                median_cycle_time_days=snapshot.median_cycle_time_days,
+            )
+            if ticket_count > 0
+            else {}
+        )
+        availability = MetricAvailabilityService.build_release_availability(
+            session=session,
+            release_id=release_id,
+            field_mapper=field_mapper,
+        )
+        computation_status, unavailable_reason = MetricAvailabilityService.computation_state(
+            availability,
+            is_computed=True,
+            empty_scope_reason=UNAVAILABLE_REASON_RELEASE_EMPTY,
+        )
+        return {
+            "source_calculated_at": snapshot.snapshot_at.isoformat(),
+            "thresholds": {
+                "open_blockers_red": OPEN_BLOCKERS_RED_THRESHOLD,
+                "open_high_severity_bugs_red": HIGH_SEVERITY_BUGS_RED_THRESHOLD,
+                "open_high_severity_bugs_yellow": HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
+                "scope_churn_7d_pct_red": SCOPE_CHURN_RED_THRESHOLD * 100,
+                "scope_churn_7d_pct_yellow": SCOPE_CHURN_YELLOW_THRESHOLD * 100,
+                "reopen_rate_pct_red": REOPEN_RATE_RED_THRESHOLD * 100,
+                "reopen_rate_pct_yellow": REOPEN_RATE_YELLOW_THRESHOLD * 100,
+                "median_cycle_time_days_yellow": CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
+                "confidence_score_red_max": CONFIDENCE_SCORE_RED_MAX,
+                "confidence_score_yellow_min": CONFIDENCE_SCORE_YELLOW_MIN,
+                "confidence_score_yellow_max": CONFIDENCE_SCORE_YELLOW_MAX,
+                "confidence_score_green_min": CONFIDENCE_SCORE_GREEN_MIN,
+            },
+            "weights": dict(SignalService.RISK_WEIGHTS),
+            "classification": AnalyticsService._classification_provenance(field_mapper),
+            "availability": availability.model_dump(),
+            "computation_status": computation_status,
+            "unavailable_reason": unavailable_reason,
+            "story_point_coverage": None,
+            "history_completeness": AnalyticsService._history_completeness_evidence(
+                session,
+                select(Issue.issue_key).where(Issue.release_id == release_id),
+            ),
+            "component_inputs": {
+                "open_blockers": snapshot.open_blockers,
+                "open_high_severity_bugs": snapshot.open_high_severity_bugs,
+                "scope_churn_7d_pct": snapshot.scope_churn_7d_pct,
+                "reopen_rate_pct": snapshot.reopen_rate_pct,
+                "median_cycle_time_days": snapshot.median_cycle_time_days,
+            },
+            "component_outputs": {
+                "risk_points": SignalService._compute_release_risk_points(
+                    open_blockers=snapshot.open_blockers,
+                    open_high_severity_bugs=snapshot.open_high_severity_bugs,
+                    scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
+                    reopen_rate_pct=snapshot.reopen_rate_pct,
+                    median_cycle_time_days=snapshot.median_cycle_time_days,
+                ),
+                "confidence_breakdown": (
+                    ConfidenceBreakdownService.build_release_breakdown(snapshot).model_dump()
+                    if snapshot.confidence_score is not None
+                    else None
+                ),
+                "biggest_driver": (
+                    DriverAnalysisService.build_release_driver(snapshot).model_dump()
+                    if snapshot.confidence_score is not None
+                    else None
+                ),
+                "release_gates": readiness.get("release_gates", []),
+                "readiness_pct": (
+                    round(
+                        100.0
+                        * sum(1 for gate in readiness.get("release_gates", []) if gate.get("passed") is True)
+                        / len(readiness.get("release_gates", [])),
+                        2,
+                    )
+                    if readiness.get("release_gates")
+                    else None
+                ),
+            },
+            "issue_key_evidence": {
+                "open_blockers": snapshot.open_blocker_issue_keys,
+                "open_high_severity_bugs": snapshot.open_high_severity_bug_issue_keys,
+            },
+        }
+
+    @staticmethod
+    def _sprint_calculation_provenance(
+        session: Session,
+        sprint_id: str,
+        snapshot: SprintMetricSnapshot,
+        field_mapper: JiraFieldMapper,
+    ) -> dict[str, object]:
+        from app.services.driver_analysis_service import DriverAnalysisService
+
+        has_confidence = (
+            snapshot.delivery_confidence_score is not None
+            and snapshot.delivery_confidence_components is not None
+        )
+        availability = MetricAvailabilityService.build_sprint_availability(
+            session=session,
+            sprint_id=sprint_id,
+            field_mapper=field_mapper,
+        )
+        computation_status, unavailable_reason = MetricAvailabilityService.computation_state(
+            availability,
+            is_computed=True,
+            empty_scope_reason=UNAVAILABLE_REASON_SPRINT_EMPTY,
+        )
+        return {
+            "source_calculated_at": snapshot.snapshot_at.isoformat(),
+            "thresholds": {"minimum_story_point_coverage_pct": MIN_STORY_POINT_COVERAGE_PCT},
+            "weights": dict(DELIVERY_CONFIDENCE_WEIGHTS),
+            "classification": AnalyticsService._classification_provenance(field_mapper),
+            "availability": availability.model_dump(),
+            "computation_status": computation_status,
+            "unavailable_reason": unavailable_reason,
+            "story_point_coverage": {
+                "total_ticket_count": snapshot.story_point_total_count,
+                "pointed_ticket_count": snapshot.story_point_pointed_count,
+                "unpointed_ticket_count": snapshot.story_point_unpointed_count,
+                "coverage_pct": snapshot.story_point_coverage_pct,
+                "unpointed_issue_keys": snapshot.story_point_unpointed_issue_keys,
+            },
+            "history_completeness": AnalyticsService._history_completeness_evidence(
+                session,
+                AnalyticsService._sprint_issue_keys_subquery(sprint_id),
+            ),
+            "component_inputs": snapshot.delivery_confidence_inputs,
+            "component_outputs": {
+                "components": snapshot.delivery_confidence_components,
+                "confidence_breakdown": (
+                    ConfidenceBreakdownService.build_sprint_breakdown(
+                        score=float(snapshot.delivery_confidence_score),
+                        components=snapshot.delivery_confidence_components or {},
+                        inputs=snapshot.delivery_confidence_inputs,
+                    ).model_dump()
+                    if has_confidence
+                    else None
+                ),
+                "biggest_driver": (
+                    DriverAnalysisService.build_sprint_driver(
+                        score=float(snapshot.delivery_confidence_score),
+                        components=snapshot.delivery_confidence_components or {},
+                    ).model_dump()
+                    if has_confidence
+                    else None
+                ),
+            },
+            "issue_key_evidence": {
+                "open_blockers": snapshot.open_blocker_issue_keys,
+                "open_high_severity_bugs": snapshot.open_high_severity_bug_issue_keys,
+                "bugs_created_during_sprint": snapshot.bugs_created_during_sprint_issue_keys,
+                "bugs_missing_jira_created_at": (
+                    snapshot.bugs_created_during_sprint_missing_created_at_issue_keys
+                ),
+            },
+        }
 
     def compute_sprint_initial_scope_flags(
         self,
@@ -553,11 +838,11 @@ class AnalyticsService:
         )
 
     @staticmethod
-    def _list_bugs_created_during_sprint_issue_keys(
+    def _compute_bugs_created_during_sprint(
         session: Session,
         sprint: Sprint,
         snapshot_at: datetime,
-    ) -> list[str]:
+    ) -> dict[str, object]:
         """Sorted sprint bug keys where issue creation falls inside the sprint window.
 
         The window starts at sprint.start_date. It ends at complete_date for closed
@@ -567,26 +852,52 @@ class AnalyticsService:
         start_at = _coerce_utc(sprint.start_date)
         snapshot_at = _coerce_utc(snapshot_at)
         if start_at is None or snapshot_at is None:
-            return []
+            return {
+                "status": "NOT_COMPUTED",
+                "issue_keys": [],
+                "missing_created_at_issue_keys": [],
+            }
 
-        configured_end_at = _coerce_utc(sprint.complete_date) or _coerce_utc(sprint.end_date)
-        upper_bound = min(configured_end_at, snapshot_at) if configured_end_at is not None else snapshot_at
+        if sprint.state.casefold() == "closed":
+            upper_bound = (
+                _coerce_utc(sprint.complete_date)
+                or _coerce_utc(sprint.end_date)
+                or snapshot_at
+            )
+        else:
+            configured_end_at = _coerce_utc(sprint.end_date)
+            upper_bound = min(configured_end_at, snapshot_at) if configured_end_at is not None else snapshot_at
         if upper_bound < start_at:
-            return []
+            return {
+                "status": "COMPUTED",
+                "issue_keys": [],
+                "missing_created_at_issue_keys": [],
+            }
 
-        return list(
+        bugs = list(
             session.scalars(
-                select(Issue.issue_key)
-                .select_from(Issue)
+                select(Issue)
                 .where(
                     Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint.sprint_id)),
                     func.lower(Issue.issue_type) == "bug",
-                    Issue.created_at >= start_at,
-                    Issue.created_at <= upper_bound,
                 )
                 .order_by(Issue.issue_key)
             ).all()
         )
+        missing_created_at_issue_keys = sorted(
+            issue.issue_key for issue in bugs if issue.jira_created_at is None
+        )
+        issue_keys = sorted(
+            issue.issue_key
+            for issue in bugs
+            if issue.jira_created_at is not None
+            and start_at <= (_coerce_utc(issue.jira_created_at) or start_at) <= upper_bound
+        )
+        return {
+            "status": "PARTIAL" if missing_created_at_issue_keys else "COMPUTED",
+            "issue_keys": issue_keys,
+            "missing_created_at_issue_keys": missing_created_at_issue_keys,
+        }
 
     @staticmethod
     def _count_sprint_in_progress(
@@ -705,16 +1016,63 @@ class AnalyticsService:
         snapshot_at: datetime,
         field_mapper: JiraFieldMapper,
         open_blockers: int,
-    ) -> dict[str, object] | None:
+    ) -> dict[str, object]:
         sprint_issues = AnalyticsService._list_sprint_issues(session, sprint.sprint_id)
         committed_issue_count = len(sprint_issues)
-        if not any(issue.story_points is not None for issue in sprint_issues):
-            return None
+        coverage = _story_point_coverage(sprint_issues)
+        if committed_issue_count == 0:
+            return {
+                "status": DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED,
+                "score": None,
+                "components": None,
+                "inputs": None,
+                "coverage": coverage,
+                "explanations": [
+                    "Delivery confidence is not computed because the sprint has no tickets to evaluate."
+                ],
+            }
+        if coverage["coverage_pct"] < MIN_STORY_POINT_COVERAGE_PCT:
+            return {
+                "status": DELIVERY_CONFIDENCE_STATUS_INCONCLUSIVE,
+                "score": None,
+                "components": None,
+                "inputs": None,
+                "coverage": coverage,
+                "explanations": [
+                    "Delivery confidence is inconclusive because fewer than 50% of the sprint tickets have story "
+                    "points. At least 50% of the tickets inside the sprint must have story points to calculate "
+                    "delivery confidence. Ideally, all tickets should have story points."
+                ],
+            }
 
-        committed_effective_points = sum(_story_points(issue) for issue in sprint_issues)
+        pointed_issues = [issue for issue in sprint_issues if _valid_story_points(issue.story_points) is not None]
+        status = (
+            DELIVERY_CONFIDENCE_STATUS_COMPUTED
+            if coverage["coverage_pct"] == 100.0
+            else DELIVERY_CONFIDENCE_STATUS_PARTIAL
+        )
+        explanations: list[str] = []
+        if status == DELIVERY_CONFIDENCE_STATUS_PARTIAL:
+            explanations.extend(
+                [
+                    (
+                        "Delivery confidence is partial because "
+                        f"{coverage['pointed_ticket_count']} of {coverage['total_ticket_count']} sprint tickets "
+                        "have story points. Point-based calculations use tickets with available story points, "
+                        "while blocker and scope calculations use the complete sprint scope."
+                    ),
+                    (
+                        "When all sprint tickets have story points, delivery confidence uses the complete sprint "
+                        "scope and returns the accurate value for the documented model. The PARTIAL label and "
+                        "these remarks are then removed."
+                    ),
+                ]
+            )
+
+        committed_effective_points = sum(_story_points(issue) for issue in pointed_issues)
         completed_effective_points = sum(
             _story_points(issue)
-            for issue in sprint_issues
+            for issue in pointed_issues
             if field_mapper.is_done_status(issue.status)
         )
         remaining_effective_points = max(committed_effective_points - completed_effective_points, 0.0)
@@ -732,14 +1090,28 @@ class AnalyticsService:
         )
 
         baseline_sprints = AnalyticsService._list_velocity_baseline_sprints(session=session, sprint=sprint)
-        baseline_velocities = [
-            AnalyticsService._compute_completed_effective_points_for_sprint(
+        baseline_evidence = []
+        for baseline in baseline_sprints:
+            baseline_issues = AnalyticsService._list_sprint_issues(session, baseline.sprint_id)
+            baseline_coverage = _story_point_coverage(baseline_issues)
+            completed_points = AnalyticsService._compute_completed_effective_points_for_sprint(
                 session=session,
                 sprint_id=baseline.sprint_id,
                 field_mapper=field_mapper,
             )
-            for baseline in baseline_sprints
-        ]
+            baseline_evidence.append(
+                {
+                    "sprint_id": baseline.sprint_id,
+                    "coverage_pct": baseline_coverage["coverage_pct"],
+                    "status": (
+                        DELIVERY_CONFIDENCE_STATUS_COMPUTED
+                        if baseline_coverage["coverage_pct"] == 100.0
+                        else DELIVERY_CONFIDENCE_STATUS_PARTIAL
+                    ),
+                    "completed_points": round(completed_points, 2),
+                }
+            )
+        baseline_velocities = [float(item["completed_points"]) for item in baseline_evidence]
         baseline_sprint_count = len(baseline_velocities)
         historical_velocity = (
             round(sum(baseline_velocities) / baseline_sprint_count, 2)
@@ -757,6 +1129,21 @@ class AnalyticsService:
             remaining_capacity_points=remaining_capacity_points,
             baseline_sprint_count=baseline_sprint_count,
         )
+        velocity_status = (
+            DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED
+            if baseline_sprint_count == 0
+            else DELIVERY_CONFIDENCE_STATUS_PARTIAL
+            if any(item["status"] == DELIVERY_CONFIDENCE_STATUS_PARTIAL for item in baseline_evidence)
+            else DELIVERY_CONFIDENCE_STATUS_COMPUTED
+        )
+        if velocity_status == DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED:
+            explanations.append(
+                "Historical velocity is unavailable because no eligible closed sprint has at least 50% story-point coverage."
+            )
+        elif velocity_status == DELIVERY_CONFIDENCE_STATUS_PARTIAL:
+            explanations.append(
+                "Historical velocity is partial because at least one contributing baseline sprint has incomplete story-point coverage."
+            )
 
         blocked_issue_ratio = 0.0 if committed_issue_count == 0 else open_blockers / committed_issue_count
         blocker_penalty = _clamp(100.0 * (1.0 - blocked_issue_ratio), 0.0, 100.0)
@@ -784,10 +1171,14 @@ class AnalyticsService:
         )
 
         return {
+            "status": status,
             "score": score,
             "components": components,
+            "coverage": coverage,
+            "explanations": explanations,
             "inputs": {
                 "committed_issue_count": committed_issue_count,
+                "pointed_issue_count": coverage["pointed_ticket_count"],
                 "committed_effective_points": round(committed_effective_points, 2),
                 "completed_effective_points": round(completed_effective_points, 2),
                 "remaining_effective_points": round(remaining_effective_points, 2),
@@ -795,6 +1186,8 @@ class AnalyticsService:
                 "time_elapsed_pct": round(time_elapsed_pct, 2) if time_elapsed_pct is not None else None,
                 "historical_velocity": historical_velocity,
                 "baseline_sprint_count": baseline_sprint_count,
+                "baseline_sprints": baseline_evidence,
+                "velocity_status": velocity_status,
                 "remaining_capacity_points": remaining_capacity_points,
                 "blocked_issue_ratio": round(blocked_issue_ratio, 4),
                 **scope_stability_inputs,
@@ -846,7 +1239,17 @@ class AnalyticsService:
             dated_candidates.append((candidate_date, candidate))
 
         dated_candidates.sort(key=lambda item: (item[0], item[1].sprint_id), reverse=True)
-        return [candidate for _, candidate in dated_candidates[:HISTORICAL_VELOCITY_SPRINT_COUNT]]
+        eligible: list[Sprint] = []
+        for _, candidate in dated_candidates:
+            coverage = _story_point_coverage(
+                AnalyticsService._list_sprint_issues(session, candidate.sprint_id)
+            )
+            if coverage["coverage_pct"] < MIN_STORY_POINT_COVERAGE_PCT:
+                continue
+            eligible.append(candidate)
+            if len(eligible) == HISTORICAL_VELOCITY_SPRINT_COUNT:
+                break
+        return eligible
 
     @staticmethod
     def _compute_sprint_scope_stability_inputs(
@@ -911,9 +1314,38 @@ class AnalyticsService:
 
 
 def _story_points(issue: Issue) -> float:
-    if issue.story_points is not None and issue.story_points >= 0:
-        return float(issue.story_points)
-    return 0.0
+    value = _valid_story_points(issue.story_points)
+    return value if value is not None else 0.0
+
+
+def _valid_story_points(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    numeric_value = float(value)
+    if numeric_value < 0 or not math.isfinite(numeric_value):
+        return None
+    return numeric_value
+
+
+def _story_point_coverage(issues: list[Issue]) -> dict[str, object]:
+    unpointed_issue_keys = sorted(
+        issue.issue_key for issue in issues if _valid_story_points(issue.story_points) is None
+    )
+    total_ticket_count = len(issues)
+    unpointed_ticket_count = len(unpointed_issue_keys)
+    pointed_ticket_count = total_ticket_count - unpointed_ticket_count
+    coverage_pct = (
+        0.0
+        if total_ticket_count == 0
+        else round(100.0 * pointed_ticket_count / total_ticket_count, 2)
+    )
+    return {
+        "total_ticket_count": total_ticket_count,
+        "pointed_ticket_count": pointed_ticket_count,
+        "unpointed_ticket_count": unpointed_ticket_count,
+        "coverage_pct": coverage_pct,
+        "unpointed_issue_keys": unpointed_issue_keys,
+    }
 
 
 def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:

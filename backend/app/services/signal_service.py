@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Issue, MetricSnapshot
+from app.models import Issue, IssueHistory, MetricSnapshot
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.repositories.release_repository import ReleaseRepository
@@ -22,9 +22,11 @@ from app.utils.constants import (
     REOPEN_RATE_YELLOW_THRESHOLD,
     SCOPE_CHURN_RED_THRESHOLD,
     SCOPE_CHURN_YELLOW_THRESHOLD,
+    RULESET_VERSION,
 )
 
 logger = logging.getLogger(__name__)
+RELEASE_OUTLOOK_DISCLAIMER = "This outlook reflects the latest stored snapshot and is not a forecast."
 
 
 def _coerce_utc(value: datetime) -> datetime:
@@ -35,11 +37,12 @@ def _coerce_utc(value: datetime) -> datetime:
 
 class SignalService:
     """
-    Score-band deterministic release signal computation.
+    Hybrid deterministic release signal computation.
 
-    Evaluates metric snapshots against centralized thresholds to produce risk points,
-    computes a confidence score, then maps that score to RED/YELLOW/GREEN bands.
-    All thresholds are explicit, testable, and documented.
+    Evaluates metric snapshots against centralized hard-rule thresholds and risk
+    weights. The final signal is the more severe result from the hard rules and
+    the confidence-score band. All thresholds are explicit, testable, and
+    documented in PRODUCT_RULES.md.
 
     Signal Levels:
     - RED: confidence score 0-60.
@@ -64,6 +67,7 @@ class SignalService:
         "reopen_rate_pct_yellow": 3.0,
         "median_cycle_time_days_yellow": 4.0,
     }
+    SEVERITY_RANK = {"GREEN": 0, "YELLOW": 1, "RED": 2}
 
     @staticmethod
     def _compute_release_risk_points(
@@ -132,11 +136,19 @@ class SignalService:
             return "YELLOW"
         return "GREEN"
 
+    @staticmethod
+    def _most_severe_signal(*signals: str) -> str:
+        """Return the most severe signal using the documented stable ordering."""
+        return max(signals, key=SignalService.SEVERITY_RANK.__getitem__)
+
     def recompute_release_signal(self, session: Session, release_id: str):
         logger.info("signal_recompute_started release_id=%s", release_id)
         release = ReleaseRepository.get_release_by_id(session=session, release_id=release_id)
         if release is None:
             raise ValueError(f"Release not found: {release_id!r}")
+        session.flush()
+        snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
+        calculated_at = datetime.now(UTC)
         if ReleaseRepository.count_release_issues(session=session, release_id=release_id) == 0:
             reasons = ["No tickets are assigned to this release."]
             OperationalStatusRepository.mark_signal_recomputed(session=session)
@@ -145,26 +157,65 @@ class SignalService:
                 release_id,
                 reasons[0],
             )
-            return SignalRepository.upsert_signal(
+            return SignalRepository.create_signal(
                 session=session,
                 release_id=release_id,
+                metric_snapshot_id=snapshot.id if snapshot is not None else None,
+                ruleset_version=RULESET_VERSION,
                 signal="NOT_COMPUTED",
+                confidence_score=None,
                 reasons=reasons,
+                reason_details=[],
+                release_gates=[],
+                readiness_evidence={
+                    "signal": None,
+                    "status_label": "NOT COMPUTED",
+                    "confidence_score": None,
+                    "summary": "Release signal is not computed because no tickets are assigned to this release.",
+                    "critical_risks": [],
+                    "warnings": [],
+                    "primary_risk": None,
+                },
+                risk_aging_evidence={
+                    "blockers": {"count": 0, "known_count": 0, "unknown_count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []},
+                    "high_severity_bugs": {"count": 0, "known_count": 0, "unknown_count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []},
+                    "as_of": snapshot.snapshot_at.isoformat() if snapshot is not None else None,
+                },
+                calculated_at=calculated_at,
             )
 
-        # Analytics recompute may have just added a new MetricSnapshot in this
-        # transaction; flush so subsequent SELECT sees pending rows.
-        session.flush()
-        snapshot = MetricRepository.get_latest_snapshot(session=session, release_id=release_id)
         if snapshot is None:
             raise ValueError(f"No metric snapshot found for release: {release_id!r}")
 
-        signal, reasons, _ = self._evaluate_signal_with_details(
+        signal, reasons, reason_details = self._evaluate_signal_with_details(
             open_blockers=snapshot.open_blockers,
             open_high_severity_bugs=snapshot.open_high_severity_bugs,
             scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
             reopen_rate_pct=snapshot.reopen_rate_pct,
             median_cycle_time_days=snapshot.median_cycle_time_days,
+        )
+        readiness = self._build_release_readiness_details(
+            signal=signal,
+            open_blockers=snapshot.open_blockers,
+            open_high_severity_bugs=snapshot.open_high_severity_bugs,
+            scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
+            reopen_rate_pct=snapshot.reopen_rate_pct,
+            median_cycle_time_days=snapshot.median_cycle_time_days,
+        )
+        risk_aging = self._build_release_risk_aging(
+            session=session,
+            release_id=release_id,
+            as_of=snapshot.snapshot_at,
+            open_blocker_issue_keys=(
+                snapshot.open_blocker_issue_keys
+                if snapshot.open_blocker_issue_keys or snapshot.open_blockers == 0
+                else None
+            ),
+            open_high_severity_bug_issue_keys=(
+                snapshot.open_high_severity_bug_issue_keys
+                if snapshot.open_high_severity_bug_issue_keys or snapshot.open_high_severity_bugs == 0
+                else None
+            ),
         )
 
         OperationalStatusRepository.mark_signal_recomputed(session=session)
@@ -175,12 +226,30 @@ class SignalService:
             len(reasons),
         )
 
-        return SignalRepository.upsert_signal(
+        return SignalRepository.create_signal(
             session=session,
             release_id=release_id,
+            metric_snapshot_id=snapshot.id,
+            ruleset_version=RULESET_VERSION,
             signal=signal,
+            confidence_score=snapshot.confidence_score,
             reasons=reasons,
+            reason_details=reason_details,
+            release_gates=readiness.get("release_gates", []),
+            readiness_evidence=self._json_safe_evidence(readiness),
+            risk_aging_evidence=self._json_safe_evidence(risk_aging),
+            calculated_at=calculated_at,
         )
+
+    @staticmethod
+    def _json_safe_evidence(value):
+        if isinstance(value, datetime):
+            return _coerce_utc(value).isoformat()
+        if isinstance(value, dict):
+            return {key: SignalService._json_safe_evidence(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [SignalService._json_safe_evidence(item) for item in value]
+        return value
 
     @staticmethod
     def _evaluate_signal_with_details(
@@ -260,7 +329,11 @@ class SignalService:
         yellow_reasons: list[str] = []
         yellow_details: list[dict[str, str | int | float]] = []
 
-        if open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
+        if (
+            HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD
+            < open_high_severity_bugs
+            <= HIGH_SEVERITY_BUGS_RED_THRESHOLD
+        ):
             message = (
                 f"High-severity bugs present: {open_high_severity_bugs} > {HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD}"
             )
@@ -276,7 +349,7 @@ class SignalService:
                 }
             )
 
-        if churn_ratio > SCOPE_CHURN_YELLOW_THRESHOLD:
+        if SCOPE_CHURN_YELLOW_THRESHOLD < churn_ratio <= SCOPE_CHURN_RED_THRESHOLD:
             threshold_pct = SCOPE_CHURN_YELLOW_THRESHOLD * 100
             message = f"Scope churn: {scope_churn_7d_pct:.1f}% > {threshold_pct:.0f}%"
             yellow_reasons.append(message)
@@ -291,7 +364,7 @@ class SignalService:
                 }
             )
 
-        if reopen_ratio > REOPEN_RATE_YELLOW_THRESHOLD:
+        if REOPEN_RATE_YELLOW_THRESHOLD < reopen_ratio <= REOPEN_RATE_RED_THRESHOLD:
             threshold_pct = REOPEN_RATE_YELLOW_THRESHOLD * 100
             message = f"Reopen rate: {reopen_rate_pct:.1f}% > {threshold_pct:.0f}%"
             yellow_reasons.append(message)
@@ -329,7 +402,9 @@ class SignalService:
             reopen_rate_pct=reopen_rate_pct,
             median_cycle_time_days=median_cycle_time_days,
         )
-        signal = SignalService._signal_from_confidence_score(confidence_score)
+        confidence_signal = SignalService._signal_from_confidence_score(confidence_score)
+        hard_rule_signal = "RED" if red_details else "YELLOW" if yellow_details else "GREEN"
+        signal = SignalService._most_severe_signal(hard_rule_signal, confidence_signal)
         reasons = [*red_reasons, *yellow_reasons]
         details = [*red_details, *yellow_details]
         if not reasons:
@@ -499,7 +574,13 @@ class SignalService:
             reopen_rate_pct=reopen_rate_pct,
             median_cycle_time_days=median_cycle_time_days,
         )
-        computed_signal = SignalService._signal_from_confidence_score(confidence_score)
+        computed_signal, _, _ = SignalService._evaluate_signal_with_details(
+            open_blockers=open_blockers,
+            open_high_severity_bugs=open_high_severity_bugs,
+            scope_churn_7d_pct=scope_churn_7d_pct,
+            reopen_rate_pct=reopen_rate_pct,
+            median_cycle_time_days=median_cycle_time_days,
+        )
         contribution_by_metric = {
             metric_name: round((points / total_risk_points) * 100, 1)
             for metric_name, points in risk_points.items()
@@ -578,8 +659,12 @@ class SignalService:
         )
 
         return {
-            "blockers": SignalService._summarize_issue_ages(blocker_issues, as_of_utc),
-            "high_severity_bugs": SignalService._summarize_issue_ages(high_severity_bug_issues, as_of_utc),
+            "blockers": SignalService._summarize_issue_risk_ages(
+                session, blocker_issues, as_of_utc, field_mapper, "blockers"
+            ),
+            "high_severity_bugs": SignalService._summarize_issue_risk_ages(
+                session, high_severity_bug_issues, as_of_utc, field_mapper, "high_severity_bugs"
+            ),
             "as_of": as_of_utc,
         }
 
@@ -598,9 +683,25 @@ class SignalService:
         )
 
         if baseline_snapshot is None:
-            return {"as_of": latest_at, "baseline_at": None, "has_baseline": False, "items": []}
+            return {"as_of": latest_at, "baseline_at": None, "has_baseline": False, "unavailable_reason": None, "items": []}
 
         baseline_at = _coerce_utc(baseline_snapshot.snapshot_at)
+        if latest_snapshot.ruleset_version != baseline_snapshot.ruleset_version:
+            return {
+                "as_of": latest_at,
+                "baseline_at": baseline_at,
+                "has_baseline": True,
+                "unavailable_reason": "Snapshot comparison unavailable because ruleset versions differ.",
+                "items": [],
+            }
+        if latest_snapshot.ruleset_version == 0:
+            return {
+                "as_of": latest_at,
+                "baseline_at": baseline_at,
+                "has_baseline": True,
+                "unavailable_reason": "Derived legacy release confidence is unavailable because it was not stored at calculation time.",
+                "items": [],
+            }
         latest_confidence = SignalService._confidence_score_for_snapshot(latest_snapshot)
         baseline_confidence = SignalService._confidence_score_for_snapshot(baseline_snapshot)
 
@@ -641,17 +742,60 @@ class SignalService:
             ),
         ]
 
-        return {"as_of": latest_at, "baseline_at": baseline_at, "has_baseline": True, "items": items}
+        return {"as_of": latest_at, "baseline_at": baseline_at, "has_baseline": True, "unavailable_reason": None, "items": items}
 
     @staticmethod
-    def _confidence_score_for_snapshot(snapshot: MetricSnapshot) -> float:
-        return SignalService._compute_release_confidence_score(
-            open_blockers=snapshot.open_blockers,
-            open_high_severity_bugs=snapshot.open_high_severity_bugs,
-            scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
-            reopen_rate_pct=snapshot.reopen_rate_pct,
-            median_cycle_time_days=snapshot.median_cycle_time_days,
+    def _build_release_outlook(
+        release_date: datetime | None,
+        latest_snapshot: MetricSnapshot | None,
+        final_signal: str | None,
+        confidence_score: float | None,
+        release_gates: list[dict[str, object]],
+        critical_risks: list[dict[str, object]],
+        warnings: list[dict[str, object]],
+        last_24_hours: dict[str, object],
+    ) -> dict[str, object]:
+        """Summarize current stored release evidence without forecasting."""
+        label_by_signal = {
+            "GREEN": "ON TRACK",
+            "YELLOW": "NEEDS ATTENTION",
+            "RED": "AT RISK",
+        }
+        snapshot_at = (
+            _coerce_utc(latest_snapshot.snapshot_at) if latest_snapshot is not None else None
         )
+        release_date_utc = _coerce_utc(release_date) if release_date is not None else None
+        days_remaining = (
+            (release_date_utc.date() - snapshot_at.date()).days
+            if release_date_utc is not None and snapshot_at is not None
+            else None
+        )
+        confidence_change_24h = None
+        for item in last_24_hours.get("items", []):
+            if isinstance(item, dict) and item.get("metric_name") == "confidence_score":
+                confidence_change_24h = item.get("delta")
+                break
+
+        active_conditions = [*critical_risks, *warnings]
+        return {
+            "label": label_by_signal.get(final_signal, "NOT COMPUTED"),
+            "signal": final_signal,
+            "confidence_score": confidence_score,
+            "snapshot_at": snapshot_at,
+            "release_date": release_date_utc,
+            "days_remaining": days_remaining,
+            "passed_gate_count": sum(1 for gate in release_gates if gate.get("passed") is True),
+            "failed_gate_count": sum(1 for gate in release_gates if gate.get("passed") is False),
+            "release_gates": release_gates,
+            "confidence_change_24h": confidence_change_24h,
+            "confidence_baseline_at": last_24_hours.get("baseline_at"),
+            "active_conditions": active_conditions,
+            "disclaimer": RELEASE_OUTLOOK_DISCLAIMER,
+        }
+
+    @staticmethod
+    def _confidence_score_for_snapshot(snapshot: MetricSnapshot) -> float | None:
+        return snapshot.confidence_score if snapshot.ruleset_version > 0 else None
 
     @staticmethod
     def _numeric_delta(latest_value: int | float | None, baseline_value: int | float | None) -> float | None:
@@ -735,32 +879,161 @@ class SignalService:
         raise ValueError(f"Unknown risk aging type: {risk_type!r}")
 
     @staticmethod
-    def _summarize_issue_ages(
-        issues: list[Issue], as_of: datetime
-    ) -> dict[str, int | float | None | list[dict[str, str | float]]]:
+    def _summarize_issue_risk_ages(
+        session: Session,
+        issues: list[Issue],
+        as_of: datetime,
+        field_mapper: JiraFieldMapper,
+        risk_type: str,
+    ) -> dict[str, object]:
         if not issues:
-            return {"count": 0, "oldest_age_days": None, "average_age_days": None, "tickets": []}
-
-        tickets = [
-            {
-                "key": issue.issue_key,
-                "age_days": round(SignalService._issue_age_days(issue=issue, as_of=as_of), 1),
+            return {
+                "count": 0,
+                "known_count": 0,
+                "unknown_count": 0,
+                "oldest_age_days": None,
+                "average_age_days": None,
+                "tickets": [],
             }
-            for issue in issues
-        ]
-        ages = [float(ticket["age_days"]) for ticket in tickets]
+
+        tickets: list[dict[str, object]] = []
+        ages: list[float] = []
+        for issue in issues:
+            risk_start = SignalService._risk_start_evidence(
+                session=session,
+                issue=issue,
+                as_of=as_of,
+                field_mapper=field_mapper,
+                risk_type=risk_type,
+            )
+            risk_started_at = risk_start["risk_started_at"]
+            age_days = (
+                None
+                if risk_started_at is None
+                else round(max(0.0, (as_of - risk_started_at).total_seconds()) / 86400.0, 1)
+            )
+            if age_days is not None:
+                ages.append(age_days)
+            jira_created_at = (
+                _coerce_utc(issue.jira_created_at) if issue.jira_created_at is not None else None
+            )
+            issue_age_days = (
+                round(max(0.0, (as_of - jira_created_at).total_seconds()) / 86400.0, 1)
+                if jira_created_at is not None
+                else None
+            )
+            tickets.append(
+                {
+                    "key": issue.issue_key,
+                    "age_days": age_days,
+                    "issue_age_days": issue_age_days,
+                    "jira_created_at": jira_created_at,
+                    "risk_started_at": risk_started_at,
+                    "risk_start_source_field": risk_start["source_field"],
+                    "risk_start_source_changed_at": risk_start["source_changed_at"],
+                    "history_complete": issue.jira_changelog_complete,
+                    "explanation": (
+                        None
+                        if age_days is not None
+                        else "Risk start unavailable from Jira history."
+                    ),
+                }
+            )
         return {
             "count": len(issues),
-            "oldest_age_days": round(max(ages), 1),
-            "average_age_days": round(sum(ages) / len(ages), 1),
+            "known_count": len(ages),
+            "unknown_count": len(issues) - len(ages),
+            "oldest_age_days": round(max(ages), 1) if ages else None,
+            "average_age_days": round(sum(ages) / len(ages), 1) if ages else None,
             "tickets": tickets,
         }
 
     @staticmethod
-    def _issue_age_days(issue: Issue, as_of: datetime) -> float:
-        created_at = _coerce_utc(issue.created_at)
-        elapsed_seconds = max(0.0, (as_of - created_at).total_seconds())
-        return elapsed_seconds / 86400.0
+    def _risk_start_evidence(
+        session: Session,
+        issue: Issue,
+        as_of: datetime,
+        field_mapper: JiraFieldMapper,
+        risk_type: str,
+    ) -> dict[str, object]:
+        if not issue.jira_changelog_complete:
+            return {"risk_started_at": None, "source_field": None, "source_changed_at": None}
+
+        derived_blocker_without_flag = field_mapper.classify_blocker(
+            issue_type=issue.issue_type,
+            severity=issue.priority,
+            status=issue.status,
+            blocker_flag=None,
+        )
+        current_blocker_flag = issue.jira_blocker_flag
+        if current_blocker_flag is None and issue.is_blocker and not derived_blocker_without_flag:
+            current_blocker_flag = True
+        state: dict[str, object] = {
+            "status": issue.status,
+            "priority": issue.priority,
+            "issue_type": issue.issue_type,
+            "blocker_flag": current_blocker_flag,
+        }
+
+        def is_active() -> bool:
+            if risk_type == "blockers":
+                return field_mapper.classify_blocker(
+                    issue_type=str(state["issue_type"] or ""),
+                    severity=str(state["priority"]) if state["priority"] is not None else None,
+                    status=str(state["status"] or ""),
+                    blocker_flag=(
+                        state["blocker_flag"]
+                        if isinstance(state["blocker_flag"], bool)
+                        else None
+                    ),
+                )
+            if risk_type == "high_severity_bugs":
+                return (
+                    str(state["issue_type"] or "").casefold() == "bug"
+                    and field_mapper.is_high_severity(
+                        str(state["priority"]) if state["priority"] is not None else None
+                    )
+                    and not field_mapper.is_done_status(str(state["status"] or ""))
+                )
+            raise ValueError(f"Unknown risk aging type: {risk_type!r}")
+
+        history = session.scalars(
+            select(IssueHistory)
+            .where(IssueHistory.issue_key == issue.issue_key, IssueHistory.changed_at <= as_of)
+            .order_by(IssueHistory.changed_at.desc(), IssueHistory.id.desc())
+        ).all()
+        severity_fields = {"priority", field_mapper.mapping.severity_field.casefold()}
+        blocker_field = field_mapper.mapping.blocker_field.casefold()
+        for entry in history:
+            field_name = entry.field_name.strip().casefold()
+            if field_name == "status":
+                state["status"] = entry.old_value
+            elif field_name in severity_fields:
+                state["priority"] = entry.old_value
+            elif field_name in {"issuetype", "issue type"}:
+                state["issue_type"] = entry.old_value
+            elif blocker_field and field_name == blocker_field:
+                state["blocker_flag"] = field_mapper.parse_blocker_flag(entry.old_value)
+            else:
+                continue
+            if not is_active():
+                changed_at = _coerce_utc(entry.changed_at)
+                return {
+                    "risk_started_at": changed_at,
+                    "source_field": entry.field_name,
+                    "source_changed_at": changed_at,
+                }
+
+        jira_created_at = (
+            _coerce_utc(issue.jira_created_at) if issue.jira_created_at is not None else None
+        )
+        if is_active() and jira_created_at is not None and jira_created_at <= as_of:
+            return {
+                "risk_started_at": jira_created_at,
+                "source_field": "jira_created_at",
+                "source_changed_at": jira_created_at,
+            }
+        return {"risk_started_at": None, "source_field": None, "source_changed_at": None}
 
     @staticmethod
     def _evaluate_signal(
@@ -771,10 +1044,11 @@ class SignalService:
         median_cycle_time_days: float | None,
     ) -> tuple[str, list[str]]:
         """
-        Apply deterministic confidence-score bands and return threshold reasons.
+        Apply deterministic hard rules and confidence-score bands.
 
-        Metric thresholds determine risk points and reasons. The final signal is mapped
-        from the computed confidence score: 0-60 RED, 61-90 YELLOW, 91-100 GREEN.
+        Metric thresholds determine hard-rule severity, risk points, and reasons.
+        The final signal is the more severe of the hard-rule result and confidence
+        score band.
 
         Reason messages follow format: "{metric_name}: {value} {comparison} {threshold}".
         This makes thresholds explicit and reproducible.

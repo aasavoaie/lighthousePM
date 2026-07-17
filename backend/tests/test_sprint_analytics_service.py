@@ -56,6 +56,7 @@ def _issue(
     story_points: float | None = None,
     created_at: datetime | None = None,
 ) -> Issue:
+    source_created_at = created_at or datetime.now(UTC)
     return Issue(
         issue_key=issue_key,
         summary=f"{issue_key} summary",
@@ -66,7 +67,8 @@ def _issue(
         story_points=story_points,
         release_id=None,
         is_blocker=priority == "Blocker",
-        created_at=created_at or datetime.now(UTC),
+        jira_created_at=source_created_at,
+        created_at=source_created_at,
     )
 
 
@@ -257,7 +259,7 @@ def test_scope_stability_index_counts_added_and_removed_issues(db_session: Sessi
     now = datetime.now(UTC)
     db_session.add(_sprint(start_date=now - timedelta(days=2), end_date=now + timedelta(days=2)))
     db_session.add(_issue("LHPM-1", "In Progress", story_points=3))
-    db_session.add(_issue("LHPM-2", "To Do"))
+    db_session.add(_issue("LHPM-2", "To Do", story_points=0))
     db_session.add(_issue("LHPM-3", "To Do"))
     db_session.add(_issue("LHPM-4", "To Do"))
     db_session.add_all([_link("LHPM-1"), _link("LHPM-2"), _link("LHPM-3")])
@@ -330,6 +332,9 @@ def test_delivery_confidence_empty_sprint_is_not_computed(db_session: Session) -
     assert snapshot.delivery_confidence_score is None
     assert snapshot.delivery_confidence_components is None
     assert snapshot.delivery_confidence_inputs is None
+    assert snapshot.delivery_confidence_status == "NOT_COMPUTED"
+    assert snapshot.story_point_total_count == 0
+    assert snapshot.story_point_coverage_pct == 0.0
 
 
 def test_delivery_confidence_uses_only_story_points_when_some_issues_are_missing_points(db_session: Session) -> None:
@@ -348,3 +353,28 @@ def test_delivery_confidence_uses_only_story_points_when_some_issues_are_missing
     assert snapshot.delivery_confidence_components is not None
     assert snapshot.delivery_confidence_components["progress_alignment"] == 100.0
     assert snapshot.delivery_confidence_components["velocity_fit"] == 100.0
+    assert snapshot.delivery_confidence_status == "PARTIAL"
+    assert snapshot.story_point_pointed_count == 1
+    assert snapshot.story_point_unpointed_count == 1
+    assert snapshot.story_point_coverage_pct == 50.0
+    assert snapshot.story_point_unpointed_issue_keys == ["LHPM-2"]
+    assert len(snapshot.delivery_confidence_explanations) >= 2
+
+
+def test_delivery_confidence_is_inconclusive_below_half_coverage(db_session: Session) -> None:
+    db_session.add(_sprint(with_dates=False))
+    db_session.add(_issue("LHPM-1", "Done", story_points=3))
+    db_session.add(_issue("LHPM-2", "To Do", story_points=None))
+    db_session.add(_issue("LHPM-3", "To Do", story_points=-1))
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2"), _link("LHPM-3")])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.delivery_confidence_status == "INCONCLUSIVE"
+    assert snapshot.delivery_confidence_score is None
+    assert snapshot.delivery_confidence_components is None
+    assert snapshot.delivery_confidence_inputs is None
+    assert snapshot.story_point_coverage_pct == 33.33
+    assert snapshot.story_point_unpointed_issue_keys == ["LHPM-2", "LHPM-3"]
+    assert "fewer than 50%" in snapshot.delivery_confidence_explanations[0]

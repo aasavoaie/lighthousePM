@@ -90,8 +90,12 @@ function buildSingleMetricRows(charts: ReleaseChartsResponse | null, metricName:
   return charts.series[metricName]
     .filter((point) => point.value !== null)
     .map((point) => ({
-      snapshot_at: new Date(point.snapshot_at).toLocaleDateString(),
+      snapshot_at: `${new Date(point.snapshot_at).toLocaleDateString()}${
+        point.version_boundary ? ` · v${point.ruleset_version} starts` : ""
+      }`,
       value: point.value,
+      ruleset_version: point.ruleset_version,
+      version_boundary: point.version_boundary,
     }));
 }
 
@@ -135,6 +139,9 @@ function buildBlockerAgingRows(group: SignalRiskAgingGroup | null | undefined): 
   ];
 
   for (const ticket of group?.tickets ?? []) {
+    if (ticket.age_days === null) {
+      continue;
+    }
     if (ticket.age_days <= 3) {
       rows[0].count += 1;
     } else if (ticket.age_days <= 7) {

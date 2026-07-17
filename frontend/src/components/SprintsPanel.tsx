@@ -608,7 +608,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   );
   const storyPointUi = buildSprintStoryPointUiVisibility(metrics);
   const storyPointUnavailableReason = getSprintStoryPointUnavailableReason(metrics);
-  const storyPointUnavailableMessage = `Story-point metrics are unavailable. ${storyPointUnavailableReason}`;
+  const storyPointExplanations = metrics?.delivery_confidence_explanations ?? [];
+  const storyPointUnavailableMessage = storyPointExplanations[0] ?? storyPointUnavailableReason;
   const hasStoryPointMetrics = storyPointUi.hasStoryPointMetrics;
   const predictabilityRows = useMemo(
     () =>
@@ -636,7 +637,10 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     () => (storyPointUi.showTeamPredictability ? buildPredictabilityDisplayModel(predictabilityRows) : null),
     [storyPointUi.showTeamPredictability, predictabilityRows]
   );
-  const workDistributionCard = useMemo(() => buildWorkDistributionDisplayModel(issues), [issues]);
+  const workDistributionCard = useMemo(
+    () => buildWorkDistributionDisplayModel(issues, metrics?.delivery_confidence_status),
+    [issues, metrics?.delivery_confidence_status]
+  );
   const sprintWorkStateCard = useMemo(
     () => (metrics ? buildSprintWorkStateDisplayModel(metrics.metrics, issues) : null),
     [metrics, issues]
@@ -1062,6 +1066,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
             ) : null}
           </div>
           <div className="panel-heading-actions">
+            {metrics?.ruleset_label ? <span className="muted">{metrics.ruleset_label}</span> : null}
             {deliveryConfidence ? (
               <button
                 type="button"
@@ -1079,7 +1084,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
           <p className="muted">Sprint metrics have not been computed yet.</p>
         ) : null}
         {!isLoadingDetails && storyPointUi.showStoryPointUnavailableMessage ? (
-          <p className="muted">{storyPointUnavailableMessage}</p>
+          <div className="muted">
+            {storyPointExplanations.map((explanation) => <p key={explanation}>{explanation}</p>)}
+          </div>
         ) : null}
         {!isLoadingDetails && deliveryConfidence ? (
           <p className="delivery-confidence-summary">

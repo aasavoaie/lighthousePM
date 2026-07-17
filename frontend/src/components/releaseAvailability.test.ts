@@ -52,6 +52,9 @@ function metricsResponse(overrides: Partial<ReleaseMetricsResponse> = {}): Relea
     is_computed: true,
     snapshot_age_hours: 1,
     ...overrides,
+    ruleset_version: overrides.ruleset_version ?? 1,
+    ruleset_label: overrides.ruleset_label ?? "Ruleset v1",
+    calculation_provenance: overrides.calculation_provenance ?? {},
   };
 }
 
@@ -71,9 +74,9 @@ function chartsResponse(overrides: Partial<ReleaseChartsResponse> = {}): Release
       scope_removed_7d_count: [],
       median_cycle_time_days: [],
       reopen_rate_pct: [],
-      confidence_score: [{ snapshot_at: "2026-06-01T10:00:00Z", value: null }],
+      confidence_score: [{ snapshot_at: "2026-06-01T10:00:00Z", value: null, ruleset_version: 1, version_boundary: false }],
       gates_passed_count: [],
-      readiness_pct: [{ snapshot_at: "2026-06-01T10:00:00Z", value: null }],
+      readiness_pct: [{ snapshot_at: "2026-06-01T10:00:00Z", value: null, ruleset_version: 1, version_boundary: false }],
     },
     ...overrides,
   };
@@ -173,7 +176,7 @@ assertEqual(
     chartsResponse({
       series: {
         ...chartsResponse().series,
-        confidence_score: [{ snapshot_at: "2026-06-01T10:00:00Z", value: 88 }],
+      confidence_score: [{ snapshot_at: "2026-06-01T10:00:00Z", value: 88, ruleset_version: 1, version_boundary: false }],
       },
     }),
     "confidence_score",

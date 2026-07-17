@@ -54,11 +54,25 @@ class SignalPrimaryRisk(BaseModel):
     contribution_pct: float
 
 
+class SignalRiskAgingTicket(BaseModel):
+    key: str
+    age_days: float | None
+    issue_age_days: float | None = None
+    jira_created_at: datetime | None = None
+    risk_started_at: datetime | None = None
+    risk_start_source_field: str | None = None
+    risk_start_source_changed_at: datetime | None = None
+    history_complete: bool = False
+    explanation: str | None = None
+
+
 class SignalRiskAgingGroup(BaseModel):
     count: int
+    known_count: int = 0
+    unknown_count: int = 0
     oldest_age_days: float | None
     average_age_days: float | None
-    tickets: list[dict[str, str | float]] = Field(default_factory=list)
+    tickets: list[SignalRiskAgingTicket] = Field(default_factory=list)
 
 
 class SignalRiskAging(BaseModel):
@@ -79,13 +93,30 @@ class SignalLast24Hours(BaseModel):
     as_of: datetime | None = None
     baseline_at: datetime | None = None
     has_baseline: bool = False
+    unavailable_reason: str | None = None
     items: list[SignalLast24HoursItem] = Field(default_factory=list)
+
+
+class ReleaseOutlook(BaseModel):
+    label: str
+    signal: str | None = None
+    confidence_score: float | None = None
+    snapshot_at: datetime | None = None
+    release_date: datetime | None = None
+    days_remaining: int | None = None
+    passed_gate_count: int = 0
+    failed_gate_count: int = 0
+    release_gates: list[SignalGate] = Field(default_factory=list)
+    confidence_change_24h: float | None = None
+    confidence_baseline_at: datetime | None = None
+    active_conditions: list[SignalRiskItem] = Field(default_factory=list)
+    disclaimer: str
 
 
 def _empty_risk_aging() -> SignalRiskAging:
     return SignalRiskAging(
-        blockers=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None, tickets=[]),
-        high_severity_bugs=SignalRiskAgingGroup(count=0, oldest_age_days=None, average_age_days=None, tickets=[]),
+        blockers=SignalRiskAgingGroup(count=0, known_count=0, unknown_count=0, oldest_age_days=None, average_age_days=None, tickets=[]),
+        high_severity_bugs=SignalRiskAgingGroup(count=0, known_count=0, unknown_count=0, oldest_age_days=None, average_age_days=None, tickets=[]),
         as_of=None,
     )
 
@@ -94,8 +125,17 @@ def _empty_last_24_hours() -> SignalLast24Hours:
     return SignalLast24Hours()
 
 
+def _empty_release_outlook() -> ReleaseOutlook:
+    return ReleaseOutlook(
+        label="NOT COMPUTED",
+        disclaimer="This outlook reflects the latest stored snapshot and is not a forecast.",
+    )
+
+
 class ReleaseSignalResponse(BaseModel):
     release_id: str
+    metric_snapshot_id: int | None = None
+    ruleset_version: int
     signal: str | None
     status_label: str | None = None
     confidence_score: float | None = None
@@ -110,5 +150,7 @@ class ReleaseSignalResponse(BaseModel):
     primary_risk: SignalPrimaryRisk | None = None
     risk_aging: SignalRiskAging = Field(default_factory=_empty_risk_aging)
     last_24_hours: SignalLast24Hours = Field(default_factory=_empty_last_24_hours)
-    thresholds: SignalThresholds
+    release_outlook: ReleaseOutlook = Field(default_factory=_empty_release_outlook)
+    thresholds: SignalThresholds | None
+    calculated_at: datetime | None = None
     updated_at: datetime | None

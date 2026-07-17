@@ -53,6 +53,10 @@ from app.utils.constants import (
 
 router = APIRouter(prefix="/releases", tags=["metrics"])
 logger = logging.getLogger(__name__)
+RULESET_MISMATCH_REASON = "Snapshot comparison unavailable because ruleset versions differ."
+LEGACY_RELEASE_CONFIDENCE_REASON = (
+    "Derived legacy release confidence is unavailable because it was not stored at calculation time."
+)
 
 METRIC_NAMES = [
     "open_blockers",
@@ -87,19 +91,14 @@ def _build_metric_thresholds() -> MetricThresholds:
     )
 
 
-def _build_release_gate_values(snapshot) -> tuple[int, int, float]:
-    readiness_details = SignalService._build_release_readiness_details(
-        signal=None,
-        open_blockers=snapshot.open_blockers,
-        open_high_severity_bugs=snapshot.open_high_severity_bugs,
-        scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
-        reopen_rate_pct=snapshot.reopen_rate_pct,
-        median_cycle_time_days=snapshot.median_cycle_time_days,
-    )
-    gates = readiness_details.get("release_gates", [])
+def _build_release_gate_values(snapshot) -> tuple[int | None, int, float | None]:
+    outputs = (snapshot.calculation_provenance or {}).get("component_outputs", {})
+    gates = outputs.get("release_gates", []) if isinstance(outputs, dict) else []
+    if snapshot.ruleset_version == 0 or not isinstance(gates, list):
+        return None, 0, None
     total = len(gates)
     passed = sum(1 for gate in gates if isinstance(gate, dict) and gate.get("passed") is True)
-    readiness_pct = 0.0 if total == 0 else round((passed / total) * 100, 2)
+    readiness_pct = outputs.get("readiness_pct") if isinstance(outputs, dict) else None
     return passed, total, readiness_pct
 
 
@@ -122,6 +121,9 @@ def _empty_snapshot_comparison(entity_id: str, baseline: SnapshotBaseline, curre
         current_snapshot_at=current_snapshot_at,
         baseline_snapshot_at=None,
         has_baseline=False,
+        current_ruleset_version=None,
+        baseline_ruleset_version=None,
+        unavailable_reason=None,
         comparison=SnapshotDeltaComparison(confidence_delta=0.0, contributors=[]),
     )
 
@@ -151,14 +153,47 @@ def _build_release_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
     items: list[SnapshotChangeHistoryItem] = []
     previous_snapshot = None
     for snapshot in snapshots:
-        confidence = SignalService._confidence_score_for_snapshot(snapshot)
+        confidence = snapshot.confidence_score if snapshot.ruleset_version > 0 else None
+        version_boundary = (
+            previous_snapshot is not None
+            and previous_snapshot.ruleset_version != snapshot.ruleset_version
+        )
         if previous_snapshot is None:
             items.append(
                 SnapshotChangeHistoryItem(
                     date=snapshot.snapshot_at,
+                    ruleset_version=snapshot.ruleset_version,
+                    version_boundary=False,
                     confidence=confidence,
                     delta=None,
-                    primary_driver="Baseline snapshot",
+                    primary_driver=("Baseline snapshot" if confidence is not None else "Not available"),
+                    comparison_unavailable_reason=(
+                        LEGACY_RELEASE_CONFIDENCE_REASON if snapshot.ruleset_version == 0 else None
+                    ),
+                )
+            )
+        elif version_boundary:
+            items.append(
+                SnapshotChangeHistoryItem(
+                    date=snapshot.snapshot_at,
+                    ruleset_version=snapshot.ruleset_version,
+                    version_boundary=True,
+                    confidence=confidence,
+                    delta=None,
+                    primary_driver="Ruleset boundary",
+                    comparison_unavailable_reason=RULESET_MISMATCH_REASON,
+                )
+            )
+        elif confidence is None or previous_snapshot.confidence_score is None:
+            items.append(
+                SnapshotChangeHistoryItem(
+                    date=snapshot.snapshot_at,
+                    ruleset_version=snapshot.ruleset_version,
+                    version_boundary=False,
+                    confidence=confidence,
+                    delta=None,
+                    primary_driver="Not available",
+                    comparison_unavailable_reason=LEGACY_RELEASE_CONFIDENCE_REASON,
                 )
             )
         else:
@@ -169,9 +204,12 @@ def _build_release_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
             items.append(
                 SnapshotChangeHistoryItem(
                     date=snapshot.snapshot_at,
+                    ruleset_version=snapshot.ruleset_version,
+                    version_boundary=False,
                     confidence=confidence,
                     delta=comparison.confidence_delta,
                     primary_driver=SnapshotComparisonService.primary_driver(comparison),
+                    comparison_unavailable_reason=None,
                 )
             )
         previous_snapshot = snapshot
@@ -202,6 +240,9 @@ def get_release_metrics(
         )
         return ReleaseMetricsResponse(
             release_id=release_id,
+            ruleset_version=None,
+            ruleset_label=None,
+            calculation_provenance=None,
             snapshot_at=None,
             computation_status=computation_status,
             unavailable_reason=unavailable_reason,
@@ -248,9 +289,23 @@ def get_release_metrics(
         is_computed=True,
         empty_scope_reason=UNAVAILABLE_REASON_RELEASE_EMPTY,
     )
-    confidence_score = SignalService._confidence_score_for_snapshot(snapshot) if has_release_tickets else None
+    provenance = snapshot.calculation_provenance or {}
+    stored_availability = provenance.get("availability")
+    if snapshot.ruleset_version > 0 and isinstance(stored_availability, dict):
+        metric_availability = type(metric_availability).model_validate(stored_availability)
+        computation_status = provenance.get("computation_status", computation_status)
+        unavailable_reason = provenance.get("unavailable_reason", unavailable_reason)
+    confidence_score = (
+        snapshot.confidence_score
+        if has_release_tickets and snapshot.ruleset_version > 0
+        else None
+    )
+    component_outputs = provenance.get("component_outputs", {})
     return ReleaseMetricsResponse(
         release_id=release_id,
+        ruleset_version=snapshot.ruleset_version,
+        ruleset_label="Unversioned legacy result" if snapshot.ruleset_version == 0 else f"Ruleset v{snapshot.ruleset_version}",
+        calculation_provenance=provenance,
         snapshot_at=snapshot.snapshot_at,
         computation_status=computation_status,
         unavailable_reason=unavailable_reason,
@@ -271,10 +326,14 @@ def get_release_metrics(
         ),
         metric_names=METRIC_NAMES,
         metric_availability=metric_availability,
-        metric_thresholds=_build_metric_thresholds(),
+        metric_thresholds=(
+            MetricThresholds.model_validate(provenance.get("thresholds", {}))
+            if snapshot.ruleset_version > 0 and provenance.get("thresholds")
+            else None
+        ),
         confidence_score=confidence_score,
-        confidence_breakdown=ConfidenceBreakdownService.build_release_breakdown(snapshot) if has_release_tickets else None,
-        biggest_driver=DriverAnalysisService.build_release_driver(snapshot) if has_release_tickets else None,
+        confidence_breakdown=(component_outputs.get("confidence_breakdown") if isinstance(component_outputs, dict) else None),
+        biggest_driver=(component_outputs.get("biggest_driver") if isinstance(component_outputs, dict) else None),
         recommendations=(
             RecommendationEngine.build_release_recommendations(
                 snapshot,
@@ -315,70 +374,81 @@ def get_release_charts(
         for snapshot in snapshots
     } if has_release_tickets else {}
 
+    version_boundaries = {
+        snapshot.id: index > 0 and snapshots[index - 1].ruleset_version != snapshot.ruleset_version
+        for index, snapshot in enumerate(snapshots)
+    }
+
+    def chart_point(snapshot, value) -> ChartPoint:
+        return ChartPoint(
+            snapshot_at=snapshot.snapshot_at,
+            value=value,
+            ruleset_version=snapshot.ruleset_version,
+            version_boundary=version_boundaries[snapshot.id],
+        )
+
     return ReleaseChartsResponse(
         release_id=release_id,
         series=MetricSeries(
             open_blockers=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.open_blockers)
+                chart_point(snapshot, snapshot.open_blockers)
                 for snapshot in snapshots
             ],
             open_high_severity_bugs=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.open_high_severity_bugs)
+                chart_point(snapshot, snapshot.open_high_severity_bugs)
                 for snapshot in snapshots
             ],
             scope_completed_pct=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_completed_pct)
+                chart_point(snapshot, snapshot.scope_completed_pct)
                 for snapshot in snapshots
             ],
             completed_tickets=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.completed_tickets)
+                chart_point(snapshot, snapshot.completed_tickets)
                 for snapshot in snapshots
             ],
             scope_churn_7d_pct=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_churn_7d_pct)
+                chart_point(snapshot, snapshot.scope_churn_7d_pct)
                 for snapshot in snapshots
             ],
             scope_added_7d_count=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_added_7d_count)
+                chart_point(snapshot, snapshot.scope_added_7d_count)
                 for snapshot in snapshots
             ],
             scope_removed_7d_count=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.scope_removed_7d_count)
+                chart_point(snapshot, snapshot.scope_removed_7d_count)
                 for snapshot in snapshots
             ],
             median_cycle_time_days=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.median_cycle_time_days)
+                chart_point(snapshot, snapshot.median_cycle_time_days)
                 for snapshot in snapshots
             ],
             reopen_rate_pct=[
-                ChartPoint(snapshot_at=snapshot.snapshot_at, value=snapshot.reopen_rate_pct)
+                chart_point(snapshot, snapshot.reopen_rate_pct)
                 for snapshot in snapshots
             ],
             confidence_score=[
-                ChartPoint(
-                    snapshot_at=snapshot.snapshot_at,
-                    value=SignalService._confidence_score_for_snapshot(snapshot) if has_release_tickets else None,
+                chart_point(
+                    snapshot,
+                    snapshot.confidence_score if has_release_tickets and snapshot.ruleset_version > 0 else None,
                 )
                 for snapshot in snapshots
             ],
             gates_passed_count=[
-                ChartPoint(
-                    snapshot_at=snapshot.snapshot_at,
-                    value=release_gate_values[snapshot.id][0] if has_release_tickets else None,
-                )
+                chart_point(snapshot, release_gate_values[snapshot.id][0] if has_release_tickets else None)
                 for snapshot in snapshots
             ],
             readiness_pct=[
-                ChartPoint(
-                    snapshot_at=snapshot.snapshot_at,
-                    value=release_gate_values[snapshot.id][2] if has_release_tickets else None,
-                )
+                chart_point(snapshot, release_gate_values[snapshot.id][2] if has_release_tickets else None)
                 for snapshot in snapshots
             ],
         ),
         metric_names=CHART_METRIC_NAMES,
         point_count=len(snapshots),
-        release_gates_total=_release_gates_total() if has_release_tickets else 0,
+        release_gates_total=(
+            max((values[1] for values in release_gate_values.values()), default=0)
+            if has_release_tickets
+            else 0
+        ),
     )
 
 
@@ -403,7 +473,34 @@ def get_release_snapshot_comparison(
         baseline=baseline,
     )
     if baseline_snapshot is None:
-        return _empty_snapshot_comparison(release_id, baseline, current_snapshot.snapshot_at)
+        response = _empty_snapshot_comparison(release_id, baseline, current_snapshot.snapshot_at)
+        response.current_ruleset_version = current_snapshot.ruleset_version
+        return response
+
+    if current_snapshot.ruleset_version != baseline_snapshot.ruleset_version:
+        return SnapshotComparisonResponse(
+            entity_id=release_id,
+            baseline=baseline,
+            current_snapshot_at=current_snapshot.snapshot_at,
+            baseline_snapshot_at=baseline_snapshot.snapshot_at,
+            has_baseline=True,
+            current_ruleset_version=current_snapshot.ruleset_version,
+            baseline_ruleset_version=baseline_snapshot.ruleset_version,
+            unavailable_reason=RULESET_MISMATCH_REASON,
+            comparison=SnapshotDeltaComparison(confidence_delta=None, contributors=[]),
+        )
+    if current_snapshot.ruleset_version == 0:
+        return SnapshotComparisonResponse(
+            entity_id=release_id,
+            baseline=baseline,
+            current_snapshot_at=current_snapshot.snapshot_at,
+            baseline_snapshot_at=baseline_snapshot.snapshot_at,
+            has_baseline=True,
+            current_ruleset_version=0,
+            baseline_ruleset_version=0,
+            unavailable_reason=LEGACY_RELEASE_CONFIDENCE_REASON,
+            comparison=SnapshotDeltaComparison(confidence_delta=None, contributors=[]),
+        )
 
     return SnapshotComparisonResponse(
         entity_id=release_id,
@@ -411,6 +508,9 @@ def get_release_snapshot_comparison(
         current_snapshot_at=current_snapshot.snapshot_at,
         baseline_snapshot_at=baseline_snapshot.snapshot_at,
         has_baseline=True,
+        current_ruleset_version=current_snapshot.ruleset_version,
+        baseline_ruleset_version=baseline_snapshot.ruleset_version,
+        unavailable_reason=None,
         comparison=SnapshotComparisonService.compare_release_snapshots(
             current_snapshot=current_snapshot,
             previous_snapshot=baseline_snapshot,
@@ -463,6 +563,7 @@ def recompute_release_metrics(
     return RecomputeMetricsResponse(
         release_id=snapshot.release_id,
         snapshot_at=snapshot.snapshot_at,
+        ruleset_version=snapshot.ruleset_version,
         status="ok",
     )
 

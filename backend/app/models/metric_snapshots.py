@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, event, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -20,6 +20,12 @@ class MetricSnapshot(Base):
         nullable=False,
     )
     snapshot_at: Mapped[datetime] = mapped_column("snapshot_at", DateTime(timezone=True), index=True, nullable=False)
+    ruleset_version: Mapped[int] = mapped_column("ruleset_version", Integer, nullable=False, default=0)
+    confidence_score: Mapped[float | None] = mapped_column("confidence_score", Float, nullable=True)
+    confidence_status: Mapped[str | None] = mapped_column("confidence_status", String(32), nullable=True)
+    calculation_provenance: Mapped[dict[str, object]] = mapped_column(
+        "calculation_provenance", JSON, nullable=False, default=dict
+    )
     open_blockers: Mapped[int] = mapped_column("open_blockers", Integer, nullable=False)
     open_high_severity_bugs: Mapped[int] = mapped_column("open_high_severity_bugs", Integer, nullable=False)
     open_blocker_issue_keys: Mapped[list[str]] = mapped_column(
@@ -44,3 +50,9 @@ class MetricSnapshot(Base):
     created_at: Mapped[datetime] = mapped_column(
         "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+@event.listens_for(MetricSnapshot, "before_update")
+@event.listens_for(MetricSnapshot, "before_delete")
+def _prevent_metric_snapshot_mutation(*_args: object) -> None:
+    raise ValueError("Metric snapshots are immutable; create a new snapshot instead.")

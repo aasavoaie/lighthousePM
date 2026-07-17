@@ -15,6 +15,9 @@ from app.main import app
 from app.models import Issue, IssueSprint, MetricSnapshot, Release, ReleaseSignal, Sprint, SprintMetricSnapshot
 from app.repositories.release_repository import ReleaseRepository
 from app.services.reporting_service import ChartExportService, ChartSpec, PDFThemeProvider, ReportTemplateEngine, ReportingService
+from app.services.confidence_breakdown_service import ConfidenceBreakdownService
+from app.services.driver_analysis_service import DriverAnalysisService
+from app.services.signal_service import SignalService
 
 
 def _pdf_text(pdf: bytes) -> str:
@@ -110,10 +113,19 @@ def _seed_release_snapshot(
                 created_at=datetime.now(UTC),
             )
         )
-    session.add(
-        MetricSnapshot(
+    confidence_score = SignalService._compute_release_confidence_score(
+        open_blockers=open_blockers,
+        open_high_severity_bugs=0,
+        scope_churn_7d_pct=5.0,
+        reopen_rate_pct=0.0,
+        median_cycle_time_days=2.0,
+    )
+    snapshot = MetricSnapshot(
             release_id=release_id,
             snapshot_at=snapshot_at,
+            ruleset_version=1,
+            confidence_score=confidence_score,
+            confidence_status="COMPUTED",
             open_blockers=open_blockers,
             open_high_severity_bugs=0,
             open_blocker_issue_keys=[],
@@ -125,8 +137,34 @@ def _seed_release_snapshot(
             scope_removed_7d_count=0,
             median_cycle_time_days=2.0,
             reopen_rate_pct=0.0,
-        )
     )
+    readiness = SignalService._build_release_readiness_details(
+        signal=None,
+        open_blockers=open_blockers,
+        open_high_severity_bugs=0,
+        scope_churn_7d_pct=5.0,
+        reopen_rate_pct=0.0,
+        median_cycle_time_days=2.0,
+    )
+    gates = readiness["release_gates"]
+    snapshot.calculation_provenance = {
+        "component_outputs": {
+            "risk_points": SignalService._compute_release_risk_points(
+                open_blockers=open_blockers,
+                open_high_severity_bugs=0,
+                scope_churn_7d_pct=5.0,
+                reopen_rate_pct=0.0,
+                median_cycle_time_days=2.0,
+            ),
+            "confidence_breakdown": ConfidenceBreakdownService.build_release_breakdown(snapshot).model_dump(),
+            "biggest_driver": DriverAnalysisService.build_release_driver(snapshot).model_dump(),
+            "release_gates": gates,
+            "readiness_pct": round(100 * sum(1 for gate in gates if gate["passed"]) / len(gates), 2),
+        }
+    }
+    session.add(snapshot)
+    session.flush()
+    SignalService().recompute_release_signal(session=session, release_id=release_id)
     session.commit()
 
 
@@ -179,7 +217,13 @@ def _seed_sprint_issue(
     session.add(IssueSprint(issue_key=issue_key, sprint_id=sprint_id))
 
 
-def _seed_sprint_snapshot(session: Session, sprint_id: str, snapshot_at: datetime, confidence: float) -> None:
+def _seed_sprint_snapshot(
+    session: Session,
+    sprint_id: str,
+    snapshot_at: datetime,
+    confidence: float,
+    delivery_confidence_status: str = "COMPUTED",
+) -> None:
     session.add(
         SprintMetricSnapshot(
             sprint_id=sprint_id,
@@ -206,6 +250,7 @@ def _seed_sprint_snapshot(session: Session, sprint_id: str, snapshot_at: datetim
             },
             delivery_confidence_inputs={
                 "committed_issue_count": 10,
+                "pointed_issue_count": 10,
                 "initial_commitment_count": 9,
                 "committed_effective_points": 10.0,
                 "completed_effective_points": 5.0,
@@ -214,6 +259,8 @@ def _seed_sprint_snapshot(session: Session, sprint_id: str, snapshot_at: datetim
                 "time_elapsed_pct": 40.0,
                 "historical_velocity": 8.0,
                 "baseline_sprint_count": 3,
+                "baseline_sprints": [],
+                "velocity_status": "COMPUTED",
                 "remaining_capacity_points": 4.0,
                 "blocked_issue_ratio": 0.1,
                 "scope_change_count": 1,
@@ -224,6 +271,19 @@ def _seed_sprint_snapshot(session: Session, sprint_id: str, snapshot_at: datetim
                 "scope_added_issue_keys": ["LHPM-5"],
                 "scope_removed_issue_keys": [],
             },
+            story_point_total_count=10,
+            story_point_pointed_count=10 if delivery_confidence_status == "COMPUTED" else 0,
+            story_point_unpointed_count=0 if delivery_confidence_status == "COMPUTED" else 10,
+            story_point_coverage_pct=100.0 if delivery_confidence_status == "COMPUTED" else 0.0,
+            story_point_unpointed_issue_keys=[],
+            delivery_confidence_status=delivery_confidence_status,
+            delivery_confidence_explanations=(
+                []
+                if delivery_confidence_status == "COMPUTED"
+                else [
+                    "Delivery confidence is inconclusive because fewer than 50% of the sprint tickets have story points."
+                ]
+            ),
         )
     )
     session.commit()
@@ -240,6 +300,12 @@ def test_release_report_generation_includes_sections_footer_and_chart(client: Te
     _assert_pdf(pdf)
     text = _pdf_text(pdf)
     assert "Executive Summary" in text
+    assert "Release Outlook" in text
+    assert "Risk Aging Evidence" in text
+    assert "Ruleset v1" in text
+    assert "This outlook reflects the latest stored snapshot and is not a forecast." in text
+    assert "24-hour confidence change" in text
+    assert "Calendar days remaining" in text
     assert "Confidence Trend" in text
     assert "Confidence Score" in text
     assert "LighthousePM" in text
@@ -400,6 +466,8 @@ def test_release_summary_template_uses_leadership_sections(client: TestClient) -
 
     assert [section.title for section in document.sections] == [
         "Executive Summary",
+        "Release Outlook",
+        "Risk Aging Evidence",
         "Confidence Score",
         "Confidence Breakdown",
         "Biggest Driver",
@@ -410,7 +478,7 @@ def test_release_summary_template_uses_leadership_sections(client: TestClient) -
     assert document.title == "Release Summary Report: Release 1"
     assert "Release Gates" not in [section.title for section in document.sections]
     decision = next(section for section in document.sections if section.title == "Decision Recommendation")
-    assert "Proceed only" in decision.lines[0]
+    assert "Do not release" in decision.lines[0]
 
 
 def test_sprint_summary_template_uses_leadership_sections(client: TestClient) -> None:
@@ -583,8 +651,14 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
     with app.state.testing_session_local() as session:
         _seed_sprint(session, seed_story_points=False)
         _seed_sprint_issue(session, sprint_id="12", issue_key="LHPM-0", story_points=None)
-        _seed_sprint_snapshot(session, "12", now - timedelta(hours=4), 62.0)
-        _seed_sprint_snapshot(session, "12", now, 72.0)
+        _seed_sprint_snapshot(
+            session, "12", now - timedelta(hours=4), 62.0,
+            delivery_confidence_status="INCONCLUSIVE",
+        )
+        _seed_sprint_snapshot(
+            session, "12", now, 72.0,
+            delivery_confidence_status="INCONCLUSIVE",
+        )
         session.commit()
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
 
@@ -596,19 +670,20 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
         )
 
     delivery = next(section for section in document.sections if section.title == "Delivery Confidence")
-    assert ("Status", "Story-point metrics are unavailable because no tickets in this sprint have story points.") in delivery.rows
+    assert ("Status", "Inconclusive") in delivery.rows
+    assert ("Story-point coverage", "0.0%") in delivery.rows
     assert ("Score", "N/A") in delivery.rows
     assert ("Committed scope", "10") in delivery.rows
     assert delivery.charts == []
 
     velocity = next(section for section in document.sections if section.title == "Velocity Health")
     assert velocity.rows == [
-        ("Status", "Story-point metrics are unavailable because no tickets in this sprint have story points.")
+        ("Status", "Delivery confidence requires at least 50% of sprint tickets to have valid story points.")
     ]
 
     snapshot_changes = next(section for section in document.sections if section.title == "Snapshot Changes")
     assert snapshot_changes.lines == [
-        "Story-point metrics are unavailable because no tickets in this sprint have story points."
+        "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
     ]
 
     historical = next(section for section in document.sections if section.title == "Historical Trends")
@@ -662,6 +737,8 @@ def test_overview_template_matches_dashboard_sections_and_charts(client: TestCli
     assert document.title == "Overview Dashboard Report: Release 1"
     assert [section.title for section in document.sections] == [
         "Executive Summary",
+        "Release Outlook",
+        "Risk Aging Evidence",
         "Project Portfolio Metrics",
         "Release Metrics",
         "Sprint Metrics",

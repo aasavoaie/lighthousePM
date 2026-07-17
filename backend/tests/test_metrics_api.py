@@ -13,6 +13,7 @@ from app.db.session import get_db_session
 from app.main import app
 from app.models import Issue, IssueHistory, MetricSnapshot, Release
 from app.services.analytics_service import AnalyticsService
+from app.services.signal_service import SignalService
 
 
 RELEASE_CHART_METRIC_NAMES = [
@@ -133,11 +134,54 @@ def _seed_snapshot(
     snapshot_at: datetime,
     open_blockers: int,
     completed_tickets: int | None = None,
+    ruleset_version: int = 1,
 ) -> None:
+    confidence_score = SignalService._compute_release_confidence_score(
+        open_blockers=open_blockers,
+        open_high_severity_bugs=open_blockers,
+        scope_churn_7d_pct=float(open_blockers),
+        reopen_rate_pct=float(open_blockers),
+        median_cycle_time_days=float(open_blockers),
+    )
+    readiness = SignalService._build_release_readiness_details(
+        signal=None,
+        open_blockers=open_blockers,
+        open_high_severity_bugs=open_blockers,
+        scope_churn_7d_pct=float(open_blockers),
+        reopen_rate_pct=float(open_blockers),
+        median_cycle_time_days=float(open_blockers),
+    )
+    gates = readiness["release_gates"]
     session.add(
         MetricSnapshot(
             release_id=release_id,
             snapshot_at=snapshot_at,
+            ruleset_version=ruleset_version,
+            confidence_score=confidence_score if ruleset_version > 0 else None,
+            confidence_status="COMPUTED" if ruleset_version > 0 else None,
+            calculation_provenance={
+                "thresholds": {
+                    "open_blockers_red": 0,
+                    "open_high_severity_bugs_red": 1,
+                    "open_high_severity_bugs_yellow": 0,
+                    "scope_churn_7d_pct_red": 20.0,
+                    "scope_churn_7d_pct_yellow": 10.0,
+                    "reopen_rate_pct_red": 15.0,
+                    "reopen_rate_pct_yellow": 10.0,
+                    "median_cycle_time_days_yellow": 7.0,
+                },
+                "component_outputs": {
+                    "risk_points": SignalService._compute_release_risk_points(
+                        open_blockers=open_blockers,
+                        open_high_severity_bugs=open_blockers,
+                        scope_churn_7d_pct=float(open_blockers),
+                        reopen_rate_pct=float(open_blockers),
+                        median_cycle_time_days=float(open_blockers),
+                    ),
+                    "release_gates": gates,
+                    "readiness_pct": round(100 * sum(1 for gate in gates if gate["passed"]) / len(gates), 2),
+                },
+            },
             open_blockers=open_blockers,
             open_high_severity_bugs=open_blockers,
             scope_completed_pct=float(open_blockers),
@@ -667,6 +711,30 @@ def test_get_release_snapshot_change_history_returns_primary_driver(client: Test
     assert payload["items"][0]["primary_driver"] == "Baseline snapshot"
     assert payload["items"][1]["delta"] == 37.0
     assert payload["items"][1]["primary_driver"] == "open_blockers"
+
+
+def test_release_history_marks_ruleset_boundaries_and_blocks_cross_version_delta(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_snapshot(session, "REL-1", base, open_blockers=1, ruleset_version=0)
+        _seed_snapshot(session, "REL-1", base + timedelta(hours=1), open_blockers=0, ruleset_version=1)
+        session.commit()
+
+    comparison = client.get("/releases/REL-1/snapshot-comparison?baseline=previous").json()
+    history = client.get("/releases/REL-1/snapshot-change-history").json()
+    charts = client.get("/releases/REL-1/charts").json()
+
+    assert comparison["comparison"]["confidenceDelta"] is None
+    assert comparison["current_ruleset_version"] == 1
+    assert comparison["baseline_ruleset_version"] == 0
+    assert comparison["unavailable_reason"] == "Snapshot comparison unavailable because ruleset versions differ."
+    assert history["items"][1]["version_boundary"] is True
+    assert history["items"][1]["comparison_unavailable_reason"] == comparison["unavailable_reason"]
+    assert charts["series"]["confidence_score"][0]["ruleset_version"] == 0
+    assert charts["series"]["confidence_score"][0]["value"] is None
+    assert charts["series"]["confidence_score"][1]["ruleset_version"] == 1
+    assert charts["series"]["confidence_score"][1]["version_boundary"] is True
 
 
 def test_get_release_charts_from_to_params(client: TestClient) -> None:

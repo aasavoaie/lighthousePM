@@ -60,6 +60,7 @@ class JiraFieldMapper:
             "status",
             "issuetype",
             "assignee",
+            "created",
             "updated",
             self.mapping.release_field,
             self.mapping.severity_field,
@@ -74,6 +75,7 @@ class JiraFieldMapper:
             "status",
             "issuetype",
             "assignee",
+            "created",
             "updated",
             self.mapping.release_field,
             self.mapping.severity_field,
@@ -86,7 +88,7 @@ class JiraFieldMapper:
             fields.append(self.mapping.blocker_field)
         return _dedupe(fields)
 
-    def normalize_issue_summary(self, raw: dict[str, Any], updated: Any) -> JiraIssueSummary:
+    def normalize_issue_summary(self, raw: dict[str, Any], updated: Any, created: Any) -> JiraIssueSummary:
         fields: dict[str, Any] = raw.get("fields", {})
         fix_versions = self.extract_fix_versions(fields)
         sprints = self.extract_sprints(fields)
@@ -98,6 +100,7 @@ class JiraFieldMapper:
             priority=self.extract_severity(fields),
             assignee=_display_name(fields.get("assignee")),
             updated=updated,
+            created=created,
             fix_versions=fix_versions,
             sprints=sprints,
         )
@@ -106,6 +109,7 @@ class JiraFieldMapper:
         self,
         raw: dict[str, Any],
         updated: Any,
+        created: Any,
     ) -> JiraIssueDetail:
         fields: dict[str, Any] = raw.get("fields", {})
         fix_versions = self.extract_fix_versions(fields)
@@ -119,6 +123,7 @@ class JiraFieldMapper:
             priority=self.extract_severity(fields),
             assignee=_display_name(fields.get("assignee")),
             updated=updated,
+            created=created,
             fix_versions=fix_versions,
             sprints=sprints,
             story_points=self.extract_story_points(fields),
@@ -219,7 +224,16 @@ class JiraFieldMapper:
     def is_relevant_history_field(self, field_name: str) -> bool:
         normalized = field_name.strip().casefold()
         return (
-            normalized in {"status", "assignee", "priority"}
+            normalized
+            in {
+                "status",
+                "assignee",
+                "priority",
+                "issuetype",
+                "issue type",
+                self.mapping.severity_field.casefold(),
+                self.mapping.blocker_field.casefold(),
+            }
             or self.is_fix_version_field(normalized)
             or self.is_sprint_field(normalized)
         )
@@ -232,6 +246,12 @@ class JiraFieldMapper:
 
     def is_high_severity(self, severity: str | None) -> bool:
         return (severity or "").casefold() in HIGH_SEVERITY_PRIORITIES
+
+    def parse_blocker_flag(self, value: str | None) -> bool | None:
+        normalized = (value or "").strip().casefold()
+        if not normalized:
+            return None
+        return normalized in self.mapping.blocker_true_values
 
     def classify_blocker(
         self,

@@ -300,6 +300,7 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
       <div className="panel-heading">
         <h2>Metrics</h2>
         <div className="panel-heading-actions">
+          {metrics?.ruleset_label ? <span className="muted">{metrics.ruleset_label}</span> : null}
           {metrics?.snapshot_age_hours !== null && metrics?.snapshot_age_hours !== undefined ? (
             <span className="muted">Age {metrics.snapshot_age_hours.toFixed(1)}h</span>
           ) : null}

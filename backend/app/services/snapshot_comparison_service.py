@@ -3,8 +3,6 @@ from dataclasses import dataclass
 
 from app.models import MetricSnapshot, SprintMetricSnapshot
 from app.schemas.deltas import SnapshotDeltaComparison, SnapshotDeltaContributor
-from app.services.analytics_service import DELIVERY_CONFIDENCE_WEIGHTS
-from app.services.signal_service import SignalService
 
 
 @dataclass(frozen=True)
@@ -23,8 +21,8 @@ class SnapshotComparisonService:
         current_snapshot: MetricSnapshot,
         previous_snapshot: MetricSnapshot,
     ) -> SnapshotDeltaComparison:
-        current_confidence = SignalService._confidence_score_for_snapshot(current_snapshot)
-        previous_confidence = SignalService._confidence_score_for_snapshot(previous_snapshot)
+        current_confidence = current_snapshot.confidence_score
+        previous_confidence = previous_snapshot.confidence_score
         rules = [
             MetricDeltaRule(
                 metric="open_blockers",
@@ -186,20 +184,10 @@ class SnapshotComparisonService:
 
     @staticmethod
     def _release_risk_impact(current: MetricSnapshot, previous: MetricSnapshot, metric: str) -> float:
-        current_points = SignalService._compute_release_risk_points(
-            open_blockers=current.open_blockers,
-            open_high_severity_bugs=current.open_high_severity_bugs,
-            scope_churn_7d_pct=current.scope_churn_7d_pct,
-            reopen_rate_pct=current.reopen_rate_pct,
-            median_cycle_time_days=current.median_cycle_time_days,
-        )
-        previous_points = SignalService._compute_release_risk_points(
-            open_blockers=previous.open_blockers,
-            open_high_severity_bugs=previous.open_high_severity_bugs,
-            scope_churn_7d_pct=previous.scope_churn_7d_pct,
-            reopen_rate_pct=previous.reopen_rate_pct,
-            median_cycle_time_days=previous.median_cycle_time_days,
-        )
+        current_outputs = (current.calculation_provenance or {}).get("component_outputs", {})
+        previous_outputs = (previous.calculation_provenance or {}).get("component_outputs", {})
+        current_points = current_outputs.get("risk_points", {}) if isinstance(current_outputs, dict) else {}
+        previous_points = previous_outputs.get("risk_points", {}) if isinstance(previous_outputs, dict) else {}
         return round(previous_points.get(metric, 0.0) - current_points.get(metric, 0.0), 2)
 
     @staticmethod
@@ -220,4 +208,10 @@ class SnapshotComparisonService:
         delta = SnapshotComparisonService._rounded_delta(current_value, previous_value)
         if delta is None:
             return 0.0
-        return round(delta * DELIVERY_CONFIDENCE_WEIGHTS[component_key], 2)
+        weights = (current.calculation_provenance or {}).get("weights", {})
+        weight = (
+            float(weights.get(component_key, 0.0))
+            if isinstance(weights, dict)
+            else 0.0
+        )
+        return round(delta * weight, 2)

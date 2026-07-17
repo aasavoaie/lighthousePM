@@ -1,4 +1,4 @@
-import type { DeliveryConfidenceDetail, SprintMetricValues, SprintMetricsResponse } from "../api/types";
+import type { DeliveryConfidenceDetail, DeliveryConfidenceStatus, SprintMetricValues, SprintMetricsResponse } from "../api/types";
 import type { MetricImpact, MetricStatus } from "./MetricCards";
 
 export type MetricGroup = "delivery" | "quality" | "flow" | "risk" | "snapshot";
@@ -85,11 +85,11 @@ export interface SprintStoryPointUiVisibility {
 }
 
 export const sprintNoTicketsReason = "No tickets are available for this scope.";
-export const sprintNoStoryPointsReason = "No tickets in this scope have story points.";
+export const sprintNoStoryPointsReason = "Delivery confidence requires at least 50% of sprint tickets to have valid story points.";
 export const sprintNoChangelogReason = "No Jira changelog history is available for this scope.";
 
 export function hasSprintStoryPoints(metrics: SprintMetricsResponse | null | undefined) {
-  return metrics?.metric_availability?.context.has_story_points === true;
+  return metrics?.delivery_confidence_status === "PARTIAL" || metrics?.delivery_confidence_status === "COMPUTED";
 }
 
 export function getSprintStoryPointUnavailableReason(metrics: SprintMetricsResponse | null | undefined) {
@@ -132,10 +132,11 @@ export function buildSprintStoryPointUiVisibility(
 ): SprintStoryPointUiVisibility {
   const hasStoryPointMetrics = hasSprintStoryPoints(metrics);
   const hasComputedMetrics = metrics?.is_computed === true;
+  const hasCoverageExplanation = (metrics?.delivery_confidence_explanations.length ?? 0) > 0;
 
   return {
     hasStoryPointMetrics,
-    showStoryPointUnavailableMessage: hasComputedMetrics && !hasStoryPointMetrics,
+    showStoryPointUnavailableMessage: hasComputedMetrics && hasCoverageExplanation,
     showStoryPointChartEmptyState: hasComputedMetrics && !hasStoryPointMetrics,
     showPointValues: hasStoryPointMetrics,
     showRiskDrivers: hasStoryPointMetrics,
@@ -402,7 +403,10 @@ export function classifyWorkDistribution(topAssigneePct: number | null): MetricS
   return topAssigneePct >= 35 ? "warning" : "good";
 }
 
-export function buildWorkDistributionDisplayModel(issues: WorkDistributionInput[]): WorkDistributionDisplayModel {
+export function buildWorkDistributionDisplayModel(
+  issues: WorkDistributionInput[],
+  confidenceStatus: DeliveryConfidenceStatus = "COMPUTED"
+): WorkDistributionDisplayModel {
   const activeIssues = issues.filter((issue) => !isDoneStatus(issue.status));
   if (activeIssues.length === 0) {
     return {
@@ -412,6 +416,17 @@ export function buildWorkDistributionDisplayModel(issues: WorkDistributionInput[
       comparison: "Requires active sprint work.",
       impact: "unknown",
       details: [],
+    };
+  }
+
+  if (confidenceStatus === "INCONCLUSIVE" || confidenceStatus === "NOT_COMPUTED") {
+    return {
+      title: "Workload concentration",
+      value: "Inconclusive",
+      status: "neutral",
+      comparison: "Requires story points on at least 50% of sprint tickets.",
+      impact: "unknown",
+      details: ["Workload distribution is not calculated below 50% story-point coverage."],
     };
   }
 
@@ -466,6 +481,9 @@ export function buildWorkDistributionDisplayModel(issues: WorkDistributionInput[
     comparison: `Top assignee: ${top.assignee}`,
     impact: status === "good" ? "positive" : "negative",
     details: [
+      ...(confidenceStatus === "PARTIAL"
+        ? ["Status: PARTIAL — calculated from pointed active tickets only."]
+        : []),
       ...(unpointedCount > 0
         ? [`${unpointedCount} active ticket${unpointedCount === 1 ? "" : "s"} excluded because story points are missing.`]
         : []),

@@ -27,6 +27,7 @@ const confidence = {
     },
     inputs: {
         committed_issue_count: 60,
+        pointed_issue_count: 60,
         initial_commitment_count: 13,
         committed_effective_points: 60,
         completed_effective_points: 14,
@@ -35,6 +36,8 @@ const confidence = {
         time_elapsed_pct: 41,
         historical_velocity: 55.67,
         baseline_sprint_count: 4,
+        baseline_sprints: [],
+        velocity_status: "COMPUTED",
         remaining_capacity_points: 24,
         blocked_issue_ratio: 0,
         scope_change_count: 6,
@@ -62,14 +65,18 @@ const metrics = {
 function sprintMetricsResponse(hasStoryPoints) {
     return {
         sprint_id: "12",
+        ruleset_version: 1,
+        ruleset_label: "Ruleset v1",
+        calculation_provenance: {},
         snapshot_at: "2026-06-01T10:00:00Z",
         computation_status: hasStoryPoints ? "PARTIAL" : "PARTIAL",
-        unavailable_reason: hasStoryPoints ? "No Jira changelog history is available for this scope." : "No tickets in this scope have story points.",
+        unavailable_reason: hasStoryPoints ? "No Jira changelog history is available for this scope." : sprintMetrics_1.sprintNoStoryPointsReason,
         metrics,
         metric_issue_keys: {
             open_blockers: [],
             open_high_severity_bugs: [],
             bugs_created_during_sprint: [],
+            bugs_created_during_sprint_missing_created_at: [],
         },
         metric_names: [],
         metric_availability: {
@@ -83,6 +90,16 @@ function sprintMetricsResponse(hasStoryPoints) {
             },
             metrics: {},
         },
+        story_point_coverage: {
+            total_ticket_count: 10,
+            pointed_ticket_count: hasStoryPoints ? 10 : 0,
+            unpointed_ticket_count: hasStoryPoints ? 0 : 10,
+            coverage_pct: hasStoryPoints ? 100 : 0,
+            unpointed_issue_keys: hasStoryPoints ? [] : ["LHPM-1"],
+        },
+        delivery_confidence_status: hasStoryPoints ? "COMPUTED" : "INCONCLUSIVE",
+        bugs_created_during_sprint_status: "COMPUTED",
+        delivery_confidence_explanations: hasStoryPoints ? [] : [sprintMetrics_1.sprintNoStoryPointsReason],
         delivery_confidence: hasStoryPoints ? confidence : null,
         confidence_breakdown: null,
         biggest_driver: null,
@@ -147,8 +164,8 @@ assertEqual(noStoryPointUi.showCommitmentReliability, false, "no-story-point spr
 assertEqual(noStoryPointUi.showStoryPointUnavailableMessage, true, "no-story-point sprint renders a story-point unavailable state");
 assertEqual(noStoryPointUi.showStoryPointChartEmptyState, true, "no-story-point sprint renders story-point chart empty states");
 assertEqual(noStoryPointUi.showTicketCountMetrics, true, "no-story-point sprint still renders ticket-count metrics");
-assertEqual((0, sprintMetrics_1.getSprintStoryPointUnavailableReason)(sprintMetricsResponse(false)), "No tickets in this scope have story points.", "story-point unavailable reason comes from metric availability");
-assertEqual((0, sprintMetrics_1.getSprintMetricUnavailableBadge)("No tickets in this scope have story points."), "No story points", "story-point unavailable reason maps to a muted badge");
+assertEqual((0, sprintMetrics_1.getSprintStoryPointUnavailableReason)(sprintMetricsResponse(false)), sprintMetrics_1.sprintNoStoryPointsReason, "story-point unavailable reason comes from metric availability");
+assertEqual((0, sprintMetrics_1.getSprintMetricUnavailableBadge)(sprintMetrics_1.sprintNoStoryPointsReason), "No story points", "story-point unavailable reason maps to a muted badge");
 assertEqual((0, sprintMetrics_1.getSprintMetricUnavailableBadge)("No Jira changelog history is available for this scope."), "No history", "changelog unavailable reason maps to a muted badge");
 const loadingStoryPointUi = (0, sprintMetrics_1.buildSprintStoryPointUiVisibility)(null);
 assertEqual(loadingStoryPointUi.showPointValues, false, "loading sprint state does not render point values");
@@ -223,15 +240,22 @@ const partialPointWorkDistribution = (0, sprintMetrics_1.buildWorkDistributionDi
     { assignee: "Sam", story_points: null, status: "To Do" },
     { assignee: "Mira", story_points: null, status: "In Progress" },
     { assignee: "Noor", story_points: 1, status: "To Do" },
-]);
+], "PARTIAL");
 assertEqual(partialPointWorkDistribution.value, "75%", "work distribution computes from pointed active tickets");
 assertDeepEqual(partialPointWorkDistribution.details, [
+    "Status: PARTIAL — calculated from pointed active tickets only.",
     "2 active tickets excluded because story points are missing.",
     "75% of pointed active work",
     "Top 3 assignees",
     "Mira: 75%",
     "Noor: 25%",
 ], "work distribution warns when active tickets are unpointed");
+const inconclusiveWorkDistribution = (0, sprintMetrics_1.buildWorkDistributionDisplayModel)([
+    { assignee: "Mira", story_points: 3, status: "In Progress" },
+    { assignee: "Sam", story_points: null, status: "To Do" },
+], "INCONCLUSIVE");
+assertEqual(inconclusiveWorkDistribution.value, "Inconclusive", "work distribution stops below 50% coverage");
+assertEqual(inconclusiveWorkDistribution.comparison, "Requires story points on at least 50% of sprint tickets.", "work distribution explains its minimum coverage");
 const workState = (0, sprintMetrics_1.buildSprintWorkStateDisplayModel)(metrics, [
     { status: "Done" },
     { status: "Closed" },

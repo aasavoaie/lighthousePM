@@ -175,14 +175,14 @@ const aboutOverviewSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Release Prediction",
+    title: "Release Outlook",
     description:
-      "Release Prediction estimates the chance of meeting release targets if the current trend continues.",
+      "Release Outlook summarizes current confidence, release gates, 24-hour change, time to the Jira release date, and active conditions. It is not a forecast.",
     questions: [
-      "If nothing changes, are we likely to meet the release target?",
-      "Is the current trajectory acceptable for the business?",
+      "What does the latest stored snapshot say about release readiness?",
+      "Which release gates currently pass or fail?",
       "Should we reduce scope, increase focus on quality, move the date, or escalate?",
-      "What is the risk of continuing with the current plan?",
+      "Which active RED or YELLOW conditions need attention?",
     ],
   },
   {

@@ -88,8 +88,8 @@ export function IssueDetailModal({ issueKey, onClose }: IssueDetailModalProps) {
             <dd>{issue.release_id ?? "None"}</dd>
             <dt>Blocker</dt>
             <dd>{issue.is_blocker ? "Yes" : "No"}</dd>
-            <dt>Created</dt>
-            <dd>{new Date(issue.created_at).toLocaleString()}</dd>
+            <dt>Jira created</dt>
+            <dd>{issue.jira_created_at ? new Date(issue.jira_created_at).toLocaleString() : "Unavailable"}</dd>
             <dt>Updated</dt>
             <dd>{new Date(issue.updated_at).toLocaleString()}</dd>
           </dl>

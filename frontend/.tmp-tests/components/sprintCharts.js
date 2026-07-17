@@ -155,6 +155,8 @@ function baseChartRow(source) {
         sprint_id: source.sprint_id,
         name: source.name,
         is_not_closed: source.is_not_closed,
+        ruleset_version: metrics.ruleset_version ?? 0,
+        version_boundary: false,
         delivery_confidence: confidence ? Number(confidence.score.toFixed(2)) : null,
         confidence_delta: null,
         progress_alignment: confidence ? Number(confidence.components.progress_alignment.toFixed(2)) : null,
@@ -179,9 +181,11 @@ function buildSprintChartHistory(sources) {
     const closedReliabilityValues = [];
     return rows.map((row, index) => {
         const previousConfidence = index === 0 ? null : rows[index - 1].delivery_confidence;
+        const versionBoundary = index > 0 && rows[index - 1].ruleset_version !== row.ruleset_version;
         return {
             ...row,
-            confidence_delta: row.delivery_confidence === null || previousConfidence === null
+            version_boundary: versionBoundary,
+            confidence_delta: versionBoundary || row.delivery_confidence === null || previousConfidence === null
                 ? null
                 : Number((row.delivery_confidence - previousConfidence).toFixed(2)),
             predictability_avg: (() => {

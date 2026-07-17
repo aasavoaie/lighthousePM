@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -80,7 +80,9 @@ def _seed_issue(
     is_blocker: bool = False,
     story_points: float | None = None,
     created_at: datetime | None = None,
+    has_jira_created_at: bool = True,
 ) -> None:
+    source_created_at = created_at or datetime.now(UTC)
     session.add(
         Issue(
             issue_key=issue_key,
@@ -92,7 +94,8 @@ def _seed_issue(
             story_points=story_points,
             release_id=None,
             is_blocker=is_blocker,
-            created_at=created_at or datetime.now(UTC),
+            jira_created_at=source_created_at if has_jira_created_at else None,
+            created_at=source_created_at,
         )
     )
     session.add(IssueSprint(issue_key=issue_key, sprint_id=sprint_id))
@@ -108,11 +111,23 @@ def _seed_sprint_snapshot(
     velocity_fit: float,
     blocker_penalty: float = 100.0,
     scope_stability: float = 100.0,
+    delivery_confidence_status: str = "COMPUTED",
+    ruleset_version: int = 1,
 ) -> None:
     session.add(
         SprintMetricSnapshot(
             sprint_id=sprint_id,
             snapshot_at=snapshot_at,
+            ruleset_version=ruleset_version,
+            calculation_provenance={
+                "weights": {
+                    "progress_alignment": 0.4,
+                    "velocity_fit": 0.3,
+                    "blocker_penalty": 0.2,
+                    "scope_stability": 0.1,
+                },
+                "component_outputs": {},
+            },
             committed_scope=10,
             completed_scope_pct=progress_alignment,
             open_blockers=0,
@@ -134,6 +149,13 @@ def _seed_sprint_snapshot(
                 "scope_stability": scope_stability,
             },
             delivery_confidence_inputs={},
+            story_point_total_count=10,
+            story_point_pointed_count=10 if delivery_confidence_status == "COMPUTED" else 0,
+            story_point_unpointed_count=0 if delivery_confidence_status == "COMPUTED" else 10,
+            story_point_coverage_pct=100.0 if delivery_confidence_status == "COMPUTED" else 0.0,
+            story_point_unpointed_issue_keys=[],
+            delivery_confidence_status=delivery_confidence_status,
+            delivery_confidence_explanations=[],
         )
     )
 
@@ -203,7 +225,7 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     payload = metrics_response.json()
     assert payload["is_computed"] is True
     assert payload["computation_status"] == "PARTIAL"
-    assert payload["unavailable_reason"] == "No tickets in this scope have story points."
+    assert payload["unavailable_reason"] == "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
     assert payload["metric_availability"]["context"] == {
         "has_tickets": True,
         "has_story_points": False,
@@ -214,7 +236,7 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     }
     assert payload["metric_availability"]["metrics"]["delivery_confidence_score"] == {
         "available": False,
-        "reason": "No tickets in this scope have story points.",
+        "reason": "Delivery confidence requires at least 50% of sprint tickets to have valid story points.",
         "depends_on": ["ticket_count", "story_points", "sprint_assignment"],
     }
     assert payload["metric_availability"]["metrics"]["median_cycle_time_days"] == {
@@ -225,6 +247,15 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     assert payload["metrics"]["committed_scope"] == 1
     assert payload["metrics"]["completed_scope_pct"] == 100.0
     assert payload["metrics"]["delivery_confidence_score"] is None
+    assert payload["delivery_confidence_status"] == "INCONCLUSIVE"
+    assert payload["story_point_coverage"] == {
+        "total_ticket_count": 1,
+        "pointed_ticket_count": 0,
+        "unpointed_ticket_count": 1,
+        "coverage_pct": 0.0,
+        "unpointed_issue_keys": ["LHPM-1"],
+    }
+    assert "fewer than 50%" in payload["delivery_confidence_explanations"][0]
     assert payload["delivery_confidence"] is None
     assert payload["confidence_breakdown"] is None
     assert payload["biggest_driver"] is None
@@ -238,6 +269,7 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
         "open_blockers": [],
         "open_high_severity_bugs": [],
         "bugs_created_during_sprint": [],
+        "bugs_created_during_sprint_missing_created_at": [],
     }
 
 
@@ -252,6 +284,7 @@ def test_get_sprint_metrics_suppresses_legacy_confidence_without_story_points(cl
             confidence=72.0,
             progress_alignment=80.0,
             velocity_fit=65.0,
+            delivery_confidence_status="INCONCLUSIVE",
         )
         session.commit()
 
@@ -261,7 +294,7 @@ def test_get_sprint_metrics_suppresses_legacy_confidence_without_story_points(cl
     payload = response.json()
     assert payload["is_computed"] is True
     assert payload["computation_status"] == "PARTIAL"
-    assert payload["unavailable_reason"] == "No tickets in this scope have story points."
+    assert payload["unavailable_reason"] == "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
     assert payload["metric_availability"]["context"]["has_story_points"] is False
     assert payload["metrics"]["committed_scope"] == 10
     assert payload["metrics"]["delivery_confidence_score"] is None
@@ -336,11 +369,58 @@ def test_sprint_metrics_returns_metric_issue_keys(client: TestClient) -> None:
     assert payload["metrics"]["open_blockers"] == 1
     assert payload["metrics"]["open_high_severity_bugs"] == 1
     assert payload["metrics"]["bugs_created_during_sprint"] == 2
+    assert payload["bugs_created_during_sprint_status"] == "COMPUTED"
     assert payload["metric_issue_keys"] == {
         "open_blockers": ["LHPM-1"],
         "open_high_severity_bugs": ["LHPM-2"],
         "bugs_created_during_sprint": ["LHPM-2", "LHPM-3"],
+        "bugs_created_during_sprint_missing_created_at": [],
     }
+
+
+def test_sprint_bug_count_is_partial_when_jira_created_time_is_missing(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active", start_date=now - timedelta(days=1), end_date=now + timedelta(days=1))
+        _seed_issue(session, "12", "LHPM-1", issue_type="Bug", created_at=now)
+        _seed_issue(
+            session,
+            "12",
+            "LHPM-2",
+            issue_type="Bug",
+            created_at=now,
+            has_jira_created_at=False,
+        )
+
+    recompute_response = client.post("/sprints/12/recompute")
+    response = client.get("/sprints/12/metrics")
+
+    assert recompute_response.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]["bugs_created_during_sprint"] == 1
+    assert payload["bugs_created_during_sprint_status"] == "PARTIAL"
+    assert payload["metric_issue_keys"]["bugs_created_during_sprint"] == ["LHPM-1"]
+    assert payload["metric_issue_keys"]["bugs_created_during_sprint_missing_created_at"] == ["LHPM-2"]
+
+
+def test_sprint_bug_count_is_not_computed_without_sprint_start(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        sprint = session.scalar(select(Sprint).where(Sprint.sprint_id == "12"))
+        assert sprint is not None
+        sprint.start_date = None
+        _seed_issue(session, "12", "LHPM-1", issue_type="Bug")
+
+    recompute_response = client.post("/sprints/12/recompute")
+    response = client.get("/sprints/12/metrics")
+
+    assert recompute_response.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]["bugs_created_during_sprint"] is None
+    assert payload["bugs_created_during_sprint_status"] == "NOT_COMPUTED"
+    assert payload["metric_issue_keys"]["bugs_created_during_sprint"] == []
 
 
 def test_get_sprint_issues_returns_linked_issues(client: TestClient) -> None:
@@ -398,13 +478,42 @@ def test_get_sprint_snapshot_comparison_uses_previous_snapshot(client: TestClien
     assert payload["comparison"]["contributors"][0]["impact"] == 8.0
 
 
+def test_sprint_comparison_is_unavailable_across_ruleset_boundary(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, "12", "active")
+        _seed_issue(session, "12", "LHPM-1", story_points=3.0)
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_sprint_snapshot(
+            session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0,
+            ruleset_version=0,
+        )
+        _seed_sprint_snapshot(
+            session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0,
+            velocity_fit=70.0, ruleset_version=1,
+        )
+        session.commit()
+
+    comparison = client.get("/sprints/12/snapshot-comparison?baseline=previous").json()
+    history = client.get("/sprints/12/snapshot-change-history").json()
+
+    assert comparison["comparison"]["confidenceDelta"] is None
+    assert comparison["unavailable_reason"] == "Snapshot comparison unavailable because ruleset versions differ."
+    assert history["items"][1]["version_boundary"] is True
+
+
 def test_get_sprint_snapshot_comparison_is_unavailable_without_story_points(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_sprint(session, "12", "active")
         _seed_issue(session, "12", "LHPM-1", story_points=None)
         base = datetime(2026, 4, 1, tzinfo=UTC)
-        _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
-        _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
+        _seed_sprint_snapshot(
+            session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0,
+            delivery_confidence_status="INCONCLUSIVE",
+        )
+        _seed_sprint_snapshot(
+            session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0,
+            delivery_confidence_status="INCONCLUSIVE",
+        )
         session.commit()
 
     response = client.get("/sprints/12/snapshot-comparison?baseline=previous")
@@ -441,8 +550,14 @@ def test_get_sprint_snapshot_change_history_is_unavailable_without_story_points(
         _seed_sprint(session, "12", "active")
         _seed_issue(session, "12", "LHPM-1", story_points=None)
         base = datetime(2026, 4, 1, tzinfo=UTC)
-        _seed_sprint_snapshot(session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0)
-        _seed_sprint_snapshot(session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0)
+        _seed_sprint_snapshot(
+            session, "12", base, confidence=62.0, progress_alignment=50.0, velocity_fit=60.0,
+            delivery_confidence_status="INCONCLUSIVE",
+        )
+        _seed_sprint_snapshot(
+            session, "12", base + timedelta(hours=1), confidence=74.0, progress_alignment=70.0, velocity_fit=70.0,
+            delivery_confidence_status="INCONCLUSIVE",
+        )
         session.commit()
 
     response = client.get("/sprints/12/snapshot-change-history")

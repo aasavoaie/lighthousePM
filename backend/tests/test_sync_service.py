@@ -15,6 +15,9 @@ from app.services.sync_service import SyncService, SyncServiceError
 
 
 class FakeJiraService:
+    jira_created_at = datetime(2026, 3, 15, 8, 0, tzinfo=UTC)
+    jira_updated_at = datetime(2026, 4, 1, 10, 0, tzinfo=UTC)
+
     async def validate_auth(self) -> None:
         return None
 
@@ -49,7 +52,8 @@ class FakeJiraService:
                     issue_type="Bug",
                     priority="High",
                     assignee="alice",
-                    updated=datetime.now(UTC),
+                    updated=self.jira_updated_at,
+                    created=self.jira_created_at,
                     fix_versions=["Release 1"],
                 )
             ],
@@ -64,7 +68,8 @@ class FakeJiraService:
             issue_type="Bug",
             priority="High",
             assignee="alice",
-            updated=datetime.now(UTC),
+            updated=self.jira_updated_at,
+            created=self.jira_created_at,
             fix_versions=["Release 1"],
             story_points=5.0,
         )
@@ -146,9 +151,14 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert len(history) == 1
     assert len(snapshots) == 1
     assert len(signals) == 1
-    assert signals[0].signal == "GREEN"
+    assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
+    assert all(signal.ruleset_version == 1 for signal in signals)
+    assert signals[0].signal == "YELLOW"
     assert issues[0].release_id == "1001"
     assert issues[0].story_points == 5.0
+    assert issues[0].jira_created_at == FakeJiraService.jira_created_at.replace(tzinfo=None)
+    assert issues[0].jira_updated_at == FakeJiraService.jira_updated_at.replace(tzinfo=None)
+    assert issues[0].jira_changelog_complete is True
 
     status = db_session.scalar(select(OperationalStatus))
     assert status is not None
@@ -248,7 +258,9 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     signals = list(db_session.scalars(select(ReleaseSignal)).all())
     assert len(history) == 1
     assert len(snapshots) == 2
-    assert len(signals) == 1
+    assert len(signals) == 2
+    assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
+    assert all(signal.ruleset_version == 1 for signal in signals)
 
 
 @pytest.mark.asyncio

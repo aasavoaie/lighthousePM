@@ -27,6 +27,18 @@ class Issue(Base):
         nullable=True,
     )
     is_blocker: Mapped[bool] = mapped_column("is_blocker", Boolean, default=False, nullable=False)
+    jira_created_at: Mapped[datetime | None] = mapped_column(
+        "jira_created_at", DateTime(timezone=True), nullable=True
+    )
+    jira_updated_at: Mapped[datetime | None] = mapped_column(
+        "jira_updated_at", DateTime(timezone=True), nullable=True
+    )
+    jira_blocker_flag: Mapped[bool | None] = mapped_column(
+        "jira_blocker_flag", Boolean, nullable=True
+    )
+    jira_changelog_complete: Mapped[bool] = mapped_column(
+        "jira_changelog_complete", Boolean, nullable=False, default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         "created_at", DateTime(timezone=True), server_default=func.now(), nullable=False
     )

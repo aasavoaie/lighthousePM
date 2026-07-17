@@ -263,6 +263,10 @@ class SyncService:
                 )
                 result.history_inserted += inserted_count
                 result.history_skipped += skipped_count
+                SyncRepository.mark_issue_changelog_complete(
+                    session=session,
+                    issue_key=issue_detail.key,
+                )
 
             logger.info(
                 "jira_sync_issues_processed project_key=%s issues_fetched=%d issues_inserted=%d issues_updated=%d issues_skipped=%d",
