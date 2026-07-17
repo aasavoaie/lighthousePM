@@ -222,11 +222,14 @@ Required checks:
 - Sync Jira completes and release plus sprint information are visible.
 - Offline restart loads the local dashboard from SQLite without Jira access.
 - PDF export uses the native save dialog and produces a readable PDF.
-- Factory Reset removes local app data and returns the app to first-run setup.
+- Factory Reset removes the active database, settings, logs, and encrypted
+  token, retains automatic migration backups, and returns the app to first-run
+  setup.
 - Upgrade preserves local data across versions.
 - Uninstall removes the app and shortcuts. User data is intentionally left in
-  `%APPDATA%\LighthousePM` unless the user runs Factory Reset inside the app
-  first.
+  `%APPDATA%\LighthousePM`. Run Factory Reset before uninstall to remove active
+  application data; after the app is closed, remove the remaining directory
+  manually if automatic migration backups must also be deleted.
 
 ### Frontend Project-Scoping Validation
 
@@ -264,8 +267,8 @@ ready for approval only when all of the following are true:
 3. The sprint list and current sprint contain only sprints for the selected
    project key.
 4. Overview never displays release or sprint data from another project.
-5. Recommendations, predictions, trends, and comparisons never use snapshots
-   from another project.
+5. Release Outlook, recommendations, trends, and comparisons never use
+   snapshots from another project.
 6. A new project with no snapshots shows empty or no-data states.
 7. Backend tests pass.
 8. Frontend build passes.
@@ -277,6 +280,7 @@ user's application-data directory:
 
 ```text
 %APPDATA%\LighthousePM\data\lighthouse.db
+%APPDATA%\LighthousePM\data\lighthouse.db.pre-<revision>.bak
 %APPDATA%\LighthousePM\logs\backend.log
 %APPDATA%\LighthousePM\backend.env
 %APPDATA%\LighthousePM\secrets\jira-token.bin
@@ -289,6 +293,8 @@ directly from the local backend to the configured Jira Cloud instance.
 
 - `lighthouse.db`: normalized Jira project, release, sprint, issue, changelog,
   metric, signal, and operational-status data.
+- `lighthouse.db.pre-<revision>.bak`: automatic SQLite safety backup created
+  before an existing database is migrated to a newer Alembic revision.
 - `backend.env`: non-secret Jira connection settings such as base URL, email,
   project key, field mappings, sync limits, and sync interval.
 - `jira-token.bin`: Jira API token encrypted with Electron `safeStorage`.
@@ -304,6 +310,69 @@ directly from the local backend to the configured Jira Cloud instance.
   web SQL, shader cache, and HTTP cache are cleared on app startup and the app
   uses a non-persistent Electron session partition.
 
+### Automatic Database Migration
+
+The local backend upgrades the database to the single current Alembic head
+before it reports ready and before the desktop workspace opens. The current
+head is `20260716_0011`.
+
+Startup handles these database states deterministically:
+
+- A fresh database is migrated through the complete Alembic chain.
+- A database with an Alembic revision is upgraded from that revision.
+- An unversioned database is adopted only when its tables and columns match a
+  recognized historical LighthousePM revision. The inferred revision is
+  stamped before the remaining migrations run.
+- An unknown, incomplete, or inconsistent unversioned schema is not guessed.
+  Startup stops and the desktop shows the backend-error screen. Details are
+  written to `%APPDATA%\LighthousePM\logs\backend.log`.
+
+Before migrating an existing SQLite application schema, the backend uses
+SQLite's backup operation to create:
+
+```text
+%APPDATA%\LighthousePM\data\lighthouse.db.pre-20260716_0011.bak
+```
+
+The revision suffix always identifies the migration target. The backup is
+created once for that target; a restart reuses it instead of overwriting it.
+Once the database is at the current head, later starts perform no migration.
+
+### Automatic Migration Backup vs Settings Backup
+
+The two backup types serve different purposes:
+
+- An automatic `.pre-<revision>.bak` file is a database-only safety copy from
+  immediately before a schema upgrade. It does not contain settings, the
+  encrypted Jira token, logs, or a backup manifest, so Settings > Restore does
+  not treat it as a selectable LighthousePM backup.
+- Settings > Backup creates a timestamped `lighthousepm-backup-*` directory.
+  It contains a manifest and copies the active database, any current SQLite
+  WAL/SHM files, `backend.env`, and the encrypted Jira token when those files
+  exist. Settings > Restore accepts this backup format, stops the backend,
+  copies the available files, and restarts the backend.
+
+### Migration Failure Recovery
+
+Do not use Clear Data or Factory Reset to investigate a migration failure.
+Preserve the evidence and recover non-destructively:
+
+1. Close LighthousePM completely so the local backend releases SQLite.
+2. Copy the entire `%APPDATA%\LighthousePM` directory to a separate recovery
+   location.
+3. Read `%APPDATA%\LighthousePM\logs\backend.log` and retain the failed active
+   database plus any `lighthouse.db-wal` and `lighthouse.db-shm` files.
+4. If rollback is required, move those three active database files out of the
+   data directory as a set. Copy the applicable
+   `lighthouse.db.pre-<revision>.bak` file back as `lighthouse.db`; do not copy
+   it over active WAL/SHM files.
+5. Start a LighthousePM build containing the expected migration chain. The
+   backend will retry migration before reporting ready.
+
+Do not edit the `alembic_version` table manually. If no automatic backup exists
+or the log reports an unrecognized schema, keep the preserved files intact for
+diagnosis instead of forcing a revision or resetting the application.
+
 ### Retention And Cleanup
 
 - `backend.log` rotates when it exceeds 1 MB.
@@ -311,10 +380,11 @@ directly from the local backend to the configured Jira Cloud instance.
 - Rotated backend logs older than 14 days are pruned on startup.
 - Synced Jira data is retained locally until the user chooses Clear Data,
   Restore, or Factory Reset from Settings.
-- Clear Data removes the local SQLite database and keeps settings plus the
-  encrypted token.
-- Factory Reset removes local database files, settings, logs, and encrypted
-  token, then restarts the backend.
+- Clear Data removes the active SQLite database, WAL, and SHM files and keeps
+  settings, the encrypted token, and automatic migration backups.
+- Factory Reset removes the active SQLite database, WAL, and SHM files,
+  settings, logs, and encrypted token, then restarts the backend. Automatic
+  `.pre-<revision>.bak` migration backups remain in the data directory.
 
 ## Jira Configuration
 

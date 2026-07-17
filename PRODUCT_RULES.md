@@ -17,8 +17,39 @@ is not approved merely because the current code implements it.
 - **Current behavior:** the rule is implemented and documented here, but has
   not yet been approved as the long-term product contract.
 - **Pending decision:** the current behavior is disputed, incomplete, or
-  inconsistent with another documented rule. The related Phase 0 decision
+  inconsistent with another documented rule. The related product decision
   must be completed before behavioral changes are implemented.
+
+## Documentation Ownership
+
+Status: **Approved — Phase 1.1**
+
+Each repository document has one explicit responsibility:
+
+| Document | Responsibility |
+|---|---|
+| `AGENTS.md` | Engineering constraints and working rules for AI agents contributing to the repository |
+| `PRODUCT_RULES.md` | Normative product behavior: metrics, signals, thresholds, availability, evidence, and versioning |
+| `README.md` | Technical overview, architecture, API contract, development workflow, and concise product-rule summaries |
+| `ABOUT.md` | User-facing product guidance and explanations of what each screen, metric, and decision aid means |
+| `desktop/README.md` | Desktop build, packaging, migration, installation, recovery, and acceptance procedures |
+
+The following precedence and maintenance rules apply:
+
+1. `PRODUCT_RULES.md` is the source of truth for product behavior. Other
+   documents may summarize its rules but must not redefine them.
+2. `AGENTS.md` governs how repository work is performed. It does not override
+   an approved product rule; a conflict must be reported and resolved
+   explicitly.
+3. API fields and examples in `README.md` must match the implemented schemas
+   and the applicable ruleset version.
+4. User language in `ABOUT.md` must describe only evidence the product can
+   actually compute and display. It must not introduce stronger claims than
+   the product rules allow.
+5. Desktop operational behavior belongs in `desktop/README.md`; technical or
+   product summaries should link to it instead of duplicating procedures.
+6. When behavior changes, every affected owner document must be updated in the
+   same change. A documentation conflict must never be resolved silently.
 
 ## Required Rule Definition
 
@@ -748,6 +779,30 @@ must update, in the same change:
 Business rules must not be introduced only in API routes, React components, or
 PDF templates.
 
+## Documentation Drift Safeguards
+
+Status: **Approved — Phase 1.5**
+
+The existing backend pytest suite must enforce the following documentation
+contracts without adding production behavior or a separate validation
+framework:
+
+1. The method-and-path inventory under `README.md` REST API headings must
+   exactly match the public application routes registered by FastAPI. Built-in
+   OpenAPI and documentation routes are excluded.
+2. The current single Alembic head must be stated in both `README.md` and
+   `desktop/README.md`. Adding or changing the head requires updating both
+   documents in the same change.
+3. Maintained user and technical documentation must not restore the retired
+   labels `Release Prediction`, `Predicted outcome`, or `Likely outcome`.
+4. `README.md`, `ABOUT.md`, and `desktop/README.md` must retain the canonical
+   `Release Outlook` term.
+
+The checks must read repository files without modifying them, report the
+specific missing, stale, or prohibited contract when they fail, and run as
+ordinary focused pytest tests. They intentionally protect exact public
+contracts rather than attempting subjective prose validation.
+
 ## Phase 0 Decision Register
 
 | Point | Decision | Status |
@@ -758,3 +813,16 @@ PDF templates.
 | 0.4 | Use Jira issue age and current uninterrupted risk age as separate facts | Approved |
 | 0.5 | Replace prediction claims with a deterministic current Release Outlook | Approved |
 | 0.6 | Use immutable snapshots and a monotonically increasing integer ruleset version | Approved |
+
+## Phase 1 Decision Register
+
+Phase 1 aligns every maintained document and public contract with the approved
+Phase 0 behavior before new product features are introduced.
+
+| Point | Decision | Status |
+|---|---|---|
+| 1.1 | Assign one explicit responsibility to each maintained document and define conflict precedence | Approved |
+| 1.2 | Reconcile the technical overview and API contract in `README.md` with the current implementation | Approved |
+| 1.3 | Replace unsupported predictive user language in `ABOUT.md` with deterministic Release Outlook language | Approved |
+| 1.4 | Align `desktop/README.md` with automatic migration, backup, restart, and recovery behavior | Approved |
+| 1.5 | Add deterministic safeguards against future documentation and contract drift | Approved |

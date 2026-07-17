@@ -17,7 +17,7 @@ The product is organized around:
 
 The Overview section is the executive decision view of LighthousePM. It gives a Head of PO, CEO, or Head of PM a single place to understand whether the selected release is still a responsible business commitment, what is creating delivery or quality risk, and which actions should be taken first to protect the release outcome.
 
-Instead of asking leadership to inspect Jira issue by issue, the screen turns release and sprint activity into deterministic evidence. It supports release governance with clear signals: current confidence, trend direction, active risks, predicted outcome, recommended actions, and current sprint context.
+Instead of asking leadership to inspect Jira issue by issue, the screen turns release and sprint activity into deterministic evidence. It supports release governance with clear signals: current confidence, trend direction, active risks, the current Release Outlook, recommended actions, and current sprint context.
 
 #### Release Readiness
 
@@ -58,18 +58,18 @@ Should answer the following questions:
 
 The trend also shows the change since the first snapshot, making it easier to explain movement in leadership updates.
 
-#### Release Prediction
+#### Release Outlook
 
-Release Prediction estimates the chance of meeting release targets if the current trend continues. It also shows the predicted confidence at the release date.
+Release Outlook summarizes the latest stored release evidence. It shows the current confidence and final signal, passed and failed release gates, confidence change against the latest available 24-hour baseline, calendar days remaining until the Jira release date, and active hard RED and YELLOW conditions.
 
 Should answer the following questions:
 
-- If nothing changes, are we likely to meet the release target?
-- Is the current trajectory acceptable for the business?
-- Should we reduce scope, increase focus on quality, move the date, or escalate?
-- What is the risk of continuing with the current plan?
+- What does the current release signal say about the release commitment?
+- Which release gates are currently passing or failing?
+- Has confidence improved or deteriorated against the available 24-hour baseline?
+- How many calendar days remain, and which active conditions require attention now?
 
-The prediction is a planning signal, not a promise. It helps leadership decide whether to continue, intervene, or prepare stakeholders for a change.
+Release Outlook is not a forecast. It does not estimate a probability, predict future confidence, or claim a chance of meeting the release target. It helps leadership act on the evidence that is currently available.
 
 #### Risk Aging
 
@@ -82,7 +82,7 @@ Should answer the following questions:
 - Which risks need leadership attention because they are not moving?
 - Is there still enough time to fix and verify critical work before release?
 
-Aging risks matter because unresolved critical work compresses the time available for validation and increases the likelihood of late release failure.
+Aging risks matter because unresolved critical work compresses the time available for validation and increases current delivery risk.
 
 #### Recommended Actions
 
@@ -104,7 +104,7 @@ Additional Warnings lists active risk messages that may not be the largest confi
 Should answer the following questions:
 
 - What secondary risks should leadership keep visible?
-- Are any warning signs likely to become executive issues later?
+- Could any warning signs require executive attention if they remain unresolved?
 - What should be included in release governance or stakeholder updates?
 - Which risks should be monitored even if they are not the top blocker today?
 
@@ -116,7 +116,7 @@ Should answer the following questions:
 
 - Is the current sprint supporting the release plan or putting it under pressure?
 - Does sprint delivery confidence match the release expectation?
-- Is the team likely to close the work needed for the release?
+- Do current sprint completion and delivery confidence support the work needed for the release?
 - Do sprint risks require scope, priority, or capacity decisions?
 
 ### How leadership should use the Overview
@@ -127,14 +127,14 @@ The recommended flow is:
 
 1. Check Release Readiness to understand the current release state.
 2. Review the Confidence Engine to identify the biggest causes of risk.
-3. Look at the Confidence Trend and Release Prediction to understand direction and likely outcome.
+3. Look at the Confidence Trend and Release Outlook to understand direction and the latest release evidence.
 4. Use Risk Aging to identify unresolved critical items that may need escalation.
 5. Prioritize work from Recommended Actions.
 6. Use Additional Warnings and Active Sprint context to prepare stakeholder updates.
 
 ### Why this matters
 
-The Overview turns Jira activity into a leadership decision view. It helps explain not only whether a release is healthy, but why it is healthy or risky, what changed, what may happen next, and what action should be taken.
+The Overview turns Jira activity into a leadership decision view. It helps explain not only whether a release is healthy, but why it is healthy or risky, what changed in the stored evidence, and what action should be taken.
 
 This keeps release management focused on evidence, transparent trade-offs, and accountable next steps.
 
@@ -339,7 +339,7 @@ Delivery Confidence combines progress alignment, velocity fit, blocker health, a
 
 Should answer the following questions:
 
-- Is the sprint likely to deliver the committed work?
+- Does the current sprint evidence support the committed work?
 - Which component is pulling delivery confidence down?
 - Is the problem progress, velocity, blockers, or scope instability?
 
@@ -397,7 +397,7 @@ Should answer the following questions:
 
 ### Sprint metric definitions
 
-These metrics explain whether the sprint is likely to support the release plan. They connect commitment, progress, quality, flow, blockers, scope stability, and delivery confidence to concrete sprint decisions.
+These metrics explain whether the current sprint evidence supports the release plan. They connect commitment, progress, quality, flow, blockers, scope stability, and delivery confidence to concrete sprint decisions.
 
 #### Metric: Committed scope
 
@@ -457,7 +457,7 @@ Should answer the following questions:
 
 - Is the sprint producing or carrying critical quality risk?
 - Should defect resolution take priority over feature work?
-- Will sprint quality issues threaten release readiness?
+- Are sprint quality issues reducing current release readiness?
 
 #### Metric: Bugs created during sprint
 
@@ -497,7 +497,7 @@ Should answer the following questions:
 
 - What is preventing sprint work from progressing?
 - Which blockers need ownership or escalation?
-- Can the team still meet the sprint goal with these blockers open?
+- Do the open blockers put the current sprint goal at risk?
 
 #### Metric: Rollover
 
@@ -535,7 +535,7 @@ Combines progress alignment, velocity fit, blocker health, and scope stability i
 
 Should answer the following questions:
 
-- Is the sprint likely to deliver its commitment?
+- Does the current sprint evidence support its commitment?
 - Which confidence component is pulling the sprint down?
 - Should leadership intervene on progress, capacity, blockers, or scope?
 
@@ -551,11 +551,11 @@ Should answer the following questions:
 
 #### Metric: Velocity fit
 
-Checks whether remaining sprint work fits the team's historical delivery capacity. It turns velocity history into a forward-looking capacity signal.
+Checks whether remaining sprint work fits the team's historical delivery capacity. It turns velocity history into a current capacity-fit signal.
 
 Should answer the following questions:
 
-- Can the team realistically finish the remaining work?
+- Does the remaining work fit the team's documented historical capacity?
 - Is the sprint plan larger than recent delivery capacity?
 - Do we need a scope or staffing decision?
 
