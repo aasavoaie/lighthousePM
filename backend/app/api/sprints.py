@@ -28,6 +28,8 @@ from app.schemas.sprints import (
     SprintMetricValues,
     SprintResponse,
     StoryPointCoverage,
+    WorkloadDistributionDetail,
+    WorkloadDistributionEvidence,
 )
 from app.services.analytics_service import DELIVERY_CONFIDENCE_WEIGHTS, AnalyticsService
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
@@ -53,6 +55,7 @@ SPRINT_METRIC_NAMES = [
     "rollover_count",
     "median_cycle_time_days",
     "reopen_rate_pct",
+    "workload_concentration_pct",
     "delivery_confidence_score",
 ]
 
@@ -107,6 +110,22 @@ def _build_sprint_biggest_driver(snapshot):
     return DriverAnalysisService.build_sprint_driver(
         score=snapshot.delivery_confidence_score,
         components=snapshot.delivery_confidence_components,
+    )
+
+
+def _build_workload_distribution(snapshot):
+    if (
+        snapshot.workload_distribution_status is None
+        or snapshot.workload_distribution_evidence is None
+    ):
+        return None
+    return WorkloadDistributionDetail(
+        status=snapshot.workload_distribution_status,
+        percentage=snapshot.workload_concentration_pct,
+        explanations=snapshot.workload_distribution_explanations or [],
+        evidence=WorkloadDistributionEvidence.model_validate(
+            snapshot.workload_distribution_evidence
+        ),
     )
 
 
@@ -181,6 +200,11 @@ def _build_sprint_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
             previous_snapshot is not None
             and previous_snapshot.ruleset_version != snapshot.ruleset_version
         )
+        classification_reason = (
+            SnapshotComparisonService.classification_unavailable_reason(snapshot, previous_snapshot)
+            if previous_snapshot is not None and not version_boundary
+            else None
+        )
         if previous_snapshot is None:
             items.append(
                 SnapshotChangeHistoryItem(
@@ -205,6 +229,18 @@ def _build_sprint_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
                     comparison_unavailable_reason=(
                         "Snapshot comparison unavailable because ruleset versions differ."
                     ),
+                )
+            )
+        elif classification_reason is not None:
+            items.append(
+                SnapshotChangeHistoryItem(
+                    date=snapshot.snapshot_at,
+                    ruleset_version=snapshot.ruleset_version,
+                    version_boundary=False,
+                    confidence=confidence,
+                    delta=None,
+                    primary_driver="Classification boundary",
+                    comparison_unavailable_reason=classification_reason,
                 )
             )
         else:
@@ -363,6 +399,7 @@ def get_sprint_metrics(
                 rollover_count=None,
                 median_cycle_time_days=None,
                 reopen_rate_pct=None,
+                workload_concentration_pct=None,
                 delivery_confidence_score=None,
             ),
             metric_issue_keys=SprintMetricIssueKeys(
@@ -386,6 +423,7 @@ def get_sprint_metrics(
                 "Delivery confidence has not been computed for this sprint snapshot."
             ],
             delivery_confidence=None,
+            workload_distribution=None,
             confidence_breakdown=None,
             biggest_driver=None,
             recommendations=[],
@@ -402,7 +440,6 @@ def get_sprint_metrics(
     stored_availability = provenance.get("availability")
     if snapshot.ruleset_version > 0 and isinstance(stored_availability, dict):
         metric_availability = type(metric_availability).model_validate(stored_availability)
-    sprint_issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint_id)
     has_delivery_confidence = (
         snapshot.delivery_confidence_status in {"PARTIAL", "COMPUTED"}
         and snapshot.delivery_confidence_score is not None
@@ -428,18 +465,48 @@ def get_sprint_metrics(
         metrics=SprintMetricValues(
             committed_scope=snapshot.committed_scope,
             completed_scope_pct=snapshot.completed_scope_pct,
-            open_blockers=snapshot.open_blockers,
-            open_high_severity_bugs=snapshot.open_high_severity_bugs,
+            open_blockers=(
+                snapshot.open_blockers
+                if metric_availability.metrics["open_blockers"].available
+                else None
+            ),
+            open_high_severity_bugs=(
+                snapshot.open_high_severity_bugs
+                if metric_availability.metrics["open_high_severity_bugs"].available
+                else None
+            ),
             bugs_created_during_sprint=(
                 snapshot.bugs_created_during_sprint
                 if snapshot.bugs_created_during_sprint_status != "NOT_COMPUTED"
                 else None
             ),
-            in_progress_count=snapshot.in_progress_count,
-            not_started_count=snapshot.not_started_count,
-            rollover_count=snapshot.rollover_count,
+            in_progress_count=(
+                snapshot.in_progress_count
+                if metric_availability.metrics["in_progress_count"].available
+                else None
+            ),
+            not_started_count=(
+                snapshot.not_started_count
+                if metric_availability.metrics["not_started_count"].available
+                else None
+            ),
+            rollover_count=(
+                snapshot.rollover_count
+                if metric_availability.metrics["rollover_count"].available
+                else None
+            ),
             median_cycle_time_days=snapshot.median_cycle_time_days,
             reopen_rate_pct=snapshot.reopen_rate_pct,
+            workload_concentration_pct=(
+                snapshot.workload_concentration_pct
+                if (
+                    (workload_availability := metric_availability.metrics.get(
+                        "workload_concentration_pct"
+                    ))
+                    and workload_availability.available
+                )
+                else None
+            ),
             delivery_confidence_score=delivery_confidence_score,
         ),
         metric_issue_keys=SprintMetricIssueKeys(
@@ -463,6 +530,7 @@ def get_sprint_metrics(
         delivery_confidence_status=snapshot.delivery_confidence_status,
         delivery_confidence_explanations=snapshot.delivery_confidence_explanations,
         delivery_confidence=_build_delivery_confidence(snapshot),
+        workload_distribution=_build_workload_distribution(snapshot),
         confidence_breakdown=(
             provenance.get("component_outputs", {}).get("confidence_breakdown")
             if snapshot.ruleset_version > 0
@@ -475,7 +543,6 @@ def get_sprint_metrics(
         ),
         recommendations=RecommendationEngine.build_sprint_recommendations(
             snapshot,
-            sprint_issues=sprint_issues,
             include_story_point_rules=has_delivery_confidence,
         ),
         is_computed=True,
@@ -542,6 +609,22 @@ def get_sprint_snapshot_comparison(
         response = _empty_snapshot_comparison(sprint_id, baseline, current_snapshot.snapshot_at)
         response.current_ruleset_version = current_snapshot.ruleset_version
         return response
+
+    classification_reason = SnapshotComparisonService.classification_unavailable_reason(
+        current_snapshot,
+        baseline_snapshot,
+    )
+    if classification_reason is not None:
+        return _unavailable_snapshot_comparison(
+            entity_id=sprint_id,
+            baseline=baseline,
+            current_snapshot_at=current_snapshot.snapshot_at,
+            baseline_snapshot_at=baseline_snapshot.snapshot_at,
+            has_baseline=True,
+            current_ruleset_version=current_snapshot.ruleset_version,
+            baseline_ruleset_version=baseline_snapshot.ruleset_version,
+            unavailable_reason=classification_reason,
+        )
 
     return SnapshotComparisonResponse(
         entity_id=sprint_id,

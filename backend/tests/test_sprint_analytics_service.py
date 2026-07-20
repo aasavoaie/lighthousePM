@@ -50,7 +50,7 @@ def _sprint(
 
 def _issue(
     issue_key: str,
-    status: str,
+    status: str | None,
     issue_type: str = "Story",
     priority: str | None = "Medium",
     story_points: float | None = None,
@@ -68,6 +68,7 @@ def _issue(
         release_id=None,
         is_blocker=priority == "Blocker",
         jira_created_at=source_created_at,
+        jira_changelog_complete=True,
         created_at=source_created_at,
     )
 
@@ -112,7 +113,10 @@ def test_recompute_sprint_metrics_counts_status_buckets(db_session: Session) -> 
     assert snapshot.bugs_created_during_sprint_issue_keys == ["LHPM-2"]
     assert snapshot.in_progress_count == 1
     assert snapshot.not_started_count == 1
-    assert snapshot.rollover_count == 0
+    assert snapshot.rollover_count is None
+    assert snapshot.calculation_provenance["availability"]["metrics"]["rollover_count"][
+        "status"
+    ] == "NOT_APPLICABLE"
     assert snapshot.delivery_confidence_score is None
 
 
@@ -155,6 +159,7 @@ def test_recompute_sprint_metrics_cycle_time_and_reopen_rate(db_session: Session
     db_session.flush()
     db_session.add(_history("LHPM-1", "To Do", "In Progress", base))
     db_session.add(_history("LHPM-1", "In Progress", "Done", base + timedelta(days=3)))
+    db_session.add(_history("LHPM-2", "To Do", "Done", base + timedelta(days=3, hours=1)))
     db_session.add(_history("LHPM-2", "Done", "In Progress", base + timedelta(days=4)))
     db_session.flush()
 
@@ -165,6 +170,15 @@ def test_recompute_sprint_metrics_cycle_time_and_reopen_rate(db_session: Session
     assert stored is not None
     assert snapshot.median_cycle_time_days == 3
     assert snapshot.reopen_rate_pct == 50.0
+    assert snapshot.calculation_provenance["availability"]["metrics"][
+        "median_cycle_time_days"
+    ]["status"] == "COMPUTED"
+    assert snapshot.calculation_provenance["availability"]["metrics"][
+        "reopen_rate_pct"
+    ]["status"] == "COMPUTED"
+    assert snapshot.calculation_provenance["metric_evidence"]["reopen_rate_pct"][
+        "eligible_ticket_count"
+    ] == 2
 
 
 def test_recompute_sprint_metrics_raises_for_unknown_sprint(db_session: Session) -> None:
@@ -192,7 +206,7 @@ def test_delivery_confidence_perfect_when_done_and_stable(db_session: Session) -
 
 def test_delivery_confidence_uses_last_three_closed_sprints_for_velocity(db_session: Session) -> None:
     base = datetime(2026, 4, 20, tzinfo=UTC)
-    db_session.add(_sprint(sprint_id="10", with_dates=False))
+    db_session.add(_sprint(sprint_id="10"))
     db_session.add(_issue("LHPM-1", "To Do", story_points=20))
     db_session.add(_link("LHPM-1"))
 
@@ -219,7 +233,7 @@ def test_delivery_confidence_uses_last_three_closed_sprints_for_velocity(db_sess
     assert snapshot.delivery_confidence_inputs is not None
     assert snapshot.delivery_confidence_inputs["baseline_sprint_count"] == 3
     assert snapshot.delivery_confidence_inputs["historical_velocity"] == 10.0
-    assert snapshot.delivery_confidence_components["velocity_fit"] == 50.0
+    assert snapshot.delivery_confidence_components["velocity_fit"] == 25.0
 
 
 def test_delivery_confidence_penalizes_blockers_and_scope_changes(db_session: Session) -> None:
@@ -338,7 +352,7 @@ def test_delivery_confidence_empty_sprint_is_not_computed(db_session: Session) -
 
 
 def test_delivery_confidence_uses_only_story_points_when_some_issues_are_missing_points(db_session: Session) -> None:
-    db_session.add(_sprint(with_dates=False))
+    db_session.add(_sprint())
     db_session.add(_issue("LHPM-1", "Done", story_points=3))
     db_session.add(_issue("LHPM-2", "To Do", story_points=None))
     db_session.add_all([_link("LHPM-1"), _link("LHPM-2")])
@@ -362,7 +376,7 @@ def test_delivery_confidence_uses_only_story_points_when_some_issues_are_missing
 
 
 def test_delivery_confidence_is_inconclusive_below_half_coverage(db_session: Session) -> None:
-    db_session.add(_sprint(with_dates=False))
+    db_session.add(_sprint())
     db_session.add(_issue("LHPM-1", "Done", story_points=3))
     db_session.add(_issue("LHPM-2", "To Do", story_points=None))
     db_session.add(_issue("LHPM-3", "To Do", story_points=-1))
@@ -378,3 +392,63 @@ def test_delivery_confidence_is_inconclusive_below_half_coverage(db_session: Ses
     assert snapshot.story_point_coverage_pct == 33.33
     assert snapshot.story_point_unpointed_issue_keys == ["LHPM-2", "LHPM-3"]
     assert "fewer than 50%" in snapshot.delivery_confidence_explanations[0]
+    assert snapshot.calculation_provenance["metric_evidence"]["committed_scope"] == {
+        "current_scope_issue_keys": ["LHPM-1", "LHPM-2", "LHPM-3"],
+        "current_scope_count": 3,
+    }
+    assert snapshot.calculation_provenance["metric_evidence"]["completed_scope_pct"][
+        "completed_issue_keys"
+    ] == ["LHPM-1"]
+
+
+def test_recompute_sprint_metrics_persists_unavailable_empty_scope(
+    db_session: Session,
+) -> None:
+    db_session.add(_sprint())
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.committed_scope is None
+    assert snapshot.completed_scope_pct is None
+    assert snapshot.in_progress_count is None
+    assert snapshot.not_started_count is None
+    assert snapshot.rollover_count is None
+    availability = snapshot.calculation_provenance["availability"]["metrics"]
+    assert availability["committed_scope"]["status"] == "NOT_COMPUTED"
+    assert availability["completed_scope_pct"]["status"] == "NOT_COMPUTED"
+    assert availability["in_progress_count"]["status"] == "NOT_COMPUTED"
+    assert availability["not_started_count"]["status"] == "NOT_COMPUTED"
+    assert availability["rollover_count"]["status"] == "NOT_APPLICABLE"
+    assert snapshot.calculation_provenance["metric_evidence"]["committed_scope"] == {
+        "current_scope_issue_keys": [],
+        "current_scope_count": 0,
+    }
+
+
+def test_recompute_sprint_metrics_persists_partial_completed_scope(
+    db_session: Session,
+) -> None:
+    db_session.add(_sprint())
+    db_session.add_all([_issue("LHPM-1", "Done"), _issue("LHPM-2", None)])
+    db_session.add_all([_link("LHPM-1"), _link("LHPM-2")])
+    db_session.flush()
+
+    snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
+
+    assert snapshot.committed_scope == 2
+    assert snapshot.completed_scope_pct is None
+    assert snapshot.in_progress_count == 0
+    assert snapshot.not_started_count == 0
+    assert snapshot.rollover_count is None
+    availability = snapshot.calculation_provenance["availability"]["metrics"]
+    assert availability["committed_scope"]["status"] == "COMPUTED"
+    assert availability["completed_scope_pct"]["status"] == "PARTIAL"
+    assert availability["completed_scope_pct"]["missing_issue_keys"] == ["LHPM-2"]
+    assert availability["in_progress_count"]["status"] == "PARTIAL"
+    assert availability["in_progress_count"]["available"] is True
+    assert availability["not_started_count"]["status"] == "PARTIAL"
+    assert availability["rollover_count"]["status"] == "NOT_APPLICABLE"
+    assert snapshot.calculation_provenance["metric_evidence"]["in_progress_count"][
+        "missing_status_issue_keys"
+    ] == ["LHPM-2"]

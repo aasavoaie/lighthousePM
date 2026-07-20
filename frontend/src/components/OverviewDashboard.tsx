@@ -48,7 +48,7 @@ const riskLabels: Record<string, string> = {
   open_blockers: "Open Blockers",
   open_high_severity_bugs: "High Severity Bugs",
   scope_churn_7d_pct: "Scope Churn",
-  reopen_rate_pct: "Reopen Rate",
+  reopen_rate_pct: "Reopen Events / 100 Eligible Tickets",
   median_cycle_time_days: "Cycle Time",
 };
 

@@ -1,5 +1,5 @@
 # Approved product-rules contract implemented by release and sprint services.
-RULESET_VERSION = 1
+RULESET_VERSION = 2
 
 # Deterministic signal threshold placeholders for later implementation.
 OPEN_BLOCKERS_RED_THRESHOLD = 0
@@ -26,29 +26,10 @@ CONFIDENCE_SCORE_GREEN_MIN = 91.0
 # Sprint story-point coverage. Delivery confidence is inconclusive below this
 # threshold and partial until every current sprint ticket has valid points.
 MIN_STORY_POINT_COVERAGE_PCT = 50.0
+WORKLOAD_CONCENTRATION_WATCH_MIN_PCT = 35.0
+WORKLOAD_CONCENTRATION_CRITICAL_MIN_EXCLUSIVE_PCT = 50.0
 DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED = "NOT_COMPUTED"
 DELIVERY_CONFIDENCE_STATUS_INCONCLUSIVE = "INCONCLUSIVE"
 DELIVERY_CONFIDENCE_STATUS_PARTIAL = "PARTIAL"
 DELIVERY_CONFIDENCE_STATUS_COMPUTED = "COMPUTED"
 
-# ---------------------------------------------------------------------------
-# Jira field value mappings
-# All status/priority comparisons are case-insensitive (use .casefold()).
-# Projects with custom Jira configurations may need to extend these sets.
-# ---------------------------------------------------------------------------
-
-# Statuses that count as "done" for scope completion, cycle time, and reopen rate.
-# Assumption: "resolved" is treated as done; projects that use different terminal
-# status names must add them here.
-DONE_STATUSES: frozenset[str] = frozenset({"done", "closed", "resolved"})
-
-# Statuses that mark the start of active work for cycle time calculation.
-# Assumption: cycle time starts at the first transition INTO one of these states.
-# Issues that were never moved to an in-progress status are excluded from the median.
-IN_PROGRESS_STATUSES: frozenset[str] = frozenset(
-    {"in progress", "in development", "in review", "in testing"}
-)
-
-# Priorities that qualify as "high severity" for the open-high-severity-bugs metric.
-# Assumption: only issues with issue_type == "bug" (case-insensitive) are counted.
-HIGH_SEVERITY_PRIORITIES: frozenset[str] = frozenset({"high", "highest", "critical"})

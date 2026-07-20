@@ -27,6 +27,13 @@ JIRA_FIELD_TO_ENV = {
     "jira_field_blocker": "JIRA_FIELD_BLOCKER",
     "jira_changelog_fix_version_fields": "JIRA_CHANGELOG_FIX_VERSION_FIELDS",
     "jira_changelog_sprint_fields": "JIRA_CHANGELOG_SPRINT_FIELDS",
+    "jira_done_statuses": "JIRA_DONE_STATUSES",
+    "jira_in_progress_statuses": "JIRA_IN_PROGRESS_STATUSES",
+    "jira_high_severity_values": "JIRA_HIGH_SEVERITY_VALUES",
+    "jira_bug_issue_types": "JIRA_BUG_ISSUE_TYPES",
+    "jira_blocker_issue_types": "JIRA_BLOCKER_ISSUE_TYPES",
+    "jira_blocker_severity_values": "JIRA_BLOCKER_SEVERITY_VALUES",
+    "jira_blocked_statuses": "JIRA_BLOCKED_STATUSES",
 }
 
 
@@ -122,6 +129,13 @@ def _build_response(*, settings: Settings, config_path: Path) -> JiraConfigurati
         jira_field_blocker=settings.jira_field_blocker,
         jira_changelog_fix_version_fields=settings.jira_changelog_fix_version_fields,
         jira_changelog_sprint_fields=settings.jira_changelog_sprint_fields,
+        jira_done_statuses=settings.jira_done_statuses,
+        jira_in_progress_statuses=settings.jira_in_progress_statuses,
+        jira_high_severity_values=settings.jira_high_severity_values,
+        jira_bug_issue_types=settings.jira_bug_issue_types,
+        jira_blocker_issue_types=settings.jira_blocker_issue_types,
+        jira_blocker_severity_values=settings.jira_blocker_severity_values,
+        jira_blocked_statuses=settings.jira_blocked_statuses,
         is_complete=_is_complete(settings),
     )
 
@@ -170,6 +184,10 @@ def _is_complete(settings: Settings) -> bool:
             settings.jira_field_severity.strip(),
             settings.jira_field_release.strip(),
             settings.changelog_fix_version_fields,
+            settings.done_statuses,
+            settings.in_progress_statuses,
+            settings.high_severity_values,
+            settings.bug_issue_types,
         ]
     )
 

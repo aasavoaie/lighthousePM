@@ -267,7 +267,7 @@ class TestEvaluateSignalYellowConditions:
         assert signal == "GREEN"
 
     def test_yellow_high_cycle_time_with_null(self) -> None:
-        """YELLOW if cycle time is null but other YELLOW triggers present."""
+        """An unavailable cycle-time input prevents a conclusive YELLOW signal."""
         signal, reasons = SignalService._evaluate_signal(
             open_blockers=0,
             open_high_severity_bugs=1,
@@ -275,7 +275,7 @@ class TestEvaluateSignalYellowConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=None,
         )
-        assert signal == "YELLOW"
+        assert signal == "INCONCLUSIVE"
         assert any("high-severity" in r.lower() for r in reasons)
 
     def test_yellow_multiple_triggers(self) -> None:
@@ -321,7 +321,7 @@ class TestEvaluateSignalGreenConditions:
         assert signal == "GREEN"
 
     def test_green_cycle_time_null(self) -> None:
-        """GREEN when cycle time is null and other metrics healthy."""
+        """An unavailable cycle-time input is not treated as a healthy zero."""
         signal, reasons = SignalService._evaluate_signal(
             open_blockers=0,
             open_high_severity_bugs=0,
@@ -329,7 +329,7 @@ class TestEvaluateSignalGreenConditions:
             reopen_rate_pct=1.0,
             median_cycle_time_days=None,
         )
-        assert signal == "GREEN"
+        assert signal == "INCONCLUSIVE"
         assert reasons == ["No major risk indicators"]
 
 

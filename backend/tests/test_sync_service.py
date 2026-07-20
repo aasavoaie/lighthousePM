@@ -53,6 +53,7 @@ class FakeJiraService:
                     priority="High",
                     assignee="alice",
                     updated=self.jira_updated_at,
+                    assignee_id="jira-alice",
                     created=self.jira_created_at,
                     fix_versions=["Release 1"],
                 )
@@ -69,6 +70,7 @@ class FakeJiraService:
             priority="High",
             assignee="alice",
             updated=self.jira_updated_at,
+            assignee_id="jira-alice",
             created=self.jira_created_at,
             fix_versions=["Release 1"],
             story_points=5.0,
@@ -152,10 +154,13 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert len(snapshots) == 1
     assert len(signals) == 1
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 1 for signal in signals)
-    assert signals[0].signal == "YELLOW"
+    assert all(signal.ruleset_version == 2 for signal in signals)
+    assert signals[0].signal == "INCONCLUSIVE"
+    assert signals[0].confidence_score is None
+    assert any("reopen_rate_pct" in reason for reason in signals[0].reasons)
     assert issues[0].release_id == "1001"
     assert issues[0].story_points == 5.0
+    assert issues[0].jira_assignee_id == "jira-alice"
     assert issues[0].jira_created_at == FakeJiraService.jira_created_at.replace(tzinfo=None)
     assert issues[0].jira_updated_at == FakeJiraService.jira_updated_at.replace(tzinfo=None)
     assert issues[0].jira_changelog_complete is True
@@ -260,7 +265,7 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     assert len(snapshots) == 2
     assert len(signals) == 2
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 1 for signal in signals)
+    assert all(signal.ruleset_version == 2 for signal in signals)
 
 
 @pytest.mark.asyncio

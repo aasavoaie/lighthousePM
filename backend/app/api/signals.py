@@ -6,8 +6,6 @@ from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
 from app.schemas.signals import ReleaseSignalResponse, SignalReasonDetail, SignalThresholds
-from app.services.confidence_breakdown_service import ConfidenceBreakdownService
-from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.signal_service import SignalService
 from app.utils.constants import (
     CONFIDENCE_SCORE_GREEN_MIN,

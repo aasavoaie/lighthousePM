@@ -16,6 +16,23 @@ class MetricDeltaRule:
 class SnapshotComparisonService:
     """Compare deterministic metric snapshots and explain confidence movement."""
 
+    CLASSIFICATION_MISMATCH_REASON = (
+        "Snapshot comparison unavailable because Jira classification mappings differ."
+    )
+
+    @staticmethod
+    def classification_unavailable_reason(
+        current_snapshot: MetricSnapshot | SprintMetricSnapshot,
+        previous_snapshot: MetricSnapshot | SprintMetricSnapshot,
+    ) -> str | None:
+        current_classification = (current_snapshot.calculation_provenance or {}).get("classification")
+        previous_classification = (previous_snapshot.calculation_provenance or {}).get("classification")
+        if current_classification is None and previous_classification is None:
+            return None
+        if current_classification != previous_classification:
+            return SnapshotComparisonService.CLASSIFICATION_MISMATCH_REASON
+        return None
+
     @staticmethod
     def compare_release_snapshots(
         current_snapshot: MetricSnapshot,
@@ -82,7 +99,9 @@ class SnapshotComparisonService:
             ),
         ]
         return SnapshotDeltaComparison(
-            confidence_delta=SnapshotComparisonService._rounded_delta(current_confidence, previous_confidence) or 0.0,
+            confidence_delta=SnapshotComparisonService._rounded_delta(
+                current_confidence, previous_confidence
+            ),
             contributors=SnapshotComparisonService._build_contributors(
                 current_snapshot=current_snapshot,
                 previous_snapshot=previous_snapshot,
@@ -186,8 +205,14 @@ class SnapshotComparisonService:
     def _release_risk_impact(current: MetricSnapshot, previous: MetricSnapshot, metric: str) -> float:
         current_outputs = (current.calculation_provenance or {}).get("component_outputs", {})
         previous_outputs = (previous.calculation_provenance or {}).get("component_outputs", {})
-        current_points = current_outputs.get("risk_points", {}) if isinstance(current_outputs, dict) else {}
-        previous_points = previous_outputs.get("risk_points", {}) if isinstance(previous_outputs, dict) else {}
+        current_points_value = (
+            current_outputs.get("risk_points", {}) if isinstance(current_outputs, dict) else {}
+        )
+        previous_points_value = (
+            previous_outputs.get("risk_points", {}) if isinstance(previous_outputs, dict) else {}
+        )
+        current_points = current_points_value if isinstance(current_points_value, dict) else {}
+        previous_points = previous_points_value if isinstance(previous_points_value, dict) else {}
         return round(previous_points.get(metric, 0.0) - current_points.get(metric, 0.0), 2)
 
     @staticmethod

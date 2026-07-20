@@ -77,8 +77,25 @@ def _ensure_metric_issue_key_columns() -> None:
             "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
             "delivery_confidence_explanations JSON NOT NULL DEFAULT '[]'"
         ),
+        (
+            "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "workload_concentration_pct DOUBLE PRECISION"
+        ),
+        (
+            "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "workload_distribution_status VARCHAR(32)"
+        ),
+        (
+            "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "workload_distribution_explanations JSON"
+        ),
+        (
+            "ALTER TABLE sprint_metric_snapshots ADD COLUMN IF NOT EXISTS "
+            "workload_distribution_evidence JSON"
+        ),
         "ALTER TABLE issues ADD COLUMN IF NOT EXISTS jira_created_at TIMESTAMPTZ",
         "ALTER TABLE issues ADD COLUMN IF NOT EXISTS jira_updated_at TIMESTAMPTZ",
+        "ALTER TABLE issues ADD COLUMN IF NOT EXISTS jira_assignee_id VARCHAR(128)",
         "ALTER TABLE issues ADD COLUMN IF NOT EXISTS jira_blocker_flag BOOLEAN",
         (
             "ALTER TABLE issues ADD COLUMN IF NOT EXISTS "

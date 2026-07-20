@@ -48,6 +48,7 @@ class SprintMetricValues(BaseModel):
     rollover_count: int | None
     median_cycle_time_days: float | None
     reopen_rate_pct: float | None
+    workload_concentration_pct: float | None = None
     delivery_confidence_score: float | None
 
 
@@ -111,6 +112,45 @@ class StoryPointCoverage(BaseModel):
     unpointed_issue_keys: list[str]
 
 
+WorkloadDistributionStatus = Literal[
+    "COMPUTED",
+    "PARTIAL",
+    "INCONCLUSIVE",
+    "NOT_COMPUTED",
+    "NOT_APPLICABLE",
+]
+
+
+class WorkloadAssigneeTotal(BaseModel):
+    assignee_key: str
+    assignee: str
+    story_points: float
+    issue_keys: list[str]
+
+
+class WorkloadDistributionEvidence(BaseModel):
+    calculation_status: WorkloadDistributionStatus
+    workload_concentration_pct: float | None
+    current_scope_issue_keys: list[str]
+    active_issue_keys: list[str]
+    included_active_issue_keys: list[str]
+    excluded_active_issue_keys: list[str]
+    missing_status_issue_keys: list[str]
+    assignee_identity_fallback_issue_keys: list[str]
+    assignee_totals: list[WorkloadAssigneeTotal]
+    total_active_points: float | None
+    top_assignee: WorkloadAssigneeTotal | None
+    risk_band: Literal["healthy", "watch", "critical"] | None
+    story_point_coverage: StoryPointCoverage
+
+
+class WorkloadDistributionDetail(BaseModel):
+    status: WorkloadDistributionStatus
+    percentage: float | None
+    explanations: list[str]
+    evidence: WorkloadDistributionEvidence
+
+
 class SprintMetricsResponse(BaseModel):
     sprint_id: str
     ruleset_version: int | None
@@ -128,6 +168,7 @@ class SprintMetricsResponse(BaseModel):
     delivery_confidence_status: DeliveryConfidenceStatus
     delivery_confidence_explanations: list[str]
     delivery_confidence: DeliveryConfidenceDetail | None
+    workload_distribution: WorkloadDistributionDetail | None = None
     confidence_breakdown: ConfidenceBreakdown | None
     biggest_driver: DriverAnalysis | None
     recommendations: list[RecommendationAction]

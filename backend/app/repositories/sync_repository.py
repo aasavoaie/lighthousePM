@@ -72,6 +72,7 @@ class SyncRepository:
                 status=issue_detail.status,
                 priority=issue_detail.priority,
                 assignee=issue_detail.assignee,
+                jira_assignee_id=issue_detail.assignee_id,
                 story_points=issue_detail.story_points,
                 release_id=release_id,
                 is_blocker=is_blocker,
@@ -88,6 +89,7 @@ class SyncRepository:
         existing.status = issue_detail.status
         existing.priority = issue_detail.priority
         existing.assignee = issue_detail.assignee
+        existing.jira_assignee_id = issue_detail.assignee_id
         existing.story_points = issue_detail.story_points
         existing.release_id = release_id
         existing.is_blocker = is_blocker

@@ -81,7 +81,7 @@ Release snapshots include:
 - scope completed percentage and completed ticket count;
 - seven-day scope churn, additions, and removals;
 - median cycle time;
-- reopen rate;
+- reopen events per 100 eligible tickets, including repeated events from the same ticket;
 - confidence score, confidence breakdown, and biggest driver;
 - metric availability and Jira issue-key evidence.
 
@@ -92,6 +92,33 @@ The final release signal is the worse severity produced by:
 
 Every signal includes human-readable reasons, structured reason details,
 thresholds, release gates, current risk evidence, and ruleset provenance.
+
+### Sprint ticket-scope metrics
+
+The compatibility field `committed_scope` means **Current sprint scope**: the
+number of distinct tickets currently linked to the sprint at snapshot time. It
+does not claim to reconstruct the sprint-start commitment. Empty current scope
+is unavailable rather than zero.
+
+`completed_scope_pct` is the percentage of that current ticket scope whose
+current status is configured as done. It does not use story points. Empty scope
+is unavailable, and a missing ticket status makes the percentage partial and
+unavailable with the affected Jira keys exposed as evidence.
+
+`in_progress_count` counts current sprint tickets whose known status is in the
+configured in-progress set. `not_started_count` counts current sprint tickets
+whose known, non-empty status is in neither the configured done nor in-progress
+set. Missing statuses are excluded from both counts and make the returned
+confirmed-minimum values `PARTIAL`. Empty current scope returns `null` with
+`NOT_COMPUTED`.
+
+The compatibility field `rollover_count` has the user-facing meaning
+**Unfinished closed-sprint scope**. It applies only to closed sprints and counts
+current sprint-membership tickets whose known current status is not done. It
+does not prove that those tickets entered another sprint. Active, future, or
+unknown-state sprints return `null` with `NOT_APPLICABLE`; a closed sprint with
+empty current scope returns `null` with `NOT_COMPUTED`. Missing statuses are
+excluded and make the confirmed-minimum count `PARTIAL`.
 
 ### Sprint delivery confidence
 
@@ -113,9 +140,47 @@ Story points are never imputed. Coverage controls the response state:
 | At least 50% but below 100% | `PARTIAL`, score returned with explanations |
 | 100% | `COMPUTED`, score returned without partial-coverage remarks |
 
+Meeting the story-point threshold is necessary but not sufficient. Delivery
+confidence also requires:
+
+- a non-empty status for every pointed current-sprint ticket;
+- complete blocker classification across the current sprint scope;
+- valid sprint start and end times with `end > start`; and
+- complete sprint-membership changelog history for every synchronized ticket
+  in the sprint's Jira project.
+
+If any required non-point input is missing, delivery confidence is
+`INCONCLUSIVE` and its score, component breakdown, and biggest driver are
+unavailable. Explanations identify the affected input and sorted Jira keys.
+Missing or invalid duration never receives a healthy elapsed-time,
+remaining-time, or remaining-capacity fallback. Independently computable
+ticket metrics remain available.
+
 Ticket-count metrics remain available when they do not depend on aggregated
 story points. Partial point-based calculations use only tickets with valid
 story points and expose the excluded Jira keys.
+
+### Sprint workload distribution
+
+Workload concentration is calculated from active current-sprint story points
+by the backend and stored with the sprint snapshot. Active status uses the
+configured done-status classification; clients do not maintain a separate
+status list. Null or blank assignees are grouped as `Unassigned`, while an
+assigned user without a stable Jira identifier uses a deterministic display-
+name fallback and makes the result `PARTIAL`.
+
+Below `50%` current-sprint story-point coverage the result is `INCONCLUSIVE`.
+From `50%` to below `100%`, only pointed active tickets are included and the
+result lists excluded keys as `PARTIAL`. At `100%`, the complete active scope
+is used. No active work is `NOT_APPLICABLE`; a zero-point denominator is
+`NOT_COMPUTED`. Concentration is the top assignee's share of included active
+story points, rounded to two decimals. Below `35%` is healthy, `35%` through
+`50%` is watch, and above `50%` is critical.
+
+The API exposes the percentage, availability, explanations, top-assignee
+details, per-assignee totals, and sorted Jira-key evidence. Recommendations,
+reports, and the frontend consume this stored result rather than recalculating
+it.
 
 ### Risk aging
 
@@ -147,6 +212,8 @@ confidence, or chance of meeting a release target.
 
 - Current derived results use integer `ruleset_version` values.
 - Version `0` identifies legacy results without an explicit ruleset.
+- Version `1` identifies the approved Phase 0 contract.
+- Version `2` identifies the approved Phase 2 metric-contract hardening.
 - Metric snapshots and release signals are immutable.
 - Recompute creates a new metric snapshot and an append-only signal result.
 - Historical derived values are read from their stored artifacts, not
@@ -250,6 +317,27 @@ Release and sprint metric responses expose:
 - metric-level availability and unavailable reasons;
 - stored confidence artifacts, recommendations, and biggest driver.
 
+Each metric-availability item includes authoritative `status`, `explanations`,
+and sorted `missing_issue_keys` while retaining the compatibility fields
+`available`, `reason`, and `depends_on`. Partial count metrics return confirmed
+minimum values; percentages whose denominator classification is incomplete
+return `null`.
+
+Seven-day release scope churn uses the stored snapshot time as an inclusive
+window boundary. Its denominator is the distinct union of current release
+scope and tickets with confirmed additions or removals. Changelog completeness
+is evaluated across synchronized tickets in the configured Jira project. When
+that history is incomplete, added and removed counts remain confirmed minima,
+the churn percentage is `null`, and availability identifies the missing Jira
+keys. An absence of changelog rows is not itself incomplete history.
+
+If blocker or high-severity-bug classification is partial, or the scope-churn
+percentage is unavailable because project changelog ingestion is incomplete,
+release confidence is `null`. A confirmed hard-RED condition still returns RED;
+otherwise the signal and Release Outlook are `INCONCLUSIVE`. Snapshot confidence
+comparisons are unavailable with an explicit reason while either snapshot is
+inconclusive.
+
 An existing entity with no snapshot returns `200` with a structured
 `NOT_COMPUTED` response and nullable derived values. Unknown entity IDs return
 `404`.
@@ -294,6 +382,19 @@ Field mappings are explicit per Jira instance:
 - `JIRA_FIELD_BLOCKER` optionally identifies an explicit blocker flag;
 - changelog aliases identify fix-version and sprint membership changes.
 
+Jira workflow classifications are also explicit, comma-separated settings:
+
+- `JIRA_DONE_STATUSES` and `JIRA_IN_PROGRESS_STATUSES` classify workflow status;
+- `JIRA_HIGH_SEVERITY_VALUES` and `JIRA_BUG_ISSUE_TYPES` classify high-severity bugs;
+- `JIRA_BLOCKER_ISSUE_TYPES`, `JIRA_BLOCKER_SEVERITY_VALUES`, and
+  `JIRA_BLOCKED_STATUSES` provide blocker fallbacks when no explicit blocker field is mapped.
+
+Values are trimmed, compared case-insensitively, and deduplicated. Done and
+in-progress classifications must not overlap. The first four settings above
+must be non-empty; invalid updates are rejected and invalid startup
+configuration stops the service. Snapshot comparisons are unavailable when
+the effective Jira classifications differ between snapshots.
+
 Scheduled sync is disabled when `JIRA_SYNC_INTERVAL_SECONDS=0`. Manual sync is
 still available when Jira sync itself is enabled.
 
@@ -301,17 +402,19 @@ still available when Jira sync itself is enabled.
 
 Application startup runs the Alembic migration chain before accepting API
 requests or starting scheduled work. The current single head is
-`20260716_0011`.
+`20260720_0017`.
 
 - Fresh databases are created through Alembic.
 - Versioned databases upgrade to the single current head.
 - Recognized pre-Alembic SQLite schemas are deterministically stamped at their
   actual historical revision and upgraded in order.
 - A consistent SQLite backup is created before migration. For the current
-  migration head its suffix is `.pre-20260716_0011.bak`.
+  migration head its suffix is `.pre-20260720_0017.bak`.
 - Unknown or partially migrated legacy schemas stop startup instead of being
   guessed or silently modified.
 - Repeated startup at the current revision is idempotent.
+- The current head keeps Jira `issues.status` and `issues.issue_type` nullable
+  so missing source classifications remain explicit instead of being invented.
 
 Manual migration from `backend/`:
 

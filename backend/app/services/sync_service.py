@@ -86,16 +86,12 @@ class SyncService:
 
     def _is_blocker(
         self,
-        issue_type: str,
+        issue_type: str | None,
         priority: str | None,
-        status: str,
+        status: str | None,
         blocker_flag: bool | None,
     ) -> bool:
-        """Temporary deterministic blocker heuristic for MVP sync.
-
-        Assumption: blocker-like work is identified by issue type or priority labels
-        because custom Jira fields vary between projects and are not yet standardized.
-        """
+        """Classify a blocker with the effective explicit-field and fallback rules."""
         return self._field_mapper.classify_blocker(
             issue_type=issue_type,
             severity=priority,

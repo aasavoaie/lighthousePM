@@ -260,7 +260,7 @@ const aboutReleaseSections: AboutGuideSection[] = [
     questions: [
       "Is scope being completed fast enough?",
       "Is scope churn changing the release commitment?",
-      "Are quality indicators such as high-severity bugs and reopen rate acceptable?",
+      "Are quality indicators such as high-severity bugs and reopen events per 100 eligible tickets acceptable?",
       "Are flow or blocker risks delaying release confidence?",
     ],
   },
@@ -359,9 +359,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Reopen rate",
+    title: "Metric: Reopen events per 100 eligible tickets",
     description:
-      "Shows the percentage of work reopened after it was considered done. A high reopen rate signals acceptance churn, missed requirements, or quality gaps.",
+      "Counts every transition from done back to a non-done status per 100 eligible tickets. An eligible ticket is currently done or has recorded evidence that it reached done. The same ticket is counted once for every distinct reopen event, so the value can exceed 100. Reopen-event evidence names any ticket counted more than once. A high value signals acceptance churn, missed requirements, or quality gaps.",
     questions: [
       "Is completed work staying done?",
       "Are acceptance or quality standards creating rework?",
@@ -424,12 +424,14 @@ const aboutSprintSections: AboutGuideSection[] = [
   {
     title: "Sprint Intelligence: Delivery Confidence",
     description:
-      "Delivery Confidence combines progress alignment, velocity fit, blocker health, and scope stability into one deterministic sprint health score.",
+      "Delivery Confidence combines progress alignment, velocity fit, blocker health, and scope stability into one deterministic sprint health score. Story-point coverage is necessary but the required status, blocker-classification, duration, and project sprint-history evidence must also be complete.",
     questions: [
-      "Is the sprint likely to deliver the committed work?",
+      "Does the current sprint evidence support its current delivery plan?",
       "Which component is pulling delivery confidence down?",
-      "Is the problem progress, velocity, blockers, or scope instability?",
+      "Are any required confidence inputs incomplete?",
     ],
+    note:
+      "When required non-point evidence is missing, delivery confidence is Inconclusive and the score, component breakdown, and biggest driver are withheld. Explanations identify the missing input and affected Jira keys while independent ticket metrics remain available.",
   },
   {
     title: "Sprint Intelligence: Recommended Actions",
@@ -446,7 +448,7 @@ const aboutSprintSections: AboutGuideSection[] = [
     description:
       "Sprint Metrics organize delivery, quality, flow, risk, and work-state indicators into scan-friendly cards.",
     questions: [
-      "How much committed scope is done, active, or not started?",
+      "How much current sprint scope is done, active, or not started?",
       "Are high-severity bugs or reopened tickets creating quality risk?",
       "Is cycle time or blocker health slowing delivery?",
       "Is work concentrated in a way that creates delivery exposure?",
@@ -487,22 +489,22 @@ const aboutSprintSections: AboutGuideSection[] = [
 
 const aboutSprintMetricSections: AboutGuideSection[] = [
   {
-    title: "Metric: Committed scope",
+    title: "Metric: Current sprint scope",
     description:
-      "Counts issues explicitly linked to the sprint. It defines the sprint promise that progress, confidence, and predictability are measured against.",
+      "Counts distinct tickets currently linked to the sprint at snapshot time. The API retains the field name committed_scope for compatibility, but this metric describes current membership and does not reconstruct the sprint-start commitment. An empty current scope is shown as unavailable rather than zero.",
     questions: [
-      "What did the team commit to deliver?",
-      "Is the sprint scope clear enough to manage?",
-      "Are we measuring progress against the right work?",
+      "How many tickets are currently in the sprint?",
+      "Which tickets define the scope measured by the current snapshot?",
+      "Is the current Jira sprint membership complete and up to date?",
     ],
   },
   {
     title: "Metric: Completed scope",
     description:
-      "Shows the percentage of committed sprint scope already done. It is the core indicator of whether the sprint is converting commitment into finished work.",
+      "Shows the percentage of current sprint tickets whose current status is configured as done. It is ticket-based and does not use story points. Empty scope is unavailable, and missing ticket statuses make the percentage partial with the affected Jira keys identified.",
     questions: [
       "Is the sprint progressing fast enough?",
-      "How much committed work is already finished?",
+      "How much of the current ticket scope is already finished?",
       "Do we need to narrow focus to complete remaining work?",
     ],
   },
@@ -557,9 +559,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Reopen rate",
+    title: "Metric: Reopen events per 100 eligible tickets",
     description:
-      "Shows how often sprint work is reopened after being treated as done. Reopened work is a signal of rework, acceptance churn, or incomplete validation.",
+      "Counts every transition from done back to a non-done status per 100 eligible sprint tickets. An eligible ticket is currently done or has recorded evidence that it reached done. The same ticket is counted once for every distinct reopen event, so the value can exceed 100. Reopen-event evidence names any ticket counted more than once. A high value signals rework, acceptance churn, or incomplete validation.",
     questions: [
       "Is sprint work really complete when marked done?",
       "Are acceptance criteria or quality checks clear enough?",
@@ -587,29 +589,30 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Rollover",
+    title: "Metric: Unfinished closed-sprint scope",
     description:
-      "Counts work that did not finish by sprint close. Rollover indicates planning, capacity, dependency, or execution issues that can reduce predictability.",
+      "Counts tickets that remain in the current membership of a closed sprint and have a known non-done status. This does not prove that a ticket entered another sprint. The metric is not applicable to active, future, or unknown-state sprints.",
     questions: [
-      "How much work is carrying into the next sprint?",
-      "Is rollover becoming a repeat delivery pattern?",
-      "Do planning assumptions need to change?",
+      "How many currently assigned tickets are unfinished after the sprint closed?",
+      "Which known unfinished tickets need follow-up?",
+      "Are any ticket statuses missing, making the count partial?",
     ],
   },
   {
     title: "Metric: Work distribution",
     description:
-      "Shows whether active sprint work is concentrated with one assignee. Heavy concentration creates delivery exposure even when total progress looks acceptable.",
+      "Shows the top assignee's share of active sprint story points using the backend's configured done-status rules. Below 50% sprint story-point coverage the result is inconclusive; partial coverage excludes unpointed active tickets and identifies them. No active work is not applicable, and a zero-point denominator is not computed. Below 35% is healthy, 35% through 50% is watch, and above 50% is critical. Recommendations, reports, and the dashboard reuse the stored result and Jira-key evidence.",
     questions: [
       "Is too much critical work dependent on one person?",
       "Should work be rebalanced to reduce delivery risk?",
       "Is capacity hidden behind a single overloaded owner?",
+      "Is the result partial or inconclusive because required Jira evidence is missing?",
     ],
   },
   {
     title: "Metric: Sprint work state",
     description:
-      "Condenses committed, active, not-started, done, and rollover work into one scan-friendly view of sprint execution.",
+      "Condenses current sprint scope, in-progress, not-started, done, and applicable unfinished closed-sprint work into one scan-friendly view of sprint execution.",
     questions: [
       "How is sprint work distributed across states?",
       "Is too much work not started or still active late in the sprint?",
@@ -619,17 +622,17 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
   {
     title: "Metric: Delivery confidence score",
     description:
-      "Combines progress alignment, velocity fit, blocker health, and scope stability into a single sprint confidence score.",
+      "Combines progress alignment, velocity fit, blocker health, and scope stability into a single sprint confidence score. The score is returned only when required status, blocker-classification, duration, and project sprint-history evidence is complete.",
     questions: [
-      "Is the sprint likely to deliver its commitment?",
+      "Does current sprint evidence support its delivery plan?",
       "Which confidence component is pulling the sprint down?",
-      "Should leadership intervene on progress, capacity, blockers, or scope?",
+      "Is the result Inconclusive because required evidence is missing?",
     ],
   },
   {
     title: "Metric: Progress alignment",
     description:
-      "Compares completed scope with elapsed sprint time. It shows whether the team is far enough through the work for where it is in the sprint.",
+      "Compares completed scope with elapsed sprint time. It requires valid sprint start and end times; missing or invalid duration makes the component unavailable rather than healthy.",
     questions: [
       "Is progress keeping pace with time elapsed?",
       "Is the sprint behind even if some work is complete?",
@@ -639,9 +642,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
   {
     title: "Metric: Velocity fit",
     description:
-      "Checks whether remaining sprint work fits the team's historical delivery capacity. It turns velocity history into a forward-looking capacity signal.",
+      "Checks whether remaining sprint work fits the team's historical delivery capacity. It uses valid sprint duration and never substitutes a healthy time or capacity fallback when duration is unavailable.",
     questions: [
-      "Can the team realistically finish the remaining work?",
+      "Does the remaining work fit the team's documented historical capacity?",
       "Is the sprint plan larger than recent delivery capacity?",
       "Do we need a scope or staffing decision?",
     ],
@@ -649,7 +652,7 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
   {
     title: "Metric: Scope stability",
     description:
-      "Scores how stable sprint scope has been since the initial commitment. Lower stability means the sprint is changing after planning.",
+      "Scores how stable sprint scope has been since the initial commitment. It requires a sprint start and complete sprint-membership history across synchronized project tickets; otherwise the component and delivery confidence are unavailable.",
     questions: [
       "Is the team executing a stable plan?",
       "Are scope changes weakening confidence?",
@@ -749,7 +752,7 @@ function AboutKnowledgePanel({ page }: { page: AboutGuidePage }) {
               <article className="product-info-card">
                 <span className="product-info-icon nav-sprints" aria-hidden="true" />
                 <h3>Sprint Intelligence</h3>
-                <p>Tracks progress alignment, active work, blockers, sprint-created bugs, rollover, and predictability.</p>
+                <p>Tracks progress alignment, active work, blockers, sprint-created bugs, unfinished closed-sprint work, and predictability.</p>
               </article>
               <article className="product-info-card">
                 <span className="product-info-icon nav-overview" aria-hidden="true" />
@@ -807,7 +810,7 @@ function AboutKnowledgePanel({ page }: { page: AboutGuidePage }) {
             <article className="about-product-summary">
               <h3>Sprint metric definitions</h3>
               <p>
-                These metrics explain whether the sprint is likely to support the release plan. They connect commitment,
+                These metrics explain whether the sprint currently supports the release plan. They connect current scope,
                 progress, quality, flow, blockers, scope stability, and delivery confidence to concrete sprint decisions.
               </p>
             </article>

@@ -28,7 +28,7 @@ const baselineLabels: Record<SnapshotBaseline, string> = {
 const metricLabels: Record<string, string> = {
   open_blockers: "blockers",
   open_high_severity_bugs: "high-severity bugs",
-  reopen_rate_pct: "reopen rate",
+  reopen_rate_pct: "reopen events per 100 eligible tickets",
   median_cycle_time_days: "cycle time",
   scope_churn_7d_pct: "scope creep",
   completed_tickets: "completed work",

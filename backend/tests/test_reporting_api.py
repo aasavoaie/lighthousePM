@@ -12,12 +12,13 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import Issue, IssueSprint, MetricSnapshot, Release, ReleaseSignal, Sprint, SprintMetricSnapshot
+from app.models import Issue, IssueHistory, IssueSprint, MetricSnapshot, Release, ReleaseSignal, Sprint, SprintMetricSnapshot
 from app.repositories.release_repository import ReleaseRepository
 from app.services.reporting_service import ChartExportService, ChartSpec, PDFThemeProvider, ReportTemplateEngine, ReportingService
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.signal_service import SignalService
+from app.utils.constants import RULESET_VERSION
 
 
 def _pdf_text(pdf: bytes) -> str:
@@ -96,6 +97,8 @@ def _seed_release_snapshot(
     scope_completed_pct: float,
     seed_issue: bool = True,
     story_points: float | None = 3.0,
+    reopen_rate_pct: float = 0.0,
+    availability: dict[str, object] | None = None,
 ) -> None:
     issue_key = f"{release_id}-ISSUE"
     if seed_issue and session.query(Issue).filter(Issue.issue_key == issue_key).first() is None:
@@ -117,13 +120,13 @@ def _seed_release_snapshot(
         open_blockers=open_blockers,
         open_high_severity_bugs=0,
         scope_churn_7d_pct=5.0,
-        reopen_rate_pct=0.0,
+        reopen_rate_pct=reopen_rate_pct,
         median_cycle_time_days=2.0,
     )
     snapshot = MetricSnapshot(
             release_id=release_id,
             snapshot_at=snapshot_at,
-            ruleset_version=1,
+            ruleset_version=RULESET_VERSION,
             confidence_score=confidence_score,
             confidence_status="COMPUTED",
             open_blockers=open_blockers,
@@ -136,14 +139,14 @@ def _seed_release_snapshot(
             scope_added_7d_count=1,
             scope_removed_7d_count=0,
             median_cycle_time_days=2.0,
-            reopen_rate_pct=0.0,
+            reopen_rate_pct=reopen_rate_pct,
     )
     readiness = SignalService._build_release_readiness_details(
         signal=None,
         open_blockers=open_blockers,
         open_high_severity_bugs=0,
         scope_churn_7d_pct=5.0,
-        reopen_rate_pct=0.0,
+        reopen_rate_pct=reopen_rate_pct,
         median_cycle_time_days=2.0,
     )
     gates = readiness["release_gates"]
@@ -153,7 +156,7 @@ def _seed_release_snapshot(
                 open_blockers=open_blockers,
                 open_high_severity_bugs=0,
                 scope_churn_7d_pct=5.0,
-                reopen_rate_pct=0.0,
+                reopen_rate_pct=reopen_rate_pct,
                 median_cycle_time_days=2.0,
             ),
             "confidence_breakdown": ConfidenceBreakdownService.build_release_breakdown(snapshot).model_dump(),
@@ -162,6 +165,8 @@ def _seed_release_snapshot(
             "readiness_pct": round(100 * sum(1 for gate in gates if gate["passed"]) / len(gates), 2),
         }
     }
+    if availability is not None:
+        snapshot.calculation_provenance["availability"] = availability
     session.add(snapshot)
     session.flush()
     SignalService().recompute_release_signal(session=session, release_id=release_id)
@@ -221,26 +226,43 @@ def _seed_sprint_snapshot(
     session: Session,
     sprint_id: str,
     snapshot_at: datetime,
-    confidence: float,
+    confidence: float | None,
     delivery_confidence_status: str = "COMPUTED",
+    reopen_rate_pct: float = 10.0,
+    availability: dict[str, object] | None = None,
+    ruleset_version: int = 0,
+    committed_scope: int | None = 10,
+    completed_scope_pct: float | None = 50.0,
+    in_progress_count: int | None = 3,
+    not_started_count: int | None = 4,
+    rollover_count: int | None = 1,
+    workload_concentration_pct: float | None = None,
+    workload_distribution_status: str | None = None,
+    workload_distribution_explanations: list[str] | None = None,
+    workload_distribution_evidence: dict[str, object] | None = None,
 ) -> None:
     session.add(
         SprintMetricSnapshot(
             sprint_id=sprint_id,
             snapshot_at=snapshot_at,
-            committed_scope=10,
-            completed_scope_pct=50.0,
+            ruleset_version=ruleset_version,
+            committed_scope=committed_scope,
+            completed_scope_pct=completed_scope_pct,
             open_blockers=1,
             open_high_severity_bugs=1,
             bugs_created_during_sprint=2,
             open_blocker_issue_keys=["LHPM-1"],
             open_high_severity_bug_issue_keys=["LHPM-2"],
             bugs_created_during_sprint_issue_keys=["LHPM-3", "LHPM-4"],
-            in_progress_count=3,
-            not_started_count=4,
-            rollover_count=1,
+            in_progress_count=in_progress_count,
+            not_started_count=not_started_count,
+            rollover_count=rollover_count,
             median_cycle_time_days=3.0,
-            reopen_rate_pct=10.0,
+            reopen_rate_pct=reopen_rate_pct,
+            workload_concentration_pct=workload_concentration_pct,
+            workload_distribution_status=workload_distribution_status,
+            workload_distribution_explanations=workload_distribution_explanations,
+            workload_distribution_evidence=workload_distribution_evidence,
             delivery_confidence_score=confidence,
             delivery_confidence_components={
                 "progress_alignment": 50.0,
@@ -284,6 +306,7 @@ def _seed_sprint_snapshot(
                     "Delivery confidence is inconclusive because fewer than 50% of the sprint tickets have story points."
                 ]
             ),
+            calculation_provenance={"availability": availability} if availability is not None else {},
         )
     )
     session.commit()
@@ -302,7 +325,7 @@ def test_release_report_generation_includes_sections_footer_and_chart(client: Te
     assert "Executive Summary" in text
     assert "Release Outlook" in text
     assert "Risk Aging Evidence" in text
-    assert "Ruleset v1" in text
+    assert "Ruleset v2" in text
     assert "This outlook reflects the latest stored snapshot and is not a forecast." in text
     assert "24-hour confidence change" in text
     assert "Calendar days remaining" in text
@@ -416,7 +439,7 @@ def test_full_release_template_includes_historical_trend_charts(client: TestClie
             "Historical Release Gates Passed",
             "Historical Open Blockers",
             "Historical Scope Completed",
-            "Historical Reopen Rate",
+            "Historical Reopen Events per 100 Eligible Tickets",
         }
     )
 
@@ -444,9 +467,94 @@ def test_full_sprint_template_includes_historical_trend_charts(client: TestClien
             "Historical Progress Alignment",
             "Historical Scope Changes",
             "Historical High-Severity Bugs",
-            "Historical Reopen Rate",
+            "Historical Reopen Events per 100 Eligible Tickets",
         }
     )
+
+
+def test_reports_show_repeated_reopen_evidence_and_allow_values_above_100(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    release_explanation = "Ticket LHPM-1 was counted 2 times because it was reopened 2 times."
+    sprint_explanation = "Ticket LHPM-12-1 was counted 3 times because it was reopened 3 times."
+
+    def stored_availability(*, release_scope: bool, explanation: str) -> dict[str, object]:
+        return {
+            "context": {
+                "has_tickets": True,
+                "has_story_points": True,
+                "has_completed_tickets": True,
+                "has_release_scope": release_scope,
+                "has_sprint_scope": not release_scope,
+                "has_changelog": True,
+            },
+            "metrics": {
+                "reopen_rate_pct": {
+                    "status": "COMPUTED",
+                    "available": True,
+                    "reason": None,
+                    "explanations": [explanation],
+                    "missing_issue_keys": [],
+                    "depends_on": ["ticket_count", "completed_tickets", "history_changelog"],
+                }
+            },
+        }
+
+    with app.state.testing_session_local() as session:
+        _seed_release(session)
+        _seed_release_snapshot(
+            session,
+            "REL-1",
+            now,
+            1,
+            55.0,
+            reopen_rate_pct=200.0,
+            availability=stored_availability(release_scope=True, explanation=release_explanation),
+        )
+
+        _seed_sprint(session)
+        _seed_sprint_snapshot(
+            session,
+            "12",
+            now,
+            72.0,
+            reopen_rate_pct=300.0,
+            availability=stored_availability(release_scope=False, explanation=sprint_explanation),
+            ruleset_version=RULESET_VERSION,
+        )
+
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
+        sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
+        assert release is not None
+        release_document = ReportTemplateEngine().build_release_document(
+            session=session,
+            release=release,
+            depth="full",
+            generated_at=now,
+        )
+        sprint_document = ReportTemplateEngine().build_sprint_document(
+            session=session,
+            sprint=sprint,
+            depth="full",
+            generated_at=now,
+        )
+
+    release_metrics = next(section for section in release_document.sections if section.title == "Evidence Metrics")
+    assert ("Reopen events per 100 eligible tickets", "200.0%") in release_metrics.rows
+    assert ("Reopen event evidence", release_explanation) in release_metrics.rows
+    release_history = next(section for section in release_document.sections if section.title == "Historical Trends")
+    release_reopen_chart = next(
+        chart for chart in release_history.charts if chart.title == "Historical Reopen Events per 100 Eligible Tickets"
+    )
+    assert release_reopen_chart.y_max is None
+
+    sprint_quality = next(section for section in sprint_document.sections if section.title == "Quality Signals")
+    assert ("Reopen events per 100 eligible tickets", "300.0%") in sprint_quality.rows
+    assert ("Reopen event evidence", sprint_explanation) in sprint_quality.rows
+    sprint_history = next(section for section in sprint_document.sections if section.title == "Historical Trends")
+    sprint_reopen_chart = next(
+        chart for chart in sprint_history.charts if chart.title == "Historical Reopen Events per 100 Eligible Tickets"
+    )
+    assert sprint_reopen_chart.y_max is None
 
 
 def test_release_summary_template_uses_leadership_sections(client: TestClient) -> None:
@@ -481,6 +589,112 @@ def test_release_summary_template_uses_leadership_sections(client: TestClient) -
     assert "Do not release" in decision.lines[0]
 
 
+def test_release_summary_reports_inconclusive_classification_inputs(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session)
+        session.add(
+            Issue(
+                issue_key="LHPM-1",
+                summary="Missing blocker severity",
+                issue_type="Story",
+                status="To Do",
+                priority=None,
+                assignee=None,
+                release_id="REL-1",
+                is_blocker=False,
+                jira_blocker_flag=None,
+                jira_changelog_complete=True,
+                created_at=now,
+            )
+        )
+        session.commit()
+
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    with app.state.testing_session_local() as session:
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
+        assert release is not None
+        document = ReportTemplateEngine().build_release_document(
+            session=session,
+            release=release,
+            depth="summary",
+            generated_at=now,
+        )
+
+    outlook = next(section for section in document.sections if section.title == "Release Outlook")
+    decision = next(section for section in document.sections if section.title == "Decision Recommendation")
+    assert ("Outlook", "INCONCLUSIVE") in outlook.rows
+    assert "missing required Jira metric inputs" in decision.lines[0]
+
+
+def test_release_report_explains_partial_scope_churn_and_keeps_confirmed_counts(
+    client: TestClient,
+) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session)
+        session.add_all(
+            [
+                Issue(
+                    issue_key="LHPM-1",
+                    summary="Current scope",
+                    issue_type="Story",
+                    status="To Do",
+                    priority="Medium",
+                    assignee=None,
+                    release_id="REL-1",
+                    is_blocker=False,
+                    jira_blocker_flag=False,
+                    jira_changelog_complete=True,
+                    created_at=now,
+                ),
+                Issue(
+                    issue_key="LHPM-2",
+                    summary="Partially synchronized added scope",
+                    issue_type="Story",
+                    status="To Do",
+                    priority="Medium",
+                    assignee=None,
+                    release_id=None,
+                    is_blocker=False,
+                    jira_blocker_flag=False,
+                    jira_changelog_complete=False,
+                    created_at=now,
+                ),
+            ]
+        )
+        session.flush()
+        session.add(
+            IssueHistory(
+                issue_key="LHPM-2",
+                field_name="fix version",
+                old_value="Release 0",
+                new_value="Release 1",
+                changed_at=now - timedelta(days=1),
+            )
+        )
+        session.commit()
+
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    with app.state.testing_session_local() as session:
+        release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
+        assert release is not None
+        document = ReportTemplateEngine().build_release_document(
+            session=session,
+            release=release,
+            depth="full",
+            generated_at=now,
+        )
+
+    evidence = next(section for section in document.sections if section.title == "Evidence Metrics")
+    outlook = next(section for section in document.sections if section.title == "Release Outlook")
+    churn_row = next(row for row in evidence.rows if row[0] == "Scope churn 7d")
+    assert churn_row[1].startswith("N/A | Scope churn is partial")
+    assert ("Scope added 7d", "1") in evidence.rows
+    assert ("Scope removed 7d", "0") in evidence.rows
+    assert ("Outlook", "INCONCLUSIVE") in outlook.rows
+
+
 def test_sprint_summary_template_uses_leadership_sections(client: TestClient) -> None:
     now = datetime.now(UTC)
     with app.state.testing_session_local() as session:
@@ -500,10 +714,161 @@ def test_sprint_summary_template_uses_leadership_sections(client: TestClient) ->
         "Delivery Confidence",
         "Confidence Breakdown",
         "Biggest Driver",
+        "Workload Distribution",
         "Top Risks",
         "Top Recommendations",
     ]
     assert document.title == "Sprint Summary Report: Sprint 12"
+
+
+def test_sprint_report_uses_stored_workload_distribution_evidence(
+    client: TestClient,
+) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session)
+        _seed_sprint_snapshot(
+            session,
+            "12",
+            now,
+            72.0,
+            workload_concentration_pct=60.0,
+            workload_distribution_status="PARTIAL",
+            workload_distribution_explanations=[
+                "Stored partial workload explanation."
+            ],
+            workload_distribution_evidence={
+                "risk_band": "critical",
+                "top_assignee": {"assignee": "Ava", "story_points": 6.0},
+                "total_active_points": 10.0,
+            },
+        )
+        sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
+
+        document = ReportTemplateEngine().build_sprint_document(
+            session=session,
+            sprint=sprint,
+            depth="summary",
+            generated_at=now,
+        )
+
+    workload = next(
+        section for section in document.sections if section.title == "Workload Distribution"
+    )
+    assert ("Status", "Partial") in workload.rows
+    assert ("Concentration", "60.0%") in workload.rows
+    assert ("Risk band", "Critical") in workload.rows
+    assert ("Top assignee", "Ava") in workload.rows
+    assert ("Explanation", "Stored partial workload explanation.") in workload.rows
+
+
+def test_sprint_report_marks_unfinished_scope_not_applicable_for_active_sprint(
+    client: TestClient,
+) -> None:
+    now = datetime.now(UTC)
+    not_applicable_reason = "Unfinished closed-sprint scope applies only to closed sprints."
+    availability = {
+        "context": {
+            "has_tickets": True,
+            "has_story_points": True,
+            "has_completed_tickets": True,
+            "has_release_scope": False,
+            "has_sprint_scope": True,
+            "has_changelog": False,
+        },
+        "metrics": {
+            "rollover_count": {
+                "status": "NOT_APPLICABLE",
+                "available": False,
+                "reason": not_applicable_reason,
+                "explanations": [not_applicable_reason],
+                "missing_issue_keys": [],
+                "depends_on": ["ticket_count", "ticket_status", "sprint_assignment"],
+            }
+        },
+    }
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session)
+        _seed_sprint_snapshot(
+            session,
+            "12",
+            now,
+            72.0,
+            availability=availability,
+            ruleset_version=RULESET_VERSION,
+            rollover_count=None,
+        )
+        sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
+        document = ReportTemplateEngine().build_sprint_document(
+            session=session,
+            sprint=sprint,
+            depth="full",
+            generated_at=now,
+        )
+
+    delivery = next(section for section in document.sections if section.title == "Delivery Confidence")
+    unfinished_row = next(
+        row for row in delivery.rows if row[0] == "Unfinished closed-sprint scope"
+    )
+    assert unfinished_row[1] == f"N/A | {not_applicable_reason}"
+    risks = next(section for section in document.sections if section.title == "Risk Drivers")
+    assert any("not applicable" in bullet for bullet in risks.bullets)
+
+
+def test_sprint_report_exposes_partial_unfinished_scope_explanation(
+    client: TestClient,
+) -> None:
+    now = datetime.now(UTC)
+    partial_reason = (
+        "Unfinished closed-sprint scope is partial because 1 current sprint ticket(s) "
+        "have no status. The returned value is a confirmed minimum."
+    )
+    availability = {
+        "context": {
+            "has_tickets": True,
+            "has_story_points": True,
+            "has_completed_tickets": True,
+            "has_release_scope": False,
+            "has_sprint_scope": True,
+            "has_changelog": False,
+        },
+        "metrics": {
+            "rollover_count": {
+                "status": "PARTIAL",
+                "available": True,
+                "reason": None,
+                "explanations": [partial_reason],
+                "missing_issue_keys": ["LHPM-2"],
+                "depends_on": ["ticket_count", "ticket_status", "sprint_assignment"],
+            }
+        },
+    }
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session)
+        sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
+        sprint.state = "closed"
+        _seed_sprint_snapshot(
+            session,
+            "12",
+            now,
+            72.0,
+            availability=availability,
+            ruleset_version=RULESET_VERSION,
+            rollover_count=1,
+        )
+        document = ReportTemplateEngine().build_sprint_document(
+            session=session,
+            sprint=sprint,
+            depth="full",
+            generated_at=now,
+        )
+
+    delivery = next(section for section in document.sections if section.title == "Delivery Confidence")
+    assert ("Unfinished closed-sprint scope", "1") in delivery.rows
+    assert ("Unfinished closed-sprint scope evidence", partial_reason) in delivery.rows
+    risks = next(section for section in document.sections if section.title == "Risk Drivers")
+    assert any("current closed-sprint tickets are unfinished" in bullet for bullet in risks.bullets)
+    assert partial_reason in risks.bullets
 
 
 def test_release_report_handles_empty_dataset(client: TestClient) -> None:
@@ -673,7 +1038,7 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
     assert ("Status", "Inconclusive") in delivery.rows
     assert ("Story-point coverage", "0.0%") in delivery.rows
     assert ("Score", "N/A") in delivery.rows
-    assert ("Committed scope", "10") in delivery.rows
+    assert ("Current sprint scope", "10") in delivery.rows
     assert delivery.charts == []
 
     velocity = next(section for section in document.sections if section.title == "Velocity Health")
@@ -692,6 +1057,63 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
     assert "Historical Velocity Fit" not in chart_titles
     assert "Historical Scope Completion" in chart_titles
     assert "Historical High-Severity Bugs" in chart_titles
+
+
+def test_sprint_report_explains_unavailable_completed_scope(client: TestClient) -> None:
+    now = datetime.now(UTC)
+    explanation = "Completed scope is unavailable because 1 current sprint ticket(s) have no status."
+    availability = {
+        "context": {
+            "has_tickets": True,
+            "has_story_points": False,
+            "has_completed_tickets": True,
+            "has_release_scope": False,
+            "has_sprint_scope": True,
+            "has_changelog": False,
+        },
+        "metrics": {
+            "committed_scope": {
+                "status": "COMPUTED",
+                "available": True,
+                "reason": None,
+                "explanations": [],
+                "missing_issue_keys": [],
+                "depends_on": ["ticket_count", "sprint_assignment"],
+            },
+            "completed_scope_pct": {
+                "status": "PARTIAL",
+                "available": False,
+                "reason": explanation,
+                "explanations": [explanation],
+                "missing_issue_keys": ["LHPM-2"],
+                "depends_on": ["ticket_count", "sprint_assignment"],
+            },
+        },
+    }
+    with app.state.testing_session_local() as session:
+        _seed_sprint(session, seed_story_points=False)
+        _seed_sprint_snapshot(
+            session,
+            "12",
+            now,
+            None,
+            delivery_confidence_status="INCONCLUSIVE",
+            availability=availability,
+            ruleset_version=RULESET_VERSION,
+            committed_scope=2,
+            completed_scope_pct=None,
+        )
+        sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
+        document = ReportTemplateEngine().build_sprint_document(
+            session=session,
+            sprint=sprint,
+            depth="full",
+            generated_at=now,
+        )
+
+    delivery = next(section for section in document.sections if section.title == "Delivery Confidence")
+    assert ("Current sprint scope", "2") in delivery.rows
+    assert ("Completed scope", f"N/A | {explanation}") in delivery.rows
 
 
 def test_sprint_summary_report_export_endpoint_returns_leadership_pdf(client: TestClient) -> None:

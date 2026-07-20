@@ -57,6 +57,7 @@ function metricsResponse(overrides = {}) {
             rollover_count: 0,
             median_cycle_time_days: 6,
             reopen_rate_pct: 12,
+            workload_concentration_pct: null,
             delivery_confidence_score: 72,
         },
         confidence_breakdown: null,
@@ -100,6 +101,7 @@ function metricsResponse(overrides = {}) {
                 scope_removed_issue_keys: [],
             },
         },
+        workload_distribution: null,
         ...overrides,
         ruleset_version: overrides.ruleset_version ?? 1,
         ruleset_label: overrides.ruleset_label ?? "Ruleset v1",
@@ -226,6 +228,14 @@ const unavailableStoryPointHistory = (0, sprintCharts_1.buildSprintChartHistory)
             sprint_id: "no-points",
             delivery_confidence_status: "INCONCLUSIVE",
             delivery_confidence_explanations: ["Insufficient story-point coverage."],
+            delivery_confidence: null,
+            story_point_coverage: {
+                total_ticket_count: 2,
+                pointed_ticket_count: 0,
+                unpointed_ticket_count: 2,
+                coverage_pct: 0,
+                unpointed_issue_keys: ["LHPM-1", "LHPM-2"],
+            },
             metric_availability: {
                 context: {
                     has_tickets: true,

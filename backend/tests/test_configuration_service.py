@@ -30,6 +30,13 @@ JIRA_ENV_DEFAULTS = {
     "JIRA_FIELD_BLOCKER": "",
     "JIRA_CHANGELOG_FIX_VERSION_FIELDS": "fix version,fixversion",
     "JIRA_CHANGELOG_SPRINT_FIELDS": "sprint",
+    "JIRA_DONE_STATUSES": "done,closed,resolved",
+    "JIRA_IN_PROGRESS_STATUSES": "in progress,in development,in review,in testing",
+    "JIRA_HIGH_SEVERITY_VALUES": "high,highest,critical",
+    "JIRA_BUG_ISSUE_TYPES": "bug",
+    "JIRA_BLOCKER_ISSUE_TYPES": "blocker,incident",
+    "JIRA_BLOCKER_SEVERITY_VALUES": "blocker,highest,critical",
+    "JIRA_BLOCKED_STATUSES": "blocked",
 }
 
 
@@ -75,6 +82,8 @@ def test_update_jira_configuration_writes_env_and_refreshes_settings(
                 jira_sync_interval_seconds=1800,
                 jira_field_story_points="customfield_10016",
                 jira_field_sprint="customfield_10020",
+                jira_done_statuses="Done,Released",
+                jira_bug_issue_types="Bug,Defect",
             )
         )
         refreshed_settings = get_settings()
@@ -95,6 +104,32 @@ def test_update_jira_configuration_writes_env_and_refreshes_settings(
     assert response.jira_sync_interval_seconds == 1800
     assert refreshed_settings.jira_project_key == "LHPM"
     assert refreshed_settings.jira_field_story_points == "customfield_10016"
+    assert refreshed_settings.done_statuses == frozenset({"done", "released"})
+    assert refreshed_settings.bug_issue_types == frozenset({"bug", "defect"})
+    assert config_values["JIRA_DONE_STATUSES"] == "Done,Released"
+    assert config_values["JIRA_BUG_ISSUE_TYPES"] == "Bug,Defect"
+
+
+def test_update_jira_configuration_rejects_overlapping_status_classifications(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = tmp_path / "backend.env"
+    config_path.write_text("JIRA_SYNC_ENABLED=false\n", encoding="utf-8")
+    _isolate_jira_environment(monkeypatch, config_path)
+
+    try:
+        with pytest.raises(ValueError, match="must not overlap"):
+            update_jira_configuration(
+                JiraConfigurationUpdate(
+                    jira_done_statuses="Done,Shared",
+                    jira_in_progress_statuses="Shared,Building",
+                )
+            )
+    finally:
+        get_settings.cache_clear()
+
+    assert config_path.read_text(encoding="utf-8") == "JIRA_SYNC_ENABLED=false\n"
 
 
 def test_update_jira_configuration_validates_sync_settings_before_writing(
@@ -139,8 +174,6 @@ async def test_jira_connection_test_calls_jira_and_reports_project_access(
     config_path = tmp_path / "backend.env"
     _isolate_jira_environment(monkeypatch, config_path)
 
-    closed_services: list[FakeJiraService] = []
-
     class FakeJiraService:
         def __init__(self, *, settings):
             self.settings = settings
@@ -154,6 +187,8 @@ async def test_jira_connection_test_calls_jira_and_reports_project_access(
 
         async def aclose(self) -> None:
             closed_services.append(self)
+
+    closed_services: list[FakeJiraService] = []
 
     monkeypatch.setattr(configuration_service, "JiraService", FakeJiraService)
 

@@ -73,8 +73,8 @@ class SignalService:
     def _compute_release_risk_points(
         open_blockers: int,
         open_high_severity_bugs: int,
-        scope_churn_7d_pct: float,
-        reopen_rate_pct: float,
+        scope_churn_7d_pct: float | None,
+        reopen_rate_pct: float | None,
         median_cycle_time_days: float | None,
     ) -> dict[str, float]:
         scope_churn_red_pct = SCOPE_CHURN_RED_THRESHOLD * 100
@@ -96,14 +96,14 @@ class SignalService:
                 "open_high_severity_bugs_yellow"
             ]
 
-        if scope_churn_7d_pct > scope_churn_red_pct:
+        if scope_churn_7d_pct is not None and scope_churn_7d_pct > scope_churn_red_pct:
             risk_points["scope_churn_7d_pct"] = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_red"]
-        elif scope_churn_7d_pct > scope_churn_yellow_pct:
+        elif scope_churn_7d_pct is not None and scope_churn_7d_pct > scope_churn_yellow_pct:
             risk_points["scope_churn_7d_pct"] = SignalService.RISK_WEIGHTS["scope_churn_7d_pct_yellow"]
 
-        if reopen_rate_pct > reopen_rate_red_pct:
+        if reopen_rate_pct is not None and reopen_rate_pct > reopen_rate_red_pct:
             risk_points["reopen_rate_pct"] = SignalService.RISK_WEIGHTS["reopen_rate_pct_red"]
-        elif reopen_rate_pct > reopen_rate_yellow_pct:
+        elif reopen_rate_pct is not None and reopen_rate_pct > reopen_rate_yellow_pct:
             risk_points["reopen_rate_pct"] = SignalService.RISK_WEIGHTS["reopen_rate_pct_yellow"]
 
         if median_cycle_time_days is not None and median_cycle_time_days > CYCLE_TIME_YELLOW_THRESHOLD_DAYS:
@@ -194,6 +194,49 @@ class SignalService:
             reopen_rate_pct=snapshot.reopen_rate_pct,
             median_cycle_time_days=snapshot.median_cycle_time_days,
         )
+        stored_availability = (snapshot.calculation_provenance or {}).get("availability", {})
+        availability_metrics = (
+            stored_availability.get("metrics", {})
+            if isinstance(stored_availability, dict)
+            else {}
+        )
+        unavailable_confidence_items = {
+            metric_name: item
+            for metric_name in (
+                "open_blockers",
+                "open_high_severity_bugs",
+                "scope_churn_7d_pct",
+                "reopen_rate_pct",
+                "median_cycle_time_days",
+            )
+            if isinstance((item := availability_metrics.get(metric_name)), dict)
+            and (
+                item.get("status") == "PARTIAL"
+                or (
+                    metric_name in {"reopen_rate_pct", "median_cycle_time_days"}
+                    and item.get("status") == "NOT_COMPUTED"
+                )
+            )
+        }
+        if unavailable_confidence_items:
+            confirmed_hard_red = any(detail.get("level") == "RED" for detail in reason_details)
+            signal = "RED" if confirmed_hard_red else "INCONCLUSIVE"
+            if reasons == ["No major risk indicators"]:
+                reasons = []
+            for metric_name, item in unavailable_confidence_items.items():
+                explanations = item.get("explanations", [])
+                explanation = (
+                    explanations[0]
+                    if isinstance(explanations, list) and explanations
+                    else item.get("reason") or "The required metric input is unavailable."
+                )
+                missing_keys = item.get("missing_issue_keys", [])
+                missing_suffix = (
+                    f" Missing Jira issue keys: {', '.join(missing_keys)}."
+                    if isinstance(missing_keys, list) and missing_keys
+                    else ""
+                )
+                reasons.append(f"{metric_name}: {explanation}{missing_suffix}")
         readiness = self._build_release_readiness_details(
             signal=signal,
             open_blockers=snapshot.open_blockers,
@@ -202,6 +245,48 @@ class SignalService:
             reopen_rate_pct=snapshot.reopen_rate_pct,
             median_cycle_time_days=snapshot.median_cycle_time_days,
         )
+        if unavailable_confidence_items:
+            readiness["signal"] = signal
+            readiness["status_label"] = (
+                "NOT READY FOR RELEASE" if signal == "RED" else "INCONCLUSIVE"
+            )
+            readiness["confidence_score"] = None
+            readiness["summary"] = (
+                "A confirmed hard RED condition is active, and required metric inputs are unavailable or incomplete."
+                if signal == "RED"
+                else "Release status is inconclusive because required metric inputs are unavailable or incomplete."
+            )
+            unavailable_gate_metrics = set(unavailable_confidence_items)
+            cycle_time_availability = unavailable_confidence_items.get(
+                "median_cycle_time_days"
+            )
+            if (
+                isinstance(cycle_time_availability, dict)
+                and cycle_time_availability.get("status") == "NOT_COMPUTED"
+            ):
+                unavailable_gate_metrics.discard("median_cycle_time_days")
+            readiness["release_gates"] = [
+                gate
+                for gate in readiness.get("release_gates", [])
+                if gate.get("metric_name") not in unavailable_gate_metrics
+            ]
+            readiness["unavailable_inputs"] = [
+                {
+                    "metric_name": metric_name,
+                    "status": item.get("status"),
+                    "reason": item.get("reason"),
+                    "explanations": item.get("explanations", []),
+                    "missing_issue_keys": item.get("missing_issue_keys", []),
+                }
+                for metric_name, item in unavailable_confidence_items.items()
+            ]
+            readiness["primary_risk"] = None
+            for risk in [
+                *readiness.get("critical_risks", []),
+                *readiness.get("warnings", []),
+            ]:
+                risk["contribution_pct"] = 0.0
+            readiness["reasons"] = reasons
         risk_aging = self._build_release_risk_aging(
             session=session,
             release_id=release_id,
@@ -255,13 +340,13 @@ class SignalService:
     def _evaluate_signal_with_details(
         open_blockers: int,
         open_high_severity_bugs: int,
-        scope_churn_7d_pct: float,
-        reopen_rate_pct: float,
+        scope_churn_7d_pct: float | None,
+        reopen_rate_pct: float | None,
         median_cycle_time_days: float | None,
     ) -> tuple[str, list[str], list[dict[str, str | int | float]]]:
         """Apply deterministic rules and return signal, reasons, and structured reason details."""
-        churn_ratio = scope_churn_7d_pct / 100.0
-        reopen_ratio = reopen_rate_pct / 100.0
+        churn_ratio = scope_churn_7d_pct / 100.0 if scope_churn_7d_pct is not None else None
+        reopen_ratio = reopen_rate_pct / 100.0 if reopen_rate_pct is not None else None
 
         red_reasons: list[str] = []
         red_details: list[dict[str, str | int | float]] = []
@@ -296,7 +381,7 @@ class SignalService:
                 }
             )
 
-        if churn_ratio > SCOPE_CHURN_RED_THRESHOLD:
+        if churn_ratio is not None and churn_ratio > SCOPE_CHURN_RED_THRESHOLD:
             threshold_pct = SCOPE_CHURN_RED_THRESHOLD * 100
             message = f"Scope churn: {scope_churn_7d_pct:.1f}% > {threshold_pct:.0f}%"
             red_reasons.append(message)
@@ -311,9 +396,9 @@ class SignalService:
                 }
             )
 
-        if reopen_ratio > REOPEN_RATE_RED_THRESHOLD:
+        if reopen_ratio is not None and reopen_ratio > REOPEN_RATE_RED_THRESHOLD:
             threshold_pct = REOPEN_RATE_RED_THRESHOLD * 100
-            message = f"Reopen rate: {reopen_rate_pct:.1f}% > {threshold_pct:.0f}%"
+            message = f"Reopen events per 100 eligible tickets: {reopen_rate_pct:.1f}% > {threshold_pct:.0f}%"
             red_reasons.append(message)
             red_details.append(
                 {
@@ -349,7 +434,10 @@ class SignalService:
                 }
             )
 
-        if SCOPE_CHURN_YELLOW_THRESHOLD < churn_ratio <= SCOPE_CHURN_RED_THRESHOLD:
+        if (
+            churn_ratio is not None
+            and SCOPE_CHURN_YELLOW_THRESHOLD < churn_ratio <= SCOPE_CHURN_RED_THRESHOLD
+        ):
             threshold_pct = SCOPE_CHURN_YELLOW_THRESHOLD * 100
             message = f"Scope churn: {scope_churn_7d_pct:.1f}% > {threshold_pct:.0f}%"
             yellow_reasons.append(message)
@@ -364,9 +452,12 @@ class SignalService:
                 }
             )
 
-        if REOPEN_RATE_YELLOW_THRESHOLD < reopen_ratio <= REOPEN_RATE_RED_THRESHOLD:
+        if (
+            reopen_ratio is not None
+            and REOPEN_RATE_YELLOW_THRESHOLD < reopen_ratio <= REOPEN_RATE_RED_THRESHOLD
+        ):
             threshold_pct = REOPEN_RATE_YELLOW_THRESHOLD * 100
-            message = f"Reopen rate: {reopen_rate_pct:.1f}% > {threshold_pct:.0f}%"
+            message = f"Reopen events per 100 eligible tickets: {reopen_rate_pct:.1f}% > {threshold_pct:.0f}%"
             yellow_reasons.append(message)
             yellow_details.append(
                 {
@@ -395,16 +486,23 @@ class SignalService:
                 }
             )
 
-        confidence_score = SignalService._compute_release_confidence_score(
-            open_blockers=open_blockers,
-            open_high_severity_bugs=open_high_severity_bugs,
-            scope_churn_7d_pct=scope_churn_7d_pct,
-            reopen_rate_pct=reopen_rate_pct,
-            median_cycle_time_days=median_cycle_time_days,
-        )
-        confidence_signal = SignalService._signal_from_confidence_score(confidence_score)
         hard_rule_signal = "RED" if red_details else "YELLOW" if yellow_details else "GREEN"
-        signal = SignalService._most_severe_signal(hard_rule_signal, confidence_signal)
+        if (
+            scope_churn_7d_pct is None
+            or reopen_rate_pct is None
+            or median_cycle_time_days is None
+        ):
+            signal = "RED" if hard_rule_signal == "RED" else "INCONCLUSIVE"
+        else:
+            confidence_score = SignalService._compute_release_confidence_score(
+                open_blockers=open_blockers,
+                open_high_severity_bugs=open_high_severity_bugs,
+                scope_churn_7d_pct=scope_churn_7d_pct,
+                reopen_rate_pct=reopen_rate_pct,
+                median_cycle_time_days=median_cycle_time_days,
+            )
+            confidence_signal = SignalService._signal_from_confidence_score(confidence_score)
+            signal = SignalService._most_severe_signal(hard_rule_signal, confidence_signal)
         reasons = [*red_reasons, *yellow_reasons]
         details = [*red_details, *yellow_details]
         if not reasons:
@@ -417,8 +515,8 @@ class SignalService:
         signal: str | None,
         open_blockers: int,
         open_high_severity_bugs: int,
-        scope_churn_7d_pct: float,
-        reopen_rate_pct: float,
+        scope_churn_7d_pct: float | None,
+        reopen_rate_pct: float | None,
         median_cycle_time_days: float | None,
     ) -> dict[str, object]:
         """Build deterministic release-readiness details for the signal UI."""
@@ -444,22 +542,34 @@ class SignalService:
                 "comparison": "<=",
                 "threshold": HIGH_SEVERITY_BUGS_RED_THRESHOLD,
             },
-            {
-                "metric_name": "scope_churn_7d_pct",
-                "label": f"Scope churn <= {scope_churn_red_pct:.0f}%",
-                "passed": scope_churn_7d_pct <= scope_churn_red_pct,
-                "value": scope_churn_7d_pct,
-                "comparison": "<=",
-                "threshold": float(scope_churn_red_pct),
-            },
-            {
-                "metric_name": "reopen_rate_pct",
-                "label": f"Reopen rate <= {reopen_rate_red_pct:.0f}%",
-                "passed": reopen_rate_pct <= reopen_rate_red_pct,
-                "value": reopen_rate_pct,
-                "comparison": "<=",
-                "threshold": float(reopen_rate_red_pct),
-            },
+            *(
+                [
+                    {
+                        "metric_name": "scope_churn_7d_pct",
+                        "label": f"Scope churn <= {scope_churn_red_pct:.0f}%",
+                        "passed": scope_churn_7d_pct <= scope_churn_red_pct,
+                        "value": scope_churn_7d_pct,
+                        "comparison": "<=",
+                        "threshold": float(scope_churn_red_pct),
+                    }
+                ]
+                if scope_churn_7d_pct is not None
+                else []
+            ),
+            *(
+                [
+                    {
+                        "metric_name": "reopen_rate_pct",
+                        "label": f"Reopen events per 100 eligible tickets <= {reopen_rate_red_pct:.0f}%",
+                        "passed": reopen_rate_pct <= reopen_rate_red_pct,
+                        "value": reopen_rate_pct,
+                        "comparison": "<=",
+                        "threshold": float(reopen_rate_red_pct),
+                    }
+                ]
+                if reopen_rate_pct is not None
+                else []
+            ),
             {
                 "metric_name": "median_cycle_time_days",
                 "label": f"Cycle time <= {CYCLE_TIME_YELLOW_THRESHOLD_DAYS:.0f}d",
@@ -513,7 +623,7 @@ class SignalService:
                 }
             )
 
-        if scope_churn_7d_pct > scope_churn_red_pct:
+        if scope_churn_7d_pct is not None and scope_churn_7d_pct > scope_churn_red_pct:
             warnings.append(
                 {
                     "metric_name": "scope_churn_7d_pct",
@@ -523,7 +633,7 @@ class SignalService:
                     "contribution_pct": 0.0,
                 }
             )
-        elif scope_churn_7d_pct > scope_churn_yellow_pct:
+        elif scope_churn_7d_pct is not None and scope_churn_7d_pct > scope_churn_yellow_pct:
             warnings.append(
                 {
                     "metric_name": "scope_churn_7d_pct",
@@ -534,22 +644,22 @@ class SignalService:
                 }
             )
 
-        if reopen_rate_pct > reopen_rate_red_pct:
+        if reopen_rate_pct is not None and reopen_rate_pct > reopen_rate_red_pct:
             warnings.append(
                 {
                     "metric_name": "reopen_rate_pct",
                     "level": "WARNING",
-                    "message": "Reopen rate exceeds target",
+                    "message": "Reopen events per 100 eligible tickets exceed target",
                     "value": reopen_rate_pct,
                     "contribution_pct": 0.0,
                 }
             )
-        elif reopen_rate_pct > reopen_rate_yellow_pct:
+        elif reopen_rate_pct is not None and reopen_rate_pct > reopen_rate_yellow_pct:
             warnings.append(
                 {
                     "metric_name": "reopen_rate_pct",
                     "level": "WARNING",
-                    "message": "Reopen rate exceeds target",
+                    "message": "Reopen events per 100 eligible tickets exceed target",
                     "value": reopen_rate_pct,
                     "contribution_pct": 0.0,
                 }
@@ -567,12 +677,20 @@ class SignalService:
             )
 
         total_risk_points = sum(risk_points.values())
-        confidence_score = SignalService._compute_release_confidence_score(
-            open_blockers=open_blockers,
-            open_high_severity_bugs=open_high_severity_bugs,
-            scope_churn_7d_pct=scope_churn_7d_pct,
-            reopen_rate_pct=reopen_rate_pct,
-            median_cycle_time_days=median_cycle_time_days,
+        confidence_score = (
+            SignalService._compute_release_confidence_score(
+                open_blockers=open_blockers,
+                open_high_severity_bugs=open_high_severity_bugs,
+                scope_churn_7d_pct=scope_churn_7d_pct,
+                reopen_rate_pct=reopen_rate_pct,
+                median_cycle_time_days=median_cycle_time_days,
+            )
+            if (
+                scope_churn_7d_pct is not None
+                and reopen_rate_pct is not None
+                and median_cycle_time_days is not None
+            )
+            else None
         )
         computed_signal, _, _ = SignalService._evaluate_signal_with_details(
             open_blockers=open_blockers,
@@ -596,7 +714,7 @@ class SignalService:
                 "open_blockers": "Open blockers",
                 "open_high_severity_bugs": "High severity bugs",
                 "scope_churn_7d_pct": "Scope churn",
-                "reopen_rate_pct": "Reopen rate",
+                "reopen_rate_pct": "Reopen events per 100 eligible tickets",
                 "median_cycle_time_days": "Cycle time",
             }
             primary_risk = {
@@ -613,11 +731,13 @@ class SignalService:
             "RED": "NOT READY FOR RELEASE",
             "YELLOW": "RELEASE NEEDS ATTENTION",
             "GREEN": "READY FOR RELEASE",
+            "INCONCLUSIVE": "INCONCLUSIVE",
         }
         summaries = {
             "RED": "Current release confidence is in the red band.",
             "YELLOW": "Current release confidence is in the yellow band.",
             "GREEN": "Current release confidence is in the green band.",
+            "INCONCLUSIVE": "Release status is inconclusive because required metric inputs are unavailable or incomplete.",
         }
 
         return {
@@ -760,6 +880,7 @@ class SignalService:
             "GREEN": "ON TRACK",
             "YELLOW": "NEEDS ATTENTION",
             "RED": "AT RISK",
+            "INCONCLUSIVE": "INCONCLUSIVE",
         }
         snapshot_at = (
             _coerce_utc(latest_snapshot.snapshot_at) if latest_snapshot is not None else None
@@ -850,17 +971,19 @@ class SignalService:
             )
 
         if risk_type == "blockers":
-            return list(
-                session.scalars(
-                    select(Issue)
-                    .where(
-                        Issue.release_id == release_id,
-                        Issue.is_blocker.is_(True),
-                        func.lower(Issue.status).not_in(field_mapper.done_statuses),
-                    )
-                    .order_by(Issue.issue_key)
-                ).all()
-            )
+            issues = session.scalars(
+                select(Issue).where(Issue.release_id == release_id).order_by(Issue.issue_key)
+            ).all()
+            return [
+                issue
+                for issue in issues
+                if field_mapper.classify_blocker(
+                    issue_type=issue.issue_type,
+                    severity=issue.priority,
+                    status=issue.status,
+                    blocker_flag=issue.jira_blocker_flag,
+                )
+            ]
 
         if risk_type == "high_severity_bugs":
             return list(
@@ -868,7 +991,7 @@ class SignalService:
                     select(Issue)
                     .where(
                         Issue.release_id == release_id,
-                        func.lower(Issue.issue_type) == "bug",
+                        func.lower(Issue.issue_type).in_(field_mapper.bug_issue_types),
                         func.lower(Issue.priority).in_(field_mapper.high_severity_values),
                         func.lower(Issue.status).not_in(field_mapper.done_statuses),
                     )
@@ -959,15 +1082,7 @@ class SignalService:
         if not issue.jira_changelog_complete:
             return {"risk_started_at": None, "source_field": None, "source_changed_at": None}
 
-        derived_blocker_without_flag = field_mapper.classify_blocker(
-            issue_type=issue.issue_type,
-            severity=issue.priority,
-            status=issue.status,
-            blocker_flag=None,
-        )
         current_blocker_flag = issue.jira_blocker_flag
-        if current_blocker_flag is None and issue.is_blocker and not derived_blocker_without_flag:
-            current_blocker_flag = True
         state: dict[str, object] = {
             "status": issue.status,
             "priority": issue.priority,
@@ -989,7 +1104,7 @@ class SignalService:
                 )
             if risk_type == "high_severity_bugs":
                 return (
-                    str(state["issue_type"] or "").casefold() == "bug"
+                    field_mapper.is_bug(str(state["issue_type"] or ""))
                     and field_mapper.is_high_severity(
                         str(state["priority"]) if state["priority"] is not None else None
                     )

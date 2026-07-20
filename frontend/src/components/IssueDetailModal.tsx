@@ -75,9 +75,9 @@ export function IssueDetailModal({ issueKey, onClose }: IssueDetailModalProps) {
             <dt>Summary</dt>
             <dd>{issue.summary}</dd>
             <dt>Type</dt>
-            <dd>{issue.issue_type}</dd>
+            <dd>{issue.issue_type ?? "Unavailable"}</dd>
             <dt>Status</dt>
-            <dd>{issue.status}</dd>
+            <dd>{issue.status ?? "Unavailable"}</dd>
             <dt>Priority</dt>
             <dd>{issue.priority ?? "N/A"}</dd>
             <dt>Assignee</dt>

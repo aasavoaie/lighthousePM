@@ -30,8 +30,6 @@ from app.schemas.deltas import (
     SnapshotDeltaComparison,
 )
 from app.services.analytics_service import AnalyticsService
-from app.services.confidence_breakdown_service import ConfidenceBreakdownService
-from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.jira_field_mapper import JiraFieldMapper
 from app.services.metric_availability_service import (
     MetricAvailabilityService,
@@ -56,6 +54,12 @@ logger = logging.getLogger(__name__)
 RULESET_MISMATCH_REASON = "Snapshot comparison unavailable because ruleset versions differ."
 LEGACY_RELEASE_CONFIDENCE_REASON = (
     "Derived legacy release confidence is unavailable because it was not stored at calculation time."
+)
+INCONCLUSIVE_RELEASE_CONFIDENCE_REASON = (
+    "Snapshot comparison unavailable because release confidence is inconclusive for one or both snapshots."
+)
+UNAVAILABLE_RELEASE_CONFIDENCE_REASON = (
+    "Snapshot comparison unavailable because release confidence is unavailable for one or both snapshots."
 )
 
 METRIC_NAMES = [
@@ -100,6 +104,15 @@ def _build_release_gate_values(snapshot) -> tuple[int | None, int, float | None]
     passed = sum(1 for gate in gates if isinstance(gate, dict) and gate.get("passed") is True)
     readiness_pct = outputs.get("readiness_pct") if isinstance(outputs, dict) else None
     return passed, total, readiness_pct
+
+
+def _stored_metric_value(snapshot, metric_name: str, value):
+    availability = (snapshot.calculation_provenance or {}).get("availability", {})
+    metrics = availability.get("metrics", {}) if isinstance(availability, dict) else {}
+    item = metrics.get(metric_name, {}) if isinstance(metrics, dict) else {}
+    if isinstance(item, dict) and item.get("available") is False:
+        return None
+    return value
 
 
 def _release_gates_total() -> int:
@@ -158,6 +171,11 @@ def _build_release_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
             previous_snapshot is not None
             and previous_snapshot.ruleset_version != snapshot.ruleset_version
         )
+        classification_reason = (
+            SnapshotComparisonService.classification_unavailable_reason(snapshot, previous_snapshot)
+            if previous_snapshot is not None and not version_boundary
+            else None
+        )
         if previous_snapshot is None:
             items.append(
                 SnapshotChangeHistoryItem(
@@ -184,7 +202,25 @@ def _build_release_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
                     comparison_unavailable_reason=RULESET_MISMATCH_REASON,
                 )
             )
+        elif classification_reason is not None:
+            items.append(
+                SnapshotChangeHistoryItem(
+                    date=snapshot.snapshot_at,
+                    ruleset_version=snapshot.ruleset_version,
+                    version_boundary=False,
+                    confidence=confidence,
+                    delta=None,
+                    primary_driver="Classification boundary",
+                    comparison_unavailable_reason=classification_reason,
+                )
+            )
         elif confidence is None or previous_snapshot.confidence_score is None:
+            unavailable_reason = (
+                INCONCLUSIVE_RELEASE_CONFIDENCE_REASON
+                if snapshot.confidence_status == "PARTIAL"
+                or previous_snapshot.confidence_status == "PARTIAL"
+                else UNAVAILABLE_RELEASE_CONFIDENCE_REASON
+            )
             items.append(
                 SnapshotChangeHistoryItem(
                     date=snapshot.snapshot_at,
@@ -193,7 +229,7 @@ def _build_release_history_items(snapshots) -> list[SnapshotChangeHistoryItem]:
                     confidence=confidence,
                     delta=None,
                     primary_driver="Not available",
-                    comparison_unavailable_reason=LEGACY_RELEASE_CONFIDENCE_REASON,
+                    comparison_unavailable_reason=unavailable_reason,
                 )
             )
         else:
@@ -260,6 +296,7 @@ def get_release_metrics(
             metric_issue_keys=MetricIssueKeys(
                 open_blockers=[],
                 open_high_severity_bugs=[],
+                completed_tickets=[],
             ),
             metric_names=METRIC_NAMES,
             metric_availability=metric_availability,
@@ -310,19 +347,48 @@ def get_release_metrics(
         computation_status=computation_status,
         unavailable_reason=unavailable_reason,
         metrics=MetricValues(
-            open_blockers=snapshot.open_blockers,
-            open_high_severity_bugs=snapshot.open_high_severity_bugs,
-            scope_completed_pct=snapshot.scope_completed_pct,
-            completed_tickets=snapshot.completed_tickets,
-            scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
-            scope_added_7d_count=snapshot.scope_added_7d_count,
-            scope_removed_7d_count=snapshot.scope_removed_7d_count,
+            open_blockers=_stored_metric_value(snapshot, "open_blockers", snapshot.open_blockers),
+            open_high_severity_bugs=_stored_metric_value(
+                snapshot,
+                "open_high_severity_bugs",
+                snapshot.open_high_severity_bugs,
+            ),
+            scope_completed_pct=_stored_metric_value(
+                snapshot,
+                "scope_completed_pct",
+                snapshot.scope_completed_pct,
+            ),
+            completed_tickets=_stored_metric_value(
+                snapshot,
+                "completed_tickets",
+                snapshot.completed_tickets,
+            ),
+            scope_churn_7d_pct=_stored_metric_value(
+                snapshot,
+                "scope_churn_7d_pct",
+                snapshot.scope_churn_7d_pct,
+            ),
+            scope_added_7d_count=_stored_metric_value(
+                snapshot,
+                "scope_added_7d_count",
+                snapshot.scope_added_7d_count,
+            ),
+            scope_removed_7d_count=_stored_metric_value(
+                snapshot,
+                "scope_removed_7d_count",
+                snapshot.scope_removed_7d_count,
+            ),
             median_cycle_time_days=snapshot.median_cycle_time_days,
             reopen_rate_pct=snapshot.reopen_rate_pct,
         ),
         metric_issue_keys=MetricIssueKeys(
             open_blockers=snapshot.open_blocker_issue_keys,
             open_high_severity_bugs=snapshot.open_high_severity_bug_issue_keys,
+            completed_tickets=(
+                provenance.get("issue_key_evidence", {}).get("completed_tickets", [])
+                if snapshot.ruleset_version > 0
+                else []
+            ),
         ),
         metric_names=METRIC_NAMES,
         metric_availability=metric_availability,
@@ -391,31 +457,65 @@ def get_release_charts(
         release_id=release_id,
         series=MetricSeries(
             open_blockers=[
-                chart_point(snapshot, snapshot.open_blockers)
+                chart_point(snapshot, _stored_metric_value(snapshot, "open_blockers", snapshot.open_blockers))
                 for snapshot in snapshots
             ],
             open_high_severity_bugs=[
-                chart_point(snapshot, snapshot.open_high_severity_bugs)
+                chart_point(
+                    snapshot,
+                    _stored_metric_value(
+                        snapshot,
+                        "open_high_severity_bugs",
+                        snapshot.open_high_severity_bugs,
+                    ),
+                )
                 for snapshot in snapshots
             ],
             scope_completed_pct=[
-                chart_point(snapshot, snapshot.scope_completed_pct)
+                chart_point(
+                    snapshot,
+                    _stored_metric_value(snapshot, "scope_completed_pct", snapshot.scope_completed_pct),
+                )
                 for snapshot in snapshots
             ],
             completed_tickets=[
-                chart_point(snapshot, snapshot.completed_tickets)
+                chart_point(
+                    snapshot,
+                    _stored_metric_value(snapshot, "completed_tickets", snapshot.completed_tickets),
+                )
                 for snapshot in snapshots
             ],
             scope_churn_7d_pct=[
-                chart_point(snapshot, snapshot.scope_churn_7d_pct)
+                chart_point(
+                    snapshot,
+                    _stored_metric_value(
+                        snapshot,
+                        "scope_churn_7d_pct",
+                        snapshot.scope_churn_7d_pct,
+                    ),
+                )
                 for snapshot in snapshots
             ],
             scope_added_7d_count=[
-                chart_point(snapshot, snapshot.scope_added_7d_count)
+                chart_point(
+                    snapshot,
+                    _stored_metric_value(
+                        snapshot,
+                        "scope_added_7d_count",
+                        snapshot.scope_added_7d_count,
+                    ),
+                )
                 for snapshot in snapshots
             ],
             scope_removed_7d_count=[
-                chart_point(snapshot, snapshot.scope_removed_7d_count)
+                chart_point(
+                    snapshot,
+                    _stored_metric_value(
+                        snapshot,
+                        "scope_removed_7d_count",
+                        snapshot.scope_removed_7d_count,
+                    ),
+                )
                 for snapshot in snapshots
             ],
             median_cycle_time_days=[
@@ -499,6 +599,42 @@ def get_release_snapshot_comparison(
             current_ruleset_version=0,
             baseline_ruleset_version=0,
             unavailable_reason=LEGACY_RELEASE_CONFIDENCE_REASON,
+            comparison=SnapshotDeltaComparison(confidence_delta=None, contributors=[]),
+        )
+
+    classification_reason = SnapshotComparisonService.classification_unavailable_reason(
+        current_snapshot,
+        baseline_snapshot,
+    )
+    if classification_reason is not None:
+        return SnapshotComparisonResponse(
+            entity_id=release_id,
+            baseline=baseline,
+            current_snapshot_at=current_snapshot.snapshot_at,
+            baseline_snapshot_at=baseline_snapshot.snapshot_at,
+            has_baseline=True,
+            current_ruleset_version=current_snapshot.ruleset_version,
+            baseline_ruleset_version=baseline_snapshot.ruleset_version,
+            unavailable_reason=classification_reason,
+            comparison=SnapshotDeltaComparison(confidence_delta=None, contributors=[]),
+        )
+
+    if current_snapshot.confidence_score is None or baseline_snapshot.confidence_score is None:
+        unavailable_reason = (
+            INCONCLUSIVE_RELEASE_CONFIDENCE_REASON
+            if current_snapshot.confidence_status == "PARTIAL"
+            or baseline_snapshot.confidence_status == "PARTIAL"
+            else UNAVAILABLE_RELEASE_CONFIDENCE_REASON
+        )
+        return SnapshotComparisonResponse(
+            entity_id=release_id,
+            baseline=baseline,
+            current_snapshot_at=current_snapshot.snapshot_at,
+            baseline_snapshot_at=baseline_snapshot.snapshot_at,
+            has_baseline=True,
+            current_ruleset_version=current_snapshot.ruleset_version,
+            baseline_ruleset_version=baseline_snapshot.ruleset_version,
+            unavailable_reason=unavailable_reason,
             comparison=SnapshotDeltaComparison(confidence_delta=None, contributors=[]),
         )
 

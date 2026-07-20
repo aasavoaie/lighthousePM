@@ -26,6 +26,7 @@ class MetricValues(BaseModel):
 class MetricIssueKeys(BaseModel):
     open_blockers: list[str]
     open_high_severity_bugs: list[str]
+    completed_tickets: list[str]
 
 
 class MetricThresholds(BaseModel):

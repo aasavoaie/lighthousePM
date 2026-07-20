@@ -45,8 +45,7 @@ import {
   generateFocusAreas,
   getGroupSummary,
   getMetricStatus,
-  getSprintMetricAvailabilityReason,
-  getSprintMetricUnavailableBadge,
+  getSprintMetricDisplay,
   getSprintStoryPointUnavailableReason,
   type MetricEvaluation,
 } from "./sprintMetrics";
@@ -90,30 +89,32 @@ const committedStoryPointColor = MetricColors.committedScope;
 const completedStoryPointColor = MetricColors.completedScope;
 
 const sprintMetricLabels: Record<keyof SprintMetricValues, string> = {
-  committed_scope: "Committed scope",
+  committed_scope: "Current sprint scope",
   completed_scope_pct: "Completed scope",
   open_blockers: "Open blockers",
   open_high_severity_bugs: "Open high-severity bugs",
   bugs_created_during_sprint: "Bugs created during sprint",
   in_progress_count: "In progress",
   not_started_count: "Not started",
-  rollover_count: "Rollover",
+  rollover_count: "Unfinished closed-sprint scope",
   median_cycle_time_days: "Median cycle time",
-  reopen_rate_pct: "Reopen rate",
+  reopen_rate_pct: "Reopen events per 100 eligible tickets",
+  workload_concentration_pct: "Workload concentration",
   delivery_confidence_score: "Delivery confidence",
 };
 
 const sprintMetricInfoText: Record<keyof SprintMetricValues, string> = {
-  committed_scope: "Issues explicitly linked to this sprint.",
-  completed_scope_pct: "Shows how much committed work is already done.",
+  committed_scope: "Distinct tickets currently assigned to this sprint.",
+  completed_scope_pct: "Percentage of current sprint tickets whose status is done.",
   open_blockers: "Open blockers can stop delivery and should be cleared quickly.",
   open_high_severity_bugs: "Open high-severity bugs indicate quality risk inside the sprint.",
   bugs_created_during_sprint: "New bugs created during the sprint can displace planned work.",
-  in_progress_count: "Active work currently moving through the sprint.",
-  not_started_count: "Committed work that has not started yet.",
-  rollover_count: "Work that did not finish by sprint close.",
+  in_progress_count: "Current sprint tickets whose status is configured as in progress.",
+  not_started_count: "Current sprint tickets with a known status outside the configured done and in-progress sets.",
+  rollover_count: "Current non-done tickets in a closed sprint; this does not prove movement into another sprint.",
   median_cycle_time_days: "Typical time from active work start to done.",
-  reopen_rate_pct: "Reopened work signals quality or acceptance churn.",
+  reopen_rate_pct: "Counts every done-to-not-done transition per 100 eligible tickets; one ticket can contribute more than one event.",
+  workload_concentration_pct: "Authoritative share of included active sprint story points owned by the top assignee.",
   delivery_confidence_score: "Composite score from progress, velocity, blockers, and scope stability.",
 };
 
@@ -132,7 +133,11 @@ function formatMetricValue(metricName: keyof SprintMetricValues, value: number |
   ) {
     return String(value);
   }
-  if (metricName === "completed_scope_pct" || metricName === "reopen_rate_pct") {
+  if (
+    metricName === "completed_scope_pct"
+    || metricName === "reopen_rate_pct"
+    || metricName === "workload_concentration_pct"
+  ) {
     return `${value.toFixed(2)}%`;
   }
   return value.toFixed(2);
@@ -248,7 +253,7 @@ function getMetricContext(
     if (confidence) {
       return `${Number(confidence.inputs.completed_effective_points.toFixed(2))} of ${Number(confidence.inputs.committed_effective_points.toFixed(2))} pts completed`;
     }
-    return `${formatPercent(value)} of committed scope is done`;
+    return `${formatPercent(value)} of current sprint scope is done`;
   }
   if (metricName === "open_blockers") {
     return value === 0 ? "No open blockers" : `${value} open blockers`;
@@ -263,10 +268,14 @@ function getMetricContext(
     return `${formatMetricValue(metricName, value)} day median cycle time`;
   }
   if (metricName === "reopen_rate_pct") {
-    return value === 0 ? "No reopened work" : `${formatPercent(value)} of sprint work reopened`;
+    return value === 0
+      ? "No reopen events among eligible tickets"
+      : `${formatPercent(value)} (${value.toFixed(2)} reopen events per 100 eligible tickets)`;
   }
   if (metricName === "rollover_count") {
-    return value === 0 ? "No rollover" : `${value} issues rolled over`;
+    return value === 0
+      ? "No unfinished tickets in the closed sprint scope"
+      : `${value} current closed-sprint tickets unfinished`;
   }
   return sprintMetricLabels[metricName];
 }
@@ -295,9 +304,9 @@ function buildBaseMetricEvaluation(
   } else if (metricName === "open_blockers") {
     focusMessage = "Open blockers require attention.";
   } else if (metricName === "rollover_count") {
-    focusMessage = `Rollover is ${formattedValue}.`;
+    focusMessage = `Unfinished closed-sprint scope is ${formattedValue}.`;
   } else if (metricName === "reopen_rate_pct") {
-    focusMessage = `Reopen rate is ${formattedValue}.`;
+    focusMessage = `Reopen events per 100 eligible tickets are ${formattedValue}.`;
   } else if (metricName === "median_cycle_time_days") {
     focusMessage = `Median cycle time is ${formattedValue} days.`;
   } else if (metricName === "bugs_created_during_sprint") {
@@ -388,7 +397,7 @@ function renderDeliveryConfidence(confidence: DeliveryConfidenceDetail) {
           <h3>Sprint Snapshot</h3>
         </div>
         <dl className="confidence-inputs">
-          <dt>Committed scope</dt>
+          <dt>Current pointed scope</dt>
           <dd>{formatPoints(confidence.inputs.committed_effective_points)}</dd>
           <dt>Completed scope</dt>
           <dd>{formatPoints(confidence.inputs.completed_effective_points)}</dd>
@@ -610,6 +619,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   const storyPointUnavailableReason = getSprintStoryPointUnavailableReason(metrics);
   const storyPointExplanations = metrics?.delivery_confidence_explanations ?? [];
   const storyPointUnavailableMessage = storyPointExplanations[0] ?? storyPointUnavailableReason;
+  const deliveryConfidenceMissingIssueKeys = metrics?.metric_availability?.metrics
+    .delivery_confidence_score?.missing_issue_keys ?? [];
   const hasStoryPointMetrics = storyPointUi.hasStoryPointMetrics;
   const predictabilityRows = useMemo(
     () =>
@@ -638,11 +649,11 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     [storyPointUi.showTeamPredictability, predictabilityRows]
   );
   const workDistributionCard = useMemo(
-    () => buildWorkDistributionDisplayModel(issues, metrics?.delivery_confidence_status),
-    [issues, metrics?.delivery_confidence_status]
+    () => buildWorkDistributionDisplayModel(metrics?.workload_distribution),
+    [metrics?.workload_distribution]
   );
   const sprintWorkStateCard = useMemo(
-    () => (metrics ? buildSprintWorkStateDisplayModel(metrics.metrics, issues) : null),
+    () => (metrics ? buildSprintWorkStateDisplayModel(metrics, issues) : null),
     [metrics, issues]
   );
   const deliveryConfidence = storyPointUi.showPointValues ? metrics?.delivery_confidence ?? null : null;
@@ -785,21 +796,30 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
       return null;
     }
     const value = metrics.metrics[metricName];
-    const unavailableReason = getSprintMetricAvailabilityReason(metrics, metricName);
-    const unavailableBadge = getSprintMetricUnavailableBadge(unavailableReason);
-    const status = unavailableReason ? "neutral" : getMetricStatus(metricName, value);
+    const availabilityDisplay = getSprintMetricDisplay(metrics, metricName);
+    const availabilityExplanations = availabilityDisplay.explanations.filter(
+      (explanation) => explanation !== availabilityDisplay.reason
+    );
+    const missingStatusDetail = availabilityDisplay.missingIssueKeys.length > 0
+      ? `Missing status: ${availabilityDisplay.missingIssueKeys.join(", ")}`
+      : null;
+    const status = availabilityDisplay.isAvailable ? getMetricStatus(metricName, value) : "neutral";
     return (
       <MetricStatusCard
         key={metricName}
         title={sprintMetricLabels[metricName]}
-        value={unavailableReason ? "N/A" : formatMetricValue(metricName, value)}
+        value={availabilityDisplay.value ?? formatMetricValue(metricName, value)}
         status={status}
         comparison={getMetricContext(metricName, metrics, deliveryConfidence)}
         comparisonImpact={getMetricImpact(status)}
-        details={unavailableReason ? [unavailableReason] : []}
-        infoText={unavailableReason ?? sprintMetricInfoText[metricName]}
-        badge={unavailableBadge}
-        badgeTitle={unavailableReason}
+        details={[
+          ...(availabilityDisplay.reason ? [availabilityDisplay.reason] : []),
+          ...availabilityExplanations,
+          ...(missingStatusDetail ? [missingStatusDetail] : []),
+        ]}
+        infoText={availabilityDisplay.reason ?? sprintMetricInfoText[metricName]}
+        badge={availabilityDisplay.badge}
+        badgeTitle={availabilityDisplay.reason}
       >
         {renderMetricIssueKeys(metricName, value, metrics, issuesByKey, onSelectIssue)}
       </MetricStatusCard>
@@ -1085,7 +1105,15 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         ) : null}
         {!isLoadingDetails && storyPointUi.showStoryPointUnavailableMessage ? (
           <div className="muted">
+            {metrics?.delivery_confidence_status === "INCONCLUSIVE" ? (
+              <p>
+                <span className="metric-muted-badge">Inconclusive</span>
+              </p>
+            ) : null}
             {storyPointExplanations.map((explanation) => <p key={explanation}>{explanation}</p>)}
+            {deliveryConfidenceMissingIssueKeys.length > 0 ? (
+              <p>Missing evidence: {deliveryConfidenceMissingIssueKeys.join(", ")}</p>
+            ) : null}
           </div>
         ) : null}
         {!isLoadingDetails && deliveryConfidence ? (
@@ -1205,6 +1233,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                     comparison={workDistributionCard.comparison}
                     comparisonImpact={workDistributionCard.impact}
                     details={workDistributionCard.details}
+                    badge={workDistributionCard.badge}
+                    badgeTitle={workDistributionCard.badgeTitle}
                     infoText="Shows whether active sprint work is concentrated with one assignee."
                   />
                 </MetricCategorySection>
@@ -1217,7 +1247,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                       comparison={sprintWorkStateCard.comparison}
                       comparisonImpact={sprintWorkStateCard.impact}
                       details={sprintWorkStateCard.details}
-                      infoText="Condenses committed, active, not-started, done, and rollover work into one scan-friendly card."
+                      infoText="Condenses current sprint scope, in-progress, not-started, done, and applicable unfinished closed-sprint work into one scan-friendly card."
+                      badge={sprintWorkStateCard.badge}
+                      badgeTitle={sprintWorkStateCard.badgeTitle}
                     />
                   </MetricCategorySection>
                 ) : null}
@@ -1494,11 +1526,15 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                 data={sprintChartRows}
                 height={220}
                 lines={[
-                  { key: "reopen_rate_pct", label: "Reopen rate %", color: MetricColors.reopenRate },
+                  {
+                    key: "reopen_rate_pct",
+                    label: "Reopen events per 100 eligible tickets",
+                    color: MetricColors.reopenRate,
+                  },
                 ]}
                 dataKey="name"
                 formatter={formatChartValue}
-                yDomain={[0, 100]}
+                yDomain={[0, "auto"]}
                 yTickFormatter={(value) => `${Math.round(value)}%`}
               />
             ) : null}
@@ -1675,7 +1711,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
                           </button>
                         </td>
                         <td>{issue.summary}</td>
-                        <td>{issue.status}</td>
+                        <td>{issue.status ?? "Unavailable"}</td>
                         <td>{issue.priority ?? "None"}</td>
                         <td>{issue.story_points ?? "None"}</td>
                         <td>{issue.in_initial_scope ? "Yes" : "No"}</td>

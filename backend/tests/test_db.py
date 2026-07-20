@@ -123,9 +123,17 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         migrate_database(database_engine)
         schema = inspect(database_engine)
         table_names = set(schema.get_table_names())
-        issue_columns = {column["name"] for column in schema.get_columns("issues")}
-        metric_columns = {column["name"] for column in schema.get_columns("metric_snapshots")}
+        issue_column_details = {column["name"]: column for column in schema.get_columns("issues")}
+        issue_columns = set(issue_column_details)
+        metric_column_details = {
+            column["name"]: column for column in schema.get_columns("metric_snapshots")
+        }
+        metric_columns = set(metric_column_details)
         sprint_metric_columns = {column["name"] for column in schema.get_columns("sprint_metric_snapshots")}
+        sprint_metric_column_details = {
+            column["name"]: column
+            for column in schema.get_columns("sprint_metric_snapshots")
+        }
         signal_columns = {column["name"] for column in schema.get_columns("release_signals")}
     finally:
         database_engine.dispose()
@@ -158,7 +166,16 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "jira_updated_at",
         "jira_blocker_flag",
         "jira_changelog_complete",
+        "jira_assignee_id",
     }.issubset(issue_columns)
+    assert issue_column_details["issue_type"]["nullable"] is True
+    assert issue_column_details["status"]["nullable"] is True
+    assert metric_column_details["scope_churn_7d_pct"]["nullable"] is True
+    assert sprint_metric_column_details["committed_scope"]["nullable"] is True
+    assert sprint_metric_column_details["completed_scope_pct"]["nullable"] is True
+    assert sprint_metric_column_details["in_progress_count"]["nullable"] is True
+    assert sprint_metric_column_details["not_started_count"]["nullable"] is True
+    assert sprint_metric_column_details["rollover_count"]["nullable"] is True
     assert {
         "bugs_created_during_sprint",
         "bugs_created_during_sprint_issue_keys",
@@ -169,6 +186,10 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "delivery_confidence_score",
         "delivery_confidence_status",
         "delivery_confidence_explanations",
+        "workload_concentration_pct",
+        "workload_distribution_status",
+        "workload_distribution_explanations",
+        "workload_distribution_evidence",
         "story_point_total_count",
         "story_point_pointed_count",
         "story_point_unpointed_count",
@@ -187,6 +208,291 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "risk_aging_evidence",
         "calculated_at",
     }.issubset(signal_columns)
+
+
+def test_nullable_issue_classification_migration_round_trip(tmp_path: Path) -> None:
+    database_path = tmp_path / "nullable-source-fields.db"
+    database_engine = create_database_engine(Settings(_env_file=None, database_url=_sqlite_url(database_path)))
+    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+
+    try:
+        with database_engine.begin() as connection:
+            alembic_config.attributes["connection"] = connection
+            command.upgrade(alembic_config, "20260716_0011")
+            connection.execute(
+                text(
+                    "INSERT INTO releases (release_id, name, project_key) "
+                    "VALUES ('REL-1', 'Release 1', 'LHPM')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO issues "
+                    "(issue_key, summary, issue_type, status, release_id, is_blocker) "
+                    "VALUES ('LHPM-1', 'Known classifications', 'Story', 'To Do', 'REL-1', 0)"
+                )
+            )
+
+            command.upgrade(alembic_config, "20260717_0012")
+            upgraded_columns = {
+                column["name"]: column for column in inspect(connection).get_columns("issues")
+            }
+            assert upgraded_columns["issue_type"]["nullable"] is True
+            assert upgraded_columns["status"]["nullable"] is True
+            connection.execute(
+                text(
+                    "INSERT INTO issues "
+                    "(issue_key, summary, issue_type, status, release_id, is_blocker) "
+                    "VALUES ('LHPM-2', 'Missing classifications', NULL, NULL, 'REL-1', 0)"
+                )
+            )
+
+            command.downgrade(alembic_config, "20260716_0011")
+            downgraded_columns = {
+                column["name"]: column for column in inspect(connection).get_columns("issues")
+            }
+            assert downgraded_columns["issue_type"]["nullable"] is False
+            assert downgraded_columns["status"]["nullable"] is False
+            assert connection.execute(
+                text("SELECT issue_type, status FROM issues WHERE issue_key = 'LHPM-2'")
+            ).one() == ("", "")
+            assert connection.execute(
+                text("SELECT issue_type, status FROM issues WHERE issue_key = 'LHPM-1'")
+            ).one() == ("Story", "To Do")
+    finally:
+        database_engine.dispose()
+
+
+def test_nullable_scope_churn_percentage_migration_round_trip(tmp_path: Path) -> None:
+    database_path = tmp_path / "nullable-scope-churn.db"
+    database_engine = create_database_engine(
+        Settings(_env_file=None, database_url=_sqlite_url(database_path))
+    )
+    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+
+    try:
+        with database_engine.begin() as connection:
+            alembic_config.attributes["connection"] = connection
+            command.upgrade(alembic_config, "20260717_0012")
+            connection.execute(
+                text(
+                    "INSERT INTO releases (release_id, name, project_key) "
+                    "VALUES ('REL-1', 'Release 1', 'LHPM')"
+                )
+            )
+
+            command.upgrade(alembic_config, "20260717_0013")
+            upgraded_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("metric_snapshots")
+            }
+            assert upgraded_columns["scope_churn_7d_pct"]["nullable"] is True
+            connection.execute(
+                text(
+                    "INSERT INTO metric_snapshots "
+                    "(release_id, snapshot_at, open_blockers, open_high_severity_bugs, "
+                    "scope_completed_pct, scope_churn_7d_pct, reopen_rate_pct) "
+                    "VALUES ('REL-1', CURRENT_TIMESTAMP, 0, 0, 0, NULL, 0)"
+                )
+            )
+
+            command.downgrade(alembic_config, "20260717_0012")
+            downgraded_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("metric_snapshots")
+            }
+            assert downgraded_columns["scope_churn_7d_pct"]["nullable"] is False
+            assert connection.scalar(
+                text("SELECT scope_churn_7d_pct FROM metric_snapshots")
+            ) == 0.0
+    finally:
+        database_engine.dispose()
+
+
+def test_nullable_reopen_event_rate_migration_round_trip(tmp_path: Path) -> None:
+    database_path = tmp_path / "nullable-reopen-rate.db"
+    database_engine = create_database_engine(
+        Settings(_env_file=None, database_url=_sqlite_url(database_path))
+    )
+    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+
+    try:
+        with database_engine.begin() as connection:
+            alembic_config.attributes["connection"] = connection
+            command.upgrade(alembic_config, "20260717_0013")
+            connection.execute(
+                text(
+                    "INSERT INTO releases (release_id, name, project_key) "
+                    "VALUES ('REL-1', 'Release 1', 'LHPM')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO sprints (sprint_id, name, state, project_key) "
+                    "VALUES ('10', 'Sprint 10', 'active', 'LHPM')"
+                )
+            )
+
+            command.upgrade(alembic_config, "20260717_0014")
+            release_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("metric_snapshots")
+            }
+            sprint_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("sprint_metric_snapshots")
+            }
+            assert release_columns["reopen_rate_pct"]["nullable"] is True
+            assert sprint_columns["reopen_rate_pct"]["nullable"] is True
+            connection.execute(
+                text(
+                    "INSERT INTO metric_snapshots "
+                    "(release_id, snapshot_at, open_blockers, open_high_severity_bugs, "
+                    "scope_completed_pct, scope_churn_7d_pct, reopen_rate_pct) "
+                    "VALUES ('REL-1', CURRENT_TIMESTAMP, 0, 0, 0, 0, NULL)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO sprint_metric_snapshots "
+                    "(sprint_id, snapshot_at, committed_scope, completed_scope_pct, "
+                    "open_blockers, open_high_severity_bugs, in_progress_count, "
+                    "not_started_count, rollover_count, reopen_rate_pct) "
+                    "VALUES ('10', CURRENT_TIMESTAMP, 0, 0, 0, 0, 0, 0, 0, NULL)"
+                )
+            )
+
+            command.downgrade(alembic_config, "20260717_0013")
+            release_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("metric_snapshots")
+            }
+            sprint_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("sprint_metric_snapshots")
+            }
+            assert release_columns["reopen_rate_pct"]["nullable"] is False
+            assert sprint_columns["reopen_rate_pct"]["nullable"] is False
+            assert connection.scalar(
+                text("SELECT reopen_rate_pct FROM metric_snapshots")
+            ) == 0.0
+            assert connection.scalar(
+                text("SELECT reopen_rate_pct FROM sprint_metric_snapshots")
+            ) == 0.0
+    finally:
+        database_engine.dispose()
+
+
+def test_nullable_sprint_scope_metrics_migration_round_trip(tmp_path: Path) -> None:
+    database_path = tmp_path / "nullable-sprint-scope.db"
+    database_engine = create_database_engine(
+        Settings(_env_file=None, database_url=_sqlite_url(database_path))
+    )
+    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+
+    try:
+        with database_engine.begin() as connection:
+            alembic_config.attributes["connection"] = connection
+            command.upgrade(alembic_config, "20260717_0014")
+            connection.execute(
+                text(
+                    "INSERT INTO sprints (sprint_id, name, state, project_key) "
+                    "VALUES ('10', 'Sprint 10', 'active', 'LHPM')"
+                )
+            )
+
+            command.upgrade(alembic_config, "20260717_0015")
+            upgraded_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("sprint_metric_snapshots")
+            }
+            assert upgraded_columns["committed_scope"]["nullable"] is True
+            assert upgraded_columns["completed_scope_pct"]["nullable"] is True
+            connection.execute(
+                text(
+                    "INSERT INTO sprint_metric_snapshots "
+                    "(sprint_id, snapshot_at, committed_scope, completed_scope_pct, "
+                    "open_blockers, open_high_severity_bugs, in_progress_count, "
+                    "not_started_count, rollover_count) "
+                    "VALUES ('10', CURRENT_TIMESTAMP, NULL, NULL, 0, 0, 0, 0, 0)"
+                )
+            )
+
+            command.downgrade(alembic_config, "20260717_0014")
+            downgraded_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("sprint_metric_snapshots")
+            }
+            assert downgraded_columns["committed_scope"]["nullable"] is False
+            assert downgraded_columns["completed_scope_pct"]["nullable"] is False
+            assert connection.execute(
+                text(
+                    "SELECT committed_scope, completed_scope_pct "
+                    "FROM sprint_metric_snapshots"
+                )
+            ).one() == (0, 0.0)
+    finally:
+        database_engine.dispose()
+
+
+def test_nullable_sprint_work_state_metrics_migration_round_trip(tmp_path: Path) -> None:
+    database_path = tmp_path / "nullable-sprint-work-state.db"
+    database_engine = create_database_engine(
+        Settings(_env_file=None, database_url=_sqlite_url(database_path))
+    )
+    alembic_config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+
+    try:
+        with database_engine.begin() as connection:
+            alembic_config.attributes["connection"] = connection
+            command.upgrade(alembic_config, "20260717_0015")
+            connection.execute(
+                text(
+                    "INSERT INTO sprints (sprint_id, name, state, project_key) "
+                    "VALUES ('10', 'Sprint 10', 'active', 'LHPM')"
+                )
+            )
+
+            command.upgrade(alembic_config, "20260717_0016")
+            upgraded_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("sprint_metric_snapshots")
+            }
+            for column_name in (
+                "in_progress_count",
+                "not_started_count",
+                "rollover_count",
+            ):
+                assert upgraded_columns[column_name]["nullable"] is True
+            connection.execute(
+                text(
+                    "INSERT INTO sprint_metric_snapshots "
+                    "(sprint_id, snapshot_at, committed_scope, completed_scope_pct, "
+                    "open_blockers, open_high_severity_bugs, in_progress_count, "
+                    "not_started_count, rollover_count) "
+                    "VALUES ('10', CURRENT_TIMESTAMP, NULL, NULL, 0, 0, NULL, NULL, NULL)"
+                )
+            )
+
+            command.downgrade(alembic_config, "20260717_0015")
+            downgraded_columns = {
+                column["name"]: column
+                for column in inspect(connection).get_columns("sprint_metric_snapshots")
+            }
+            for column_name in (
+                "in_progress_count",
+                "not_started_count",
+                "rollover_count",
+            ):
+                assert downgraded_columns[column_name]["nullable"] is False
+            assert connection.execute(
+                text(
+                    "SELECT in_progress_count, not_started_count, rollover_count "
+                    "FROM sprint_metric_snapshots"
+                )
+            ).one() == (0, 0, 0)
+    finally:
+        database_engine.dispose()
 
 
 def test_migrate_database_upgrades_unversioned_legacy_sqlite_and_preserves_data(tmp_path: Path) -> None:
@@ -214,12 +520,12 @@ def test_migrate_database_upgrades_unversioned_legacy_sqlite_and_preserves_data(
         assert "ruleset_version" in {column["name"] for column in schema.get_columns("metric_snapshots")}
         assert "jira_created_at" in {column["name"] for column in schema.get_columns("issues")}
         with database_engine.connect() as connection:
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260716_0011"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260720_0017"
             assert connection.scalar(
                 text("SELECT name FROM releases WHERE release_id = 'legacy-release'")
             ) == "Legacy release"
 
-        backup_path = tmp_path / "legacy.db.pre-20260716_0011.bak"
+        backup_path = tmp_path / "legacy.db.pre-20260720_0017.bak"
         assert backup_path.is_file()
         backup_mtime = backup_path.stat().st_mtime_ns
 

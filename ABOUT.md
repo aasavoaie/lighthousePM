@@ -9,7 +9,7 @@ LighthousePM turns Jira release and sprint activity into deterministic delivery 
 The product is organized around:
 
 - Release Intelligence: confidence, readiness, critical risks, warnings, tickets, and release-level trend history.
-- Sprint Intelligence: progress alignment, active work, blockers, sprint-created bugs, rollover, and predictability.
+- Sprint Intelligence: progress alignment, active work, blockers, sprint-created bugs, unfinished closed-sprint work, and predictability.
 - Explainable Signals: every confidence signal is tied to explicit metrics, thresholds, reasons, and risk contribution.
 - Operational Evidence: reports preserve the charts, aging detail, comparison data, and ticket context behind each decision.
 
@@ -34,7 +34,7 @@ The score and label are based on computed release data, not manual judgment.
 
 #### Confidence Engine
 
-The Confidence Engine explains what is reducing confidence in the release. It identifies the strongest negative drivers, such as high-severity bugs, scope churn, reopen rate, blockers, or cycle time.
+The Confidence Engine explains what is reducing confidence in the release. It identifies the strongest negative drivers, such as high-severity bugs, scope churn, reopen events per 100 eligible tickets, blockers, or cycle time.
 
 Should answer the following questions:
 
@@ -171,7 +171,7 @@ Should answer the following questions:
 
 - Is scope being completed fast enough?
 - Is scope churn changing the release commitment?
-- Are quality indicators such as high-severity bugs and reopen rate acceptable?
+- Are quality indicators such as high-severity bugs and reopen events per 100 eligible tickets acceptable?
 - Are flow or blocker risks delaying release confidence?
 
 ### Command Center: Release Controls and Tickets
@@ -231,7 +231,9 @@ Should answer the following questions:
 
 #### Metric: Scope creep
 
-Measures recent release scope movement over the last seven days. High churn means the release target is still changing while the team is trying to finish it.
+Measures distinct release scope additions and removals over the seven days ending at the stored snapshot time. The percentage compares tickets with confirmed movement against the observed scope: current release tickets plus tickets with confirmed additions or removals. High churn means the release target is still changing while the team is trying to finish it.
+
+If Jira changelog ingestion is incomplete for any synchronized project ticket, the percentage is shown as unavailable. Confirmed added and removed counts remain visible as partial evidence, together with the Jira keys whose history is incomplete.
 
 Should answer the following questions:
 
@@ -269,9 +271,9 @@ Should answer the following questions:
 - Which critical defects still need management attention?
 - Should the team prioritize quality over new scope?
 
-#### Metric: Reopen rate
+#### Metric: Reopen events per 100 eligible tickets
 
-Shows the percentage of work reopened after it was considered done. A high reopen rate signals acceptance churn, missed requirements, or quality gaps.
+Counts every transition from done back to a non-done status per 100 eligible tickets. An eligible ticket is currently done or has recorded evidence that it reached done. The same ticket is counted once for every distinct reopen event, so the value can exceed 100. Reopen-event evidence names any ticket counted more than once. A high value signals acceptance churn, missed requirements, or quality gaps.
 
 Should answer the following questions:
 
@@ -302,6 +304,8 @@ Should answer the following questions:
 #### Metric: Confidence score
 
 Combines release metrics into a single readiness-confidence value. It is useful for leadership scanning, but should always be read with the risk drivers behind it.
+
+When Jira classification inputs are incomplete, the score is withheld. A confirmed hard-red risk still remains RED; otherwise the release is shown as Inconclusive until the missing Jira fields are completed and metrics are recomputed.
 
 Should answer the following questions:
 
@@ -335,13 +339,15 @@ Should answer the following questions:
 
 ### Sprint Intelligence: Delivery Confidence
 
-Delivery Confidence combines progress alignment, velocity fit, blocker health, and scope stability into one deterministic sprint health score.
+Delivery Confidence combines progress alignment, velocity fit, blocker health, and scope stability into one deterministic sprint health score. Meeting the story-point threshold is necessary but not sufficient: every pointed ticket needs a status, blocker classification must be complete, sprint duration must be valid, and project sprint-membership history must be complete.
+
+If any required non-point input is missing, the score, component breakdown, and biggest driver are withheld. Delivery confidence is shown as Inconclusive with explanations and sorted affected Jira keys, while independently computable ticket metrics remain available.
 
 Should answer the following questions:
 
-- Does the current sprint evidence support the committed work?
+- Does the current sprint evidence support its current delivery plan?
 - Which component is pulling delivery confidence down?
-- Is the problem progress, velocity, blockers, or scope instability?
+- Are any required confidence inputs incomplete?
 
 ### Sprint Intelligence: Recommended Actions
 
@@ -359,7 +365,7 @@ Sprint Metrics organize delivery, quality, flow, risk, and work-state indicators
 
 Should answer the following questions:
 
-- How much committed scope is done, active, or not started?
+- How much current sprint scope is done, active, or not started?
 - Are high-severity bugs or reopened tickets creating quality risk?
 - Is cycle time or blocker health slowing delivery?
 - Is work concentrated in a way that creates delivery exposure?
@@ -397,26 +403,26 @@ Should answer the following questions:
 
 ### Sprint metric definitions
 
-These metrics explain whether the current sprint evidence supports the release plan. They connect commitment, progress, quality, flow, blockers, scope stability, and delivery confidence to concrete sprint decisions.
+These metrics explain whether the current sprint evidence supports the release plan. They connect current scope, progress, quality, flow, blockers, scope stability, and delivery confidence to concrete sprint decisions.
 
-#### Metric: Committed scope
+#### Metric: Current sprint scope
 
-Counts issues explicitly linked to the sprint. It defines the sprint promise that progress, confidence, and predictability are measured against.
+Counts distinct tickets currently linked to the sprint at snapshot time. The API retains the field name `committed_scope` for compatibility, but this metric describes current membership and does not reconstruct the sprint-start commitment. An empty current scope is shown as unavailable rather than zero.
 
 Should answer the following questions:
 
-- What did the team commit to deliver?
-- Is the sprint scope clear enough to manage?
-- Are we measuring progress against the right work?
+- How many tickets are currently in the sprint?
+- Which tickets define the scope measured by the current snapshot?
+- Is the current Jira sprint membership complete and up to date?
 
 #### Metric: Completed scope
 
-Shows the percentage of committed sprint scope already done. It is the core indicator of whether the sprint is converting commitment into finished work.
+Shows the percentage of current sprint tickets whose current status is configured as done. It is ticket-based and does not use story points. Empty scope is unavailable, and missing ticket statuses make the percentage partial with the affected Jira keys identified.
 
 Should answer the following questions:
 
 - Is the sprint progressing fast enough?
-- How much committed work is already finished?
+- How much of the current ticket scope is already finished?
 - Do we need to narrow focus to complete remaining work?
 
 #### Metric: Scope creep
@@ -469,9 +475,9 @@ Should answer the following questions:
 - Are quality issues emerging during execution?
 - Do we need to protect time for stabilization?
 
-#### Metric: Reopen rate
+#### Metric: Reopen events per 100 eligible tickets
 
-Shows how often sprint work is reopened after being treated as done. Reopened work is a signal of rework, acceptance churn, or incomplete validation.
+Counts every transition from done back to a non-done status per 100 eligible sprint tickets. An eligible ticket is currently done or has recorded evidence that it reached done. The same ticket is counted once for every distinct reopen event, so the value can exceed 100. Reopen-event evidence names any ticket counted more than once. A high value signals rework, acceptance churn, or incomplete validation.
 
 Should answer the following questions:
 
@@ -499,29 +505,30 @@ Should answer the following questions:
 - Which blockers need ownership or escalation?
 - Do the open blockers put the current sprint goal at risk?
 
-#### Metric: Rollover
+#### Metric: Unfinished closed-sprint scope
 
-Counts work that did not finish by sprint close. Rollover indicates planning, capacity, dependency, or execution issues that can reduce predictability.
+Counts tickets that remain in the current membership of a closed sprint and have a known non-done status. This does not prove that a ticket entered another sprint. The metric is not applicable to active, future, or unknown-state sprints.
 
 Should answer the following questions:
 
-- How much work is carrying into the next sprint?
-- Is rollover becoming a repeat delivery pattern?
-- Do planning assumptions need to change?
+- How many currently assigned tickets are unfinished after the sprint closed?
+- Which known unfinished tickets need follow-up?
+- Are any ticket statuses missing, making the count partial?
 
 #### Metric: Work distribution
 
-Shows whether active sprint work is concentrated with one assignee. Heavy concentration creates delivery exposure even when total progress looks acceptable.
+Shows the top assignee's share of active sprint story points using the backend's configured done-status rules. Below 50% sprint story-point coverage the result is inconclusive; partial coverage excludes unpointed active tickets and identifies them. No active work is not applicable, and a zero-point denominator is not computed. Below 35% is healthy, 35% through 50% is watch, and above 50% is critical. The stored result and Jira-key evidence are reused by recommendations, reports, and the dashboard.
 
 Should answer the following questions:
 
 - Is too much critical work dependent on one person?
 - Should work be rebalanced to reduce delivery risk?
 - Is capacity hidden behind a single overloaded owner?
+- Is the result partial or inconclusive because required Jira evidence is missing?
 
 #### Metric: Sprint work state
 
-Condenses committed, active, not-started, done, and rollover work into one scan-friendly view of sprint execution.
+Condenses current sprint scope, in-progress, not-started, done, and applicable unfinished closed-sprint work into one scan-friendly view of sprint execution.
 
 Should answer the following questions:
 
@@ -531,17 +538,17 @@ Should answer the following questions:
 
 #### Metric: Delivery confidence score
 
-Combines progress alignment, velocity fit, blocker health, and scope stability into a single sprint confidence score.
+Combines progress alignment, velocity fit, blocker health, and scope stability into a single sprint confidence score. The score is returned only when required status, blocker-classification, duration, and project sprint-history evidence is complete.
 
 Should answer the following questions:
 
 - Does the current sprint evidence support its commitment?
 - Which confidence component is pulling the sprint down?
-- Should leadership intervene on progress, capacity, blockers, or scope?
+- Is the result Inconclusive because required evidence is missing?
 
 #### Metric: Progress alignment
 
-Compares completed scope with elapsed sprint time. It shows whether the team is far enough through the work for where it is in the sprint.
+Compares completed scope with elapsed sprint time. It requires valid sprint start and end times; missing or invalid duration makes the component unavailable rather than healthy.
 
 Should answer the following questions:
 
@@ -551,7 +558,7 @@ Should answer the following questions:
 
 #### Metric: Velocity fit
 
-Checks whether remaining sprint work fits the team's historical delivery capacity. It turns velocity history into a current capacity-fit signal.
+Checks whether remaining sprint work fits the team's historical delivery capacity. It uses valid sprint duration to calculate remaining time and never substitutes a healthy time or capacity fallback when duration is unavailable.
 
 Should answer the following questions:
 
@@ -561,7 +568,7 @@ Should answer the following questions:
 
 #### Metric: Scope stability
 
-Scores how stable sprint scope has been since the initial commitment. Lower stability means the sprint is changing after planning.
+Scores how stable sprint scope has been since the initial commitment. It requires a sprint start and complete sprint-membership history across synchronized project tickets; otherwise the component and delivery confidence are unavailable.
 
 Should answer the following questions:
 

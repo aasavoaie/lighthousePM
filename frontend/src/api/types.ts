@@ -56,12 +56,14 @@ export interface SprintMetricValues {
   rollover_count: number | null;
   median_cycle_time_days: number | null;
   reopen_rate_pct: number | null;
+  workload_concentration_pct: number | null;
   delivery_confidence_score: number | null;
 }
 
 export interface MetricIssueKeys {
   open_blockers: string[];
   open_high_severity_bugs: string[];
+  completed_tickets?: string[];
   bugs_created_during_sprint?: string[];
   bugs_created_during_sprint_missing_created_at?: string[];
 }
@@ -150,6 +152,8 @@ export interface RecommendationAction {
   confidenceImpact: number;
   effort: RecommendationEffort;
   category: string;
+  dataStatus: "COMPUTED" | "PARTIAL";
+  explanations: string[];
 }
 
 export interface MetricAvailabilityContext {
@@ -162,8 +166,11 @@ export interface MetricAvailabilityContext {
 }
 
 export interface MetricAvailabilityItem {
+  status: "COMPUTED" | "PARTIAL" | "NOT_COMPUTED" | "NOT_APPLICABLE";
   available: boolean;
   reason: string | null;
+  explanations: string[];
+  missing_issue_keys: string[];
   depends_on: string[];
 }
 
@@ -180,6 +187,45 @@ export interface StoryPointCoverage {
   unpointed_ticket_count: number;
   coverage_pct: number;
   unpointed_issue_keys: string[];
+}
+
+export type WorkloadDistributionStatus =
+  | "COMPUTED"
+  | "PARTIAL"
+  | "INCONCLUSIVE"
+  | "NOT_COMPUTED"
+  | "NOT_APPLICABLE";
+
+export type WorkloadRiskBand = "healthy" | "watch" | "critical";
+
+export interface WorkloadAssigneeTotal {
+  assignee_key: string;
+  assignee: string;
+  story_points: number;
+  issue_keys: string[];
+}
+
+export interface WorkloadDistributionEvidence {
+  calculation_status: WorkloadDistributionStatus;
+  workload_concentration_pct: number | null;
+  current_scope_issue_keys: string[];
+  active_issue_keys: string[];
+  included_active_issue_keys: string[];
+  excluded_active_issue_keys: string[];
+  missing_status_issue_keys: string[];
+  assignee_identity_fallback_issue_keys: string[];
+  assignee_totals: WorkloadAssigneeTotal[];
+  total_active_points: number | null;
+  top_assignee: WorkloadAssigneeTotal | null;
+  risk_band: WorkloadRiskBand | null;
+  story_point_coverage: StoryPointCoverage;
+}
+
+export interface WorkloadDistributionDetail {
+  status: WorkloadDistributionStatus;
+  percentage: number | null;
+  explanations: string[];
+  evidence: WorkloadDistributionEvidence;
 }
 
 export interface SprintMetricsResponse {
@@ -199,6 +245,7 @@ export interface SprintMetricsResponse {
   delivery_confidence_status: DeliveryConfidenceStatus;
   delivery_confidence_explanations: string[];
   delivery_confidence: DeliveryConfidenceDetail | null;
+  workload_distribution: WorkloadDistributionDetail | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;
   recommendations: RecommendationAction[];
@@ -482,8 +529,8 @@ export interface RecomputeAllMetricsResponse {
 export interface Issue {
   issue_key: string;
   summary: string;
-  issue_type: string;
-  status: string;
+  issue_type: string | null;
+  status: string | null;
   priority: string | null;
   assignee: string | null;
   story_points: number | null;
@@ -540,6 +587,13 @@ export interface JiraConfigurationResponse {
   jira_field_blocker: string;
   jira_changelog_fix_version_fields: string;
   jira_changelog_sprint_fields: string;
+  jira_done_statuses: string;
+  jira_in_progress_statuses: string;
+  jira_high_severity_values: string;
+  jira_bug_issue_types: string;
+  jira_blocker_issue_types: string;
+  jira_blocker_severity_values: string;
+  jira_blocked_statuses: string;
   is_complete: boolean;
 }
 
@@ -559,6 +613,13 @@ export interface JiraConfigurationUpdate {
   jira_field_blocker: string;
   jira_changelog_fix_version_fields: string;
   jira_changelog_sprint_fields: string;
+  jira_done_statuses: string;
+  jira_in_progress_statuses: string;
+  jira_high_severity_values: string;
+  jira_bug_issue_types: string;
+  jira_blocker_issue_types: string;
+  jira_blocker_severity_values: string;
+  jira_blocked_statuses: string;
 }
 
 export interface JiraConnectionTestResponse {

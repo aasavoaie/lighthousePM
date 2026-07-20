@@ -173,10 +173,10 @@ class ConfidenceBreakdownService:
         if snapshot.open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
             return f"{snapshot.open_high_severity_bugs} open high-severity bug is reducing quality confidence."
         if snapshot.reopen_rate_pct > reopen_red_pct:
-            return f"Reopen rate is above the red threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_red_pct:.1f}%)."
+            return f"Reopen events per 100 eligible tickets are above the red threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_red_pct:.1f}%)."
         if snapshot.reopen_rate_pct > reopen_yellow_pct:
-            return f"Reopen rate is above the warning threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_yellow_pct:.1f}%)."
-        return "High-severity bugs and reopen rate are within quality confidence thresholds."
+            return f"Reopen events per 100 eligible tickets are above the warning threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_yellow_pct:.1f}%)."
+        return "High-severity bugs and reopen events per 100 eligible tickets are within quality confidence thresholds."
 
     @staticmethod
     def _release_flow_explanation(snapshot: Any) -> str:

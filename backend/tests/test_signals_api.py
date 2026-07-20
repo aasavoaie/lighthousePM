@@ -11,8 +11,9 @@ import app.main as main_module
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
-from app.models import Issue, IssueHistory, MetricSnapshot, Release, ReleaseSignal
+from app.models import Issue, IssueHistory, MetricSnapshot, Release
 from app.services.signal_service import SignalService
+from app.utils.constants import RULESET_VERSION
 
 
 @pytest.fixture
@@ -92,7 +93,7 @@ def _seed_snapshot(
         MetricSnapshot(
             release_id=release_id,
             snapshot_at=snapshot_at or datetime.now(UTC),
-            ruleset_version=1,
+            ruleset_version=RULESET_VERSION,
             confidence_score=confidence_score,
             confidence_status="COMPUTED",
             calculation_provenance={
@@ -150,6 +151,7 @@ def _seed_issue(
             assignee="alice",
             release_id=release_id,
             is_blocker=is_blocker,
+            jira_blocker_flag=True if is_blocker else None,
             jira_created_at=now,
             jira_changelog_complete=True,
             created_at=now,
@@ -245,22 +247,16 @@ def test_get_release_signal_after_metrics_recompute_uses_hard_rule_floor(client:
     assert payload["release_id"] == "REL-1"
     assert payload["signal"] == "RED"
     assert payload["status_label"] == "NOT READY FOR RELEASE"
-    assert payload["confidence_score"] == 72.0
-    assert payload["confidence_breakdown"]["totalScore"] == 72.0
-    assert payload["biggest_driver"] == {
-        "title": "Open Blockers",
-        "category": "Risk",
-        "impact": -28.0,
-        "contributionPercent": 100.0,
-        "explanation": "Open blockers are consuming the largest share of release confidence.",
-        "recommendation": "Resolve or explicitly de-scope blocker tickets before moving the release forward.",
-    }
-    assert [component["name"] for component in payload["confidence_breakdown"]["components"]] == [
-        "Delivery",
-        "Quality",
-        "Flow",
-        "Risk",
-    ]
+    assert payload["confidence_score"] is None
+    assert payload["confidence_breakdown"] is None
+    assert payload["biggest_driver"] is None
+    cycle_gate = next(
+        gate
+        for gate in payload["release_gates"]
+        if gate["metric_name"] == "median_cycle_time_days"
+    )
+    assert cycle_gate["passed"] is True
+    assert cycle_gate["value"] is None
     assert any(gate["metric_name"] == "open_blockers" and not gate["passed"] for gate in payload["release_gates"])
     assert any(risk["metric_name"] == "open_blockers" for risk in payload["critical_risks"])
     assert payload["risk_aging"]["blockers"]["count"] == 1
@@ -272,18 +268,29 @@ def test_get_release_signal_after_metrics_recompute_uses_hard_rule_floor(client:
 
 
 def test_get_release_signal_after_metrics_recompute_returns_green(client: TestClient) -> None:
+    base = datetime(2026, 7, 1, tzinfo=UTC)
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")
         _seed_issue(session, "LHPM-1", "REL-1", "Done", is_blocker=False, issue_type="Story", priority="Medium")
-        _seed_snapshot(
-            session,
-            release_id="REL-1",
-            open_blockers=0,
-            open_high_severity_bugs=0,
-            scope_churn_7d_pct=5.0,
-            reopen_rate_pct=1.0,
-            median_cycle_time_days=2.0,
+        session.add_all(
+            [
+                IssueHistory(
+                    issue_key="LHPM-1",
+                    field_name="status",
+                    old_value="To Do",
+                    new_value="In Progress",
+                    changed_at=base,
+                ),
+                IssueHistory(
+                    issue_key="LHPM-1",
+                    field_name="status",
+                    old_value="In Progress",
+                    new_value="Done",
+                    changed_at=base + timedelta(days=2),
+                ),
+            ]
         )
+        session.commit()
 
     recompute = client.post("/releases/REL-1/recompute")
     assert recompute.status_code == 200
@@ -314,6 +321,93 @@ def test_get_release_signal_after_metrics_recompute_returns_green(client: TestCl
     assert payload["reasons"] == ["No major risk indicators"]
     assert payload["reason_details"] == []
     assert payload["thresholds"]["median_cycle_time_days_yellow"] == 7.0
+
+
+def test_not_computed_cycle_time_passes_readiness_gate_but_not_confidence(
+    client: TestClient,
+) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(
+            session,
+            "LHPM-1",
+            "REL-1",
+            "Done",
+            is_blocker=False,
+            issue_type="Story",
+            priority="Medium",
+        )
+
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    signal = client.get("/releases/REL-1/signal").json()
+    metrics = client.get("/releases/REL-1/metrics").json()
+
+    assert signal["signal"] == "INCONCLUSIVE"
+    assert signal["confidence_score"] is None
+    assert len(signal["release_gates"]) == 5
+    cycle_gate = next(
+        gate
+        for gate in signal["release_gates"]
+        if gate["metric_name"] == "median_cycle_time_days"
+    )
+    assert cycle_gate["passed"] is True
+    assert cycle_gate["value"] is None
+    assert metrics["metric_availability"]["metrics"]["confidence_score"]["available"] is False
+    assert metrics["metric_availability"]["metrics"]["gates_passed_count"]["available"] is True
+    assert metrics["metric_availability"]["metrics"]["readiness_pct"]["available"] is True
+    assert metrics["calculation_provenance"]["component_outputs"]["readiness_pct"] == 100.0
+
+
+def test_partial_cycle_time_does_not_pass_readiness_gate(client: TestClient) -> None:
+    base = datetime(2026, 7, 1, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(
+            session,
+            "LHPM-1",
+            "REL-1",
+            "Done",
+            is_blocker=False,
+            issue_type="Story",
+            priority="Medium",
+        )
+        issue = session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
+        assert issue is not None
+        issue.jira_changelog_complete = False
+        session.add_all(
+            [
+                IssueHistory(
+                    issue_key="LHPM-1",
+                    field_name="status",
+                    old_value="To Do",
+                    new_value="In Progress",
+                    changed_at=base,
+                ),
+                IssueHistory(
+                    issue_key="LHPM-1",
+                    field_name="status",
+                    old_value="In Progress",
+                    new_value="Done",
+                    changed_at=base + timedelta(days=2),
+                ),
+            ]
+        )
+        session.commit()
+
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    signal = client.get("/releases/REL-1/signal").json()
+    metrics = client.get("/releases/REL-1/metrics").json()
+
+    assert signal["signal"] == "INCONCLUSIVE"
+    assert all(
+        gate["metric_name"] != "median_cycle_time_days"
+        for gate in signal["release_gates"]
+    )
+    cycle_availability = metrics["metric_availability"]["metrics"][
+        "median_cycle_time_days"
+    ]
+    assert cycle_availability["status"] == "PARTIAL"
+    assert cycle_availability["missing_issue_keys"] == ["LHPM-1"]
 
 
 def test_get_release_signal_returns_risk_aging_from_latest_snapshot(client: TestClient) -> None:

@@ -1,10 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sprintNoChangelogReason = exports.sprintNoStoryPointsReason = exports.sprintNoTicketsReason = void 0;
+exports.getSprintStoryPointCoverageStatus = getSprintStoryPointCoverageStatus;
 exports.hasSprintStoryPoints = hasSprintStoryPoints;
+exports.hasSprintDeliveryConfidence = hasSprintDeliveryConfidence;
 exports.getSprintStoryPointUnavailableReason = getSprintStoryPointUnavailableReason;
 exports.getSprintMetricAvailabilityReason = getSprintMetricAvailabilityReason;
+exports.getSprintMetricExplanations = getSprintMetricExplanations;
 exports.getSprintMetricUnavailableBadge = getSprintMetricUnavailableBadge;
+exports.getSprintMetricDisplay = getSprintMetricDisplay;
 exports.buildSprintStoryPointUiVisibility = buildSprintStoryPointUiVisibility;
 exports.formatPercent = formatPercent;
 exports.formatWholePercent = formatWholePercent;
@@ -25,8 +29,23 @@ exports.buildSprintWorkStateDisplayModel = buildSprintWorkStateDisplayModel;
 exports.sprintNoTicketsReason = "No tickets are available for this scope.";
 exports.sprintNoStoryPointsReason = "Delivery confidence requires at least 50% of sprint tickets to have valid story points.";
 exports.sprintNoChangelogReason = "No Jira changelog history is available for this scope.";
+function getSprintStoryPointCoverageStatus(metrics) {
+    const coverage = metrics?.story_point_coverage;
+    if (!metrics?.is_computed || !coverage || coverage.total_ticket_count === 0) {
+        return "NOT_COMPUTED";
+    }
+    if (coverage.coverage_pct < 50) {
+        return "INCONCLUSIVE";
+    }
+    return coverage.coverage_pct < 100 ? "PARTIAL" : "COMPUTED";
+}
 function hasSprintStoryPoints(metrics) {
-    return metrics?.delivery_confidence_status === "PARTIAL" || metrics?.delivery_confidence_status === "COMPUTED";
+    const coverageStatus = getSprintStoryPointCoverageStatus(metrics);
+    return coverageStatus === "PARTIAL" || coverageStatus === "COMPUTED";
+}
+function hasSprintDeliveryConfidence(metrics) {
+    return Boolean(metrics?.delivery_confidence
+        && (metrics.delivery_confidence_status === "PARTIAL" || metrics.delivery_confidence_status === "COMPUTED"));
 }
 function getSprintStoryPointUnavailableReason(metrics) {
     const deliveryConfidenceAvailability = metrics?.metric_availability?.metrics.delivery_confidence_score;
@@ -41,6 +60,9 @@ function getSprintStoryPointUnavailableReason(metrics) {
 function getSprintMetricAvailabilityReason(metrics, metricName) {
     const availability = metrics?.metric_availability?.metrics[metricName];
     return availability && !availability.available ? availability.reason : null;
+}
+function getSprintMetricExplanations(metrics, metricName) {
+    return metrics?.metric_availability?.metrics[metricName]?.explanations ?? [];
 }
 function getSprintMetricUnavailableBadge(reason) {
     if (!reason) {
@@ -57,19 +79,57 @@ function getSprintMetricUnavailableBadge(reason) {
     }
     return "Unavailable";
 }
+function getSprintMetricDisplay(metrics, metricName) {
+    const availability = metrics?.metric_availability?.metrics[metricName];
+    const explanations = availability?.explanations ?? [];
+    const missingIssueKeys = availability?.missing_issue_keys ?? [];
+    if (availability?.status === "PARTIAL" && availability.available) {
+        return {
+            value: null,
+            badge: "Partial",
+            reason: explanations[0] ?? availability.reason,
+            explanations,
+            missingIssueKeys,
+            isAvailable: true,
+        };
+    }
+    if (availability && !availability.available) {
+        return {
+            value: "N/A",
+            badge: availability.status === "PARTIAL"
+                ? "Partial"
+                : availability.status === "NOT_APPLICABLE"
+                    ? "Not applicable"
+                    : getSprintMetricUnavailableBadge(availability.reason),
+            reason: explanations[0] ?? availability.reason,
+            explanations,
+            missingIssueKeys,
+            isAvailable: false,
+        };
+    }
+    return {
+        value: null,
+        badge: null,
+        reason: null,
+        explanations,
+        missingIssueKeys,
+        isAvailable: true,
+    };
+}
 function buildSprintStoryPointUiVisibility(metrics) {
     const hasStoryPointMetrics = hasSprintStoryPoints(metrics);
+    const hasDeliveryConfidence = hasSprintDeliveryConfidence(metrics);
     const hasComputedMetrics = metrics?.is_computed === true;
     const hasCoverageExplanation = (metrics?.delivery_confidence_explanations.length ?? 0) > 0;
     return {
         hasStoryPointMetrics,
         showStoryPointUnavailableMessage: hasComputedMetrics && hasCoverageExplanation,
         showStoryPointChartEmptyState: hasComputedMetrics && !hasStoryPointMetrics,
-        showPointValues: hasStoryPointMetrics,
-        showRiskDrivers: hasStoryPointMetrics,
-        showVelocityHealth: hasStoryPointMetrics,
+        showPointValues: hasDeliveryConfidence,
+        showRiskDrivers: hasDeliveryConfidence,
+        showVelocityHealth: hasDeliveryConfidence,
         showTeamPredictability: hasStoryPointMetrics,
-        showDeliveryConfidenceBreakdown: hasStoryPointMetrics,
+        showDeliveryConfidenceBreakdown: hasDeliveryConfidence,
         showDeliveryConfidenceTrend: hasStoryPointMetrics,
         showCommitmentReliability: hasStoryPointMetrics,
         showTicketCountMetrics: hasComputedMetrics,
@@ -280,122 +340,169 @@ function buildPredictabilityDisplayModel(rows) {
         details: closedRows.map((row) => `${row.name}: ${Number(row.completed_story_points.toFixed(2))}/${Number(row.committed_story_points.toFixed(2))} SP`),
     };
 }
-function issueStoryPoints(issue) {
-    return issue.story_points !== null && issue.story_points !== undefined && issue.story_points >= 0 ? issue.story_points : null;
-}
 function isDoneStatus(status) {
-    const normalized = status.trim().toLowerCase();
+    const normalized = (status ?? "").trim().toLowerCase();
     return normalized === "done" || normalized === "closed" || normalized === "resolved";
 }
-function classifyWorkDistribution(topAssigneePct) {
-    if (topAssigneePct === null) {
-        return "neutral";
+function classifyWorkDistribution(riskBand) {
+    if (riskBand === "healthy") {
+        return "good";
     }
-    if (topAssigneePct > 50) {
-        return "critical";
+    if (riskBand === "watch") {
+        return "warning";
     }
-    return topAssigneePct >= 35 ? "warning" : "good";
+    return riskBand === "critical" ? "critical" : "neutral";
 }
-function buildWorkDistributionDisplayModel(issues, confidenceStatus = "COMPUTED") {
-    const activeIssues = issues.filter((issue) => !isDoneStatus(issue.status));
-    if (activeIssues.length === 0) {
+function buildWorkDistributionDisplayModel(workload) {
+    if (!workload) {
         return {
             title: "Workload concentration",
-            value: "Not enough data yet",
+            value: "Not computed yet",
             status: "neutral",
-            comparison: "Requires active sprint work.",
+            comparison: "No authoritative workload snapshot is available.",
             impact: "unknown",
             details: [],
+            badge: null,
+            badgeTitle: null,
         };
     }
-    if (confidenceStatus === "INCONCLUSIVE" || confidenceStatus === "NOT_COMPUTED") {
+    const evidence = workload.evidence;
+    const explanation = workload.explanations[0] ?? null;
+    const evidenceDetails = [
+        ...(evidence.missing_status_issue_keys.length > 0
+            ? [`Tickets missing status: ${evidence.missing_status_issue_keys.join(", ")}`]
+            : []),
+        ...(evidence.excluded_active_issue_keys.length > 0
+            ? [`Excluded active tickets: ${evidence.excluded_active_issue_keys.join(", ")}`]
+            : []),
+        ...(evidence.assignee_identity_fallback_issue_keys.length > 0
+            ? [`Display-name identity fallback: ${evidence.assignee_identity_fallback_issue_keys.join(", ")}`]
+            : []),
+    ];
+    if (workload.status === "INCONCLUSIVE") {
         return {
             title: "Workload concentration",
             value: "Inconclusive",
             status: "neutral",
-            comparison: "Requires story points on at least 50% of sprint tickets.",
+            comparison: explanation ?? "The backend could not determine active workload concentration.",
             impact: "unknown",
-            details: ["Workload distribution is not calculated below 50% story-point coverage."],
+            details: [...workload.explanations.slice(1), ...evidenceDetails],
+            badge: "Inconclusive",
+            badgeTitle: workload.explanations.join(" ") || null,
         };
     }
-    const pointedActiveIssues = activeIssues
-        .map((issue) => ({ issue, storyPoints: issueStoryPoints(issue) }))
-        .filter((entry) => entry.storyPoints !== null);
-    const unpointedCount = activeIssues.length - pointedActiveIssues.length;
-    if (pointedActiveIssues.length === 0) {
+    if (workload.status === "NOT_APPLICABLE") {
+        return {
+            title: "Workload concentration",
+            value: "Not applicable",
+            status: "neutral",
+            comparison: explanation ?? "The sprint has no active tickets.",
+            impact: "unknown",
+            details: [...workload.explanations.slice(1), ...evidenceDetails],
+            badge: "Not applicable",
+            badgeTitle: explanation,
+        };
+    }
+    if (workload.status === "NOT_COMPUTED" || workload.percentage === null) {
         return {
             title: "Workload concentration",
             value: "Unavailable",
             status: "neutral",
-            comparison: "Requires story points on active sprint work.",
+            comparison: explanation ?? "The backend did not produce a workload concentration value.",
             impact: "unknown",
-            details: ["No active sprint tickets have story points."],
+            details: [...workload.explanations.slice(1), ...evidenceDetails],
+            badge: "Unavailable",
+            badgeTitle: explanation,
         };
     }
-    const totals = new Map();
-    for (const { issue, storyPoints } of pointedActiveIssues) {
-        const assignee = issue.assignee?.trim() || "Unassigned";
-        totals.set(assignee, (totals.get(assignee) ?? 0) + storyPoints);
-    }
-    const totalPoints = Array.from(totals.values()).reduce((sum, value) => sum + value, 0);
-    if (totalPoints === 0) {
-        return {
-            title: "Workload concentration",
-            value: "Unavailable",
-            status: "neutral",
-            comparison: "Requires positive story-point values.",
-            impact: "unknown",
-            details: unpointedCount > 0
-                ? [`${unpointedCount} active ticket${unpointedCount === 1 ? "" : "s"} excluded because story points are missing.`]
-                : ["Active sprint tickets have 0 total story points."],
-        };
-    }
-    const rows = Array.from(totals.entries())
-        .map(([assignee, points]) => ({
-        assignee,
-        pct: Number(((points / totalPoints) * 100).toFixed(0)),
-    }))
-        .sort((left, right) => right.pct - left.pct || left.assignee.localeCompare(right.assignee));
-    const top = rows[0];
-    const status = classifyWorkDistribution(top.pct);
+    const status = classifyWorkDistribution(evidence.risk_band);
+    const topAssignee = evidence.top_assignee;
+    const assigneeRows = evidence.assignee_totals.map((item) => {
+        const issueEvidence = item.issue_keys.length > 0 ? ` — ${item.issue_keys.join(", ")}` : "";
+        return `${item.assignee}: ${formatPoints(item.story_points)}${issueEvidence}`;
+    });
     return {
         title: "Workload concentration",
-        value: `${top.pct}%`,
+        value: formatPercent(workload.percentage),
         status,
-        comparison: `Top assignee: ${top.assignee}`,
-        impact: status === "good" ? "positive" : "negative",
+        comparison: topAssignee
+            ? `Top assignee: ${topAssignee.assignee}`
+            : "Top-assignee evidence is unavailable.",
+        impact: status === "good" ? "positive" : status === "neutral" ? "unknown" : "negative",
         details: [
-            ...(confidenceStatus === "PARTIAL"
-                ? ["Status: PARTIAL — calculated from pointed active tickets only."]
+            ...workload.explanations,
+            ...(evidence.risk_band ? [`Risk band: ${evidence.risk_band}`] : []),
+            ...(topAssignee ? [`Top-assignee points: ${formatPoints(topAssignee.story_points)}`] : []),
+            ...(evidence.total_active_points !== null
+                ? [`Total included active points: ${formatPoints(evidence.total_active_points)}`]
                 : []),
-            ...(unpointedCount > 0
-                ? [`${unpointedCount} active ticket${unpointedCount === 1 ? "" : "s"} excluded because story points are missing.`]
+            ...(evidence.included_active_issue_keys.length > 0
+                ? [`Included active tickets: ${evidence.included_active_issue_keys.join(", ")}`]
                 : []),
-            `${top.pct}% of pointed active work`,
-            "Top 3 assignees",
-            ...rows.slice(0, 3).map((row) => `${row.assignee}: ${row.pct}%`),
+            ...(assigneeRows.length > 0 ? ["Assignee totals", ...assigneeRows] : []),
+            ...evidenceDetails,
         ],
+        badge: workload.status === "PARTIAL" ? "Partial" : null,
+        badgeTitle: workload.status === "PARTIAL"
+            ? workload.explanations.join(" ") || "Computed from partial workload evidence."
+            : null,
     };
 }
-function buildSprintWorkStateDisplayModel(metrics, issues) {
-    const committed = metrics.committed_scope;
+function buildSprintWorkStateDisplayModel(response, issues) {
+    const metrics = response.metrics;
+    const currentScope = metrics.committed_scope;
     const inProgress = metrics.in_progress_count;
     const notStarted = metrics.not_started_count;
     const rollover = metrics.rollover_count;
     const doneCount = issues.filter((issue) => isDoneStatus(issue.status)).length;
     const blocked = metrics.open_blockers;
-    const status = blocked !== null && blocked > 0 ? "critical" : rollover !== null && rollover > 0 ? "warning" : "good";
+    const availability = response.metric_availability?.metrics ?? {};
+    const relevantAvailability = [
+        availability.in_progress_count,
+        availability.not_started_count,
+        availability.rollover_count,
+    ].filter((item) => item !== undefined);
+    const partialItems = relevantAvailability.filter((item) => item.status === "PARTIAL");
+    const partialExplanations = Array.from(new Set(partialItems.flatMap((item) => item.explanations)));
+    const missingStatusIssueKeys = Array.from(new Set(partialItems.flatMap((item) => item.missing_issue_keys))).sort();
+    const currentScopeAvailability = availability.committed_scope;
+    const rolloverAvailability = availability.rollover_count;
+    const status = currentScope === null
+        ? "neutral"
+        : blocked !== null && blocked > 0
+            ? "critical"
+            : rollover !== null && rollover > 0
+                ? "warning"
+                : "good";
+    const badge = partialItems.length > 0
+        ? "Partial"
+        : currentScopeAvailability?.available === false
+            ? getSprintMetricUnavailableBadge(currentScopeAvailability.reason)
+            : null;
+    const badgeTitle = partialExplanations[0]
+        ?? (currentScopeAvailability?.available === false ? currentScopeAvailability.reason : null);
+    const unfinishedValue = rolloverAvailability?.status === "NOT_APPLICABLE"
+        ? "N/A (not applicable)"
+        : (rollover ?? "N/A");
     return {
-        value: committed === null ? "Not enough data yet" : `${committed} committed`,
+        value: currentScope === null ? "Not enough data yet" : `${currentScope} in current scope`,
         status,
-        comparison: committed === null ? "Requires computed sprint metrics." : `${doneCount} done`,
-        impact: status === "good" ? "positive" : "negative",
+        comparison: currentScope === null
+            ? "Requires computed sprint metrics."
+            : `${doneCount} ${partialItems.length > 0 ? "known done" : "done"}`,
+        impact: status === "neutral" ? "unknown" : status === "good" ? "positive" : "negative",
         details: [
-            `Committed: ${committed ?? "N/A"}`,
+            `Current scope: ${currentScope ?? "N/A"}`,
             `In progress: ${inProgress ?? "N/A"}`,
             `Not started: ${notStarted ?? "N/A"}`,
             `Done: ${doneCount}`,
-            `Rollover: ${rollover ?? "N/A"}`,
+            `Unfinished closed-sprint scope: ${unfinishedValue}`,
+            ...partialExplanations,
+            ...(missingStatusIssueKeys.length > 0
+                ? [`Missing status: ${missingStatusIssueKeys.join(", ")}`]
+                : []),
         ],
+        badge,
+        badgeTitle,
     };
 }

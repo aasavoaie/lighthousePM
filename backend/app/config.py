@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     jira_blocker_true_values: str = "true,yes,1,blocker"
     jira_changelog_fix_version_fields: str = "fix version,fixversion"
     jira_changelog_sprint_fields: str = "sprint"
+    jira_done_statuses: str = "done,closed,resolved"
+    jira_in_progress_statuses: str = "in progress,in development,in review,in testing"
+    jira_high_severity_values: str = "high,highest,critical"
+    jira_bug_issue_types: str = "bug"
+    jira_blocker_issue_types: str = "blocker,incident"
+    jira_blocker_severity_values: str = "blocker,highest,critical"
+    jira_blocked_statuses: str = "blocked"
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",
@@ -75,12 +82,59 @@ class Settings(BaseSettings):
     def changelog_sprint_fields(self) -> frozenset[str]:
         return _csv_to_set(self.jira_changelog_sprint_fields)
 
+    @property
+    def done_statuses(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_done_statuses)
+
+    @property
+    def in_progress_statuses(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_in_progress_statuses)
+
+    @property
+    def high_severity_values(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_high_severity_values)
+
+    @property
+    def bug_issue_types(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_bug_issue_types)
+
+    @property
+    def blocker_issue_types(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_blocker_issue_types)
+
+    @property
+    def blocker_severity_values(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_blocker_severity_values)
+
+    @property
+    def blocked_statuses(self) -> frozenset[str]:
+        return _csv_to_set(self.jira_blocked_statuses)
+
+    def validate_classification_settings(self) -> None:
+        required_sets = {
+            "JIRA_DONE_STATUSES": self.done_statuses,
+            "JIRA_IN_PROGRESS_STATUSES": self.in_progress_statuses,
+            "JIRA_HIGH_SEVERITY_VALUES": self.high_severity_values,
+            "JIRA_BUG_ISSUE_TYPES": self.bug_issue_types,
+        }
+        missing = [name for name, values in required_sets.items() if not values]
+        if missing:
+            raise ValueError(f"Classification settings must not be empty: {', '.join(missing)}")
+
+        overlapping_statuses = sorted(self.done_statuses & self.in_progress_statuses)
+        if overlapping_statuses:
+            raise ValueError(
+                "JIRA_DONE_STATUSES and JIRA_IN_PROGRESS_STATUSES must not overlap: "
+                f"{', '.join(overlapping_statuses)}"
+            )
+
     def validate_startup_settings(self) -> None:
         """Fail-fast validation for required Jira sync settings.
 
         Validation is intentionally scoped to sync-enabled deployments so local
         API-only workflows can run without Jira credentials.
         """
+        self.validate_classification_settings()
         if not self.jira_sync_enabled:
             return
 

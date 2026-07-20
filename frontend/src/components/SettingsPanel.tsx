@@ -23,6 +23,13 @@ interface JiraSettingsForm {
   jira_field_blocker: string;
   jira_changelog_fix_version_fields: string;
   jira_changelog_sprint_fields: string;
+  jira_done_statuses: string;
+  jira_in_progress_statuses: string;
+  jira_high_severity_values: string;
+  jira_bug_issue_types: string;
+  jira_blocker_issue_types: string;
+  jira_blocker_severity_values: string;
+  jira_blocked_statuses: string;
 }
 
 function toForm(config: JiraConfigurationResponse): JiraSettingsForm {
@@ -42,6 +49,13 @@ function toForm(config: JiraConfigurationResponse): JiraSettingsForm {
     jira_field_blocker: config.jira_field_blocker,
     jira_changelog_fix_version_fields: config.jira_changelog_fix_version_fields,
     jira_changelog_sprint_fields: config.jira_changelog_sprint_fields,
+    jira_done_statuses: config.jira_done_statuses,
+    jira_in_progress_statuses: config.jira_in_progress_statuses,
+    jira_high_severity_values: config.jira_high_severity_values,
+    jira_bug_issue_types: config.jira_bug_issue_types,
+    jira_blocker_issue_types: config.jira_blocker_issue_types,
+    jira_blocker_severity_values: config.jira_blocker_severity_values,
+    jira_blocked_statuses: config.jira_blocked_statuses,
   };
 }
 
@@ -61,6 +75,13 @@ function toUpdate(form: JiraSettingsForm): JiraConfigurationUpdate {
     jira_field_blocker: form.jira_field_blocker,
     jira_changelog_fix_version_fields: form.jira_changelog_fix_version_fields,
     jira_changelog_sprint_fields: form.jira_changelog_sprint_fields,
+    jira_done_statuses: form.jira_done_statuses,
+    jira_in_progress_statuses: form.jira_in_progress_statuses,
+    jira_high_severity_values: form.jira_high_severity_values,
+    jira_bug_issue_types: form.jira_bug_issue_types,
+    jira_blocker_issue_types: form.jira_blocker_issue_types,
+    jira_blocker_severity_values: form.jira_blocker_severity_values,
+    jira_blocked_statuses: form.jira_blocked_statuses,
   };
   if (form.jira_api_token.trim()) {
     update.jira_api_token = form.jira_api_token;
@@ -85,6 +106,15 @@ function setupItems(config: JiraConfigurationResponse | null) {
     {
       label: "Field mappings",
       isDone: Boolean(config?.jira_field_severity && config.jira_field_release && config.jira_changelog_fix_version_fields),
+    },
+    {
+      label: "Classifications",
+      isDone: Boolean(
+        config?.jira_done_statuses &&
+          config.jira_in_progress_statuses &&
+          config.jira_high_severity_values &&
+          config.jira_bug_issue_types,
+      ),
     },
   ];
 }
@@ -386,6 +416,41 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
                 value={form.jira_changelog_sprint_fields}
                 onChange={(event) => updateField("jira_changelog_sprint_fields", event.target.value)}
               />
+            </label>
+          </fieldset>
+
+          <fieldset className="settings-fieldset">
+            <legend>Jira Classifications</legend>
+            <p className="settings-help settings-field-wide">
+              Enter comma-separated Jira values. Matching is case-insensitive.
+            </p>
+            <label className="settings-field settings-field-wide">
+              <span>Done statuses</span>
+              <input value={form.jira_done_statuses} onChange={(event) => updateField("jira_done_statuses", event.target.value)} />
+            </label>
+            <label className="settings-field settings-field-wide">
+              <span>In-progress statuses</span>
+              <input value={form.jira_in_progress_statuses} onChange={(event) => updateField("jira_in_progress_statuses", event.target.value)} />
+            </label>
+            <label className="settings-field settings-field-wide">
+              <span>High-severity values</span>
+              <input value={form.jira_high_severity_values} onChange={(event) => updateField("jira_high_severity_values", event.target.value)} />
+            </label>
+            <label className="settings-field settings-field-wide">
+              <span>Bug issue types</span>
+              <input value={form.jira_bug_issue_types} onChange={(event) => updateField("jira_bug_issue_types", event.target.value)} />
+            </label>
+            <label className="settings-field settings-field-wide">
+              <span>Blocker issue types</span>
+              <input value={form.jira_blocker_issue_types} onChange={(event) => updateField("jira_blocker_issue_types", event.target.value)} />
+            </label>
+            <label className="settings-field settings-field-wide">
+              <span>Blocker severity values</span>
+              <input value={form.jira_blocker_severity_values} onChange={(event) => updateField("jira_blocker_severity_values", event.target.value)} />
+            </label>
+            <label className="settings-field settings-field-wide">
+              <span>Blocked statuses</span>
+              <input value={form.jira_blocked_statuses} onChange={(event) => updateField("jira_blocked_statuses", event.target.value)} />
             </label>
           </fieldset>
 

@@ -6,8 +6,8 @@ from pydantic import BaseModel
 class IssueResponse(BaseModel):
     issue_key: str
     summary: str
-    issue_type: str
-    status: str
+    issue_type: str | None
+    status: str | None
     priority: str | None
     assignee: str | None
     story_points: float | None

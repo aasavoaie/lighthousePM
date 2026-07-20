@@ -18,6 +18,13 @@ class JiraConfigurationResponse(BaseModel):
     jira_field_blocker: str
     jira_changelog_fix_version_fields: str
     jira_changelog_sprint_fields: str
+    jira_done_statuses: str
+    jira_in_progress_statuses: str
+    jira_high_severity_values: str
+    jira_bug_issue_types: str
+    jira_blocker_issue_types: str
+    jira_blocker_severity_values: str
+    jira_blocked_statuses: str
     is_complete: bool
 
 
@@ -37,6 +44,13 @@ class JiraConfigurationUpdate(BaseModel):
     jira_field_blocker: str | None = None
     jira_changelog_fix_version_fields: str | None = None
     jira_changelog_sprint_fields: str | None = None
+    jira_done_statuses: str | None = None
+    jira_in_progress_statuses: str | None = None
+    jira_high_severity_values: str | None = None
+    jira_bug_issue_types: str | None = None
+    jira_blocker_issue_types: str | None = None
+    jira_blocker_severity_values: str | None = None
+    jira_blocked_statuses: str | None = None
 
 
 class JiraConnectionTestResponse(BaseModel):

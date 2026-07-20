@@ -3,13 +3,19 @@ from typing import Any
 
 from app.config import Settings
 from app.services.jira_types import JiraIssueDetail, JiraIssueSummary, JiraSprintRef
-from app.utils.constants import DONE_STATUSES, HIGH_SEVERITY_PRIORITIES, IN_PROGRESS_STATUSES
 
 
 def _display_name(field: dict[str, Any] | None) -> str | None:
     if field is None:
         return None
     return field.get("displayName") or field.get("name")
+
+
+def _assignee_identifier(field: dict[str, Any] | None) -> str | None:
+    if not isinstance(field, dict):
+        return None
+    value = field.get("accountId") or field.get("key") or field.get("name")
+    return str(value).strip() if value is not None and str(value).strip() else None
 
 
 def _stringify_field_value(value: Any) -> str | None:
@@ -36,6 +42,13 @@ class JiraFieldMapping:
     blocker_true_values: frozenset[str]
     changelog_fix_version_fields: frozenset[str]
     changelog_sprint_fields: frozenset[str]
+    done_statuses: frozenset[str]
+    in_progress_statuses: frozenset[str]
+    high_severity_values: frozenset[str]
+    bug_issue_types: frozenset[str]
+    blocker_issue_types: frozenset[str]
+    blocker_severity_values: frozenset[str]
+    blocked_statuses: frozenset[str]
 
 
 class JiraFieldMapper:
@@ -52,6 +65,13 @@ class JiraFieldMapper:
             blocker_true_values=settings.blocker_true_values,
             changelog_fix_version_fields=settings.changelog_fix_version_fields,
             changelog_sprint_fields=settings.changelog_sprint_fields,
+            done_statuses=settings.done_statuses,
+            in_progress_statuses=settings.in_progress_statuses,
+            high_severity_values=settings.high_severity_values,
+            bug_issue_types=settings.bug_issue_types,
+            blocker_issue_types=settings.blocker_issue_types,
+            blocker_severity_values=settings.blocker_severity_values,
+            blocked_statuses=settings.blocked_statuses,
         )
 
     def search_issue_fields(self) -> list[str]:
@@ -95,11 +115,12 @@ class JiraFieldMapper:
         return JiraIssueSummary(
             key=raw["key"],
             summary=fields.get("summary", ""),
-            status=_display_name(fields.get("status")) or "",
-            issue_type=_display_name(fields.get("issuetype")) or "",
+            status=_display_name(fields.get("status")),
+            issue_type=_display_name(fields.get("issuetype")),
             priority=self.extract_severity(fields),
             assignee=_display_name(fields.get("assignee")),
             updated=updated,
+            assignee_id=_assignee_identifier(fields.get("assignee")),
             created=created,
             fix_versions=fix_versions,
             sprints=sprints,
@@ -118,11 +139,12 @@ class JiraFieldMapper:
         return JiraIssueDetail(
             key=raw["key"],
             summary=fields.get("summary", ""),
-            status=_display_name(fields.get("status")) or "",
-            issue_type=_display_name(fields.get("issuetype")) or "",
+            status=_display_name(fields.get("status")),
+            issue_type=_display_name(fields.get("issuetype")),
             priority=self.extract_severity(fields),
             assignee=_display_name(fields.get("assignee")),
             updated=updated,
+            assignee_id=_assignee_identifier(fields.get("assignee")),
             created=created,
             fix_versions=fix_versions,
             sprints=sprints,
@@ -239,13 +261,16 @@ class JiraFieldMapper:
         )
 
     def is_done_status(self, status: str | None) -> bool:
-        return (status or "").casefold() in DONE_STATUSES
+        return (status or "").strip().casefold() in self.mapping.done_statuses
 
     def is_in_progress_status(self, status: str | None) -> bool:
-        return (status or "").casefold() in IN_PROGRESS_STATUSES
+        return (status or "").strip().casefold() in self.mapping.in_progress_statuses
 
     def is_high_severity(self, severity: str | None) -> bool:
-        return (severity or "").casefold() in HIGH_SEVERITY_PRIORITIES
+        return (severity or "").strip().casefold() in self.mapping.high_severity_values
+
+    def is_bug(self, issue_type: str | None) -> bool:
+        return (issue_type or "").strip().casefold() in self.mapping.bug_issue_types
 
     def parse_blocker_flag(self, value: str | None) -> bool | None:
         normalized = (value or "").strip().casefold()
@@ -255,33 +280,49 @@ class JiraFieldMapper:
 
     def classify_blocker(
         self,
-        issue_type: str,
+        issue_type: str | None,
         severity: str | None,
-        status: str,
+        status: str | None,
         blocker_flag: bool | None,
     ) -> bool:
         if blocker_flag is not None:
             return blocker_flag and not self.is_done_status(status)
-        issue_type_value = issue_type.casefold()
-        severity_value = (severity or "").casefold()
-        status_value = status.casefold()
+        issue_type_value = (issue_type or "").strip().casefold()
+        severity_value = (severity or "").strip().casefold()
+        status_value = (status or "").strip().casefold()
         return (
-            issue_type_value in {"blocker", "incident"}
-            or severity_value in {"blocker", "highest", "critical"}
-            or status_value == "blocked"
+            issue_type_value in self.mapping.blocker_issue_types
+            or severity_value in self.mapping.blocker_severity_values
+            or status_value in self.mapping.blocked_statuses
         ) and not self.is_done_status(status)
 
     @property
     def done_statuses(self) -> frozenset[str]:
-        return DONE_STATUSES
+        return self.mapping.done_statuses
 
     @property
     def in_progress_statuses(self) -> frozenset[str]:
-        return IN_PROGRESS_STATUSES
+        return self.mapping.in_progress_statuses
 
     @property
     def high_severity_values(self) -> frozenset[str]:
-        return HIGH_SEVERITY_PRIORITIES
+        return self.mapping.high_severity_values
+
+    @property
+    def bug_issue_types(self) -> frozenset[str]:
+        return self.mapping.bug_issue_types
+
+    @property
+    def blocker_issue_types(self) -> frozenset[str]:
+        return self.mapping.blocker_issue_types
+
+    @property
+    def blocker_severity_values(self) -> frozenset[str]:
+        return self.mapping.blocker_severity_values
+
+    @property
+    def blocked_statuses(self) -> frozenset[str]:
+        return self.mapping.blocked_statuses
 
     @property
     def fix_version_changelog_fields(self) -> frozenset[str]:

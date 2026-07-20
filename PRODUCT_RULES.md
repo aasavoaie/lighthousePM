@@ -68,19 +68,54 @@ Every metric or derived signal must define:
 
 ## Shared Classification Rules
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.1**
 
-| Classification | Current values |
+Classifications are explicit Jira-instance configuration inputs. The approved
+settings and compatibility defaults are:
+
+| Setting | Default |
 |---|---|
-| Done statuses | `done`, `closed`, `resolved` |
-| In-progress statuses | `in progress`, `in development`, `in review`, `in testing` |
-| High-severity values | `high`, `highest`, `critical` |
-| Bug identification | `issue_type`, case-insensitively equal to `bug` |
+| `JIRA_DONE_STATUSES` | `done,closed,resolved` |
+| `JIRA_IN_PROGRESS_STATUSES` | `in progress,in development,in review,in testing` |
+| `JIRA_HIGH_SEVERITY_VALUES` | `high,highest,critical` |
+| `JIRA_BUG_ISSUE_TYPES` | `bug` |
+| `JIRA_BLOCKER_ISSUE_TYPES` | `blocker,incident` |
+| `JIRA_BLOCKER_SEVERITY_VALUES` | `blocker,highest,critical` |
+| `JIRA_BLOCKED_STATUSES` | `blocked` |
 
-All comparisons are case-insensitive. Jira field identifiers can be configured,
-but the classification values above are currently code constants. Projects
-using other workflow or priority names will produce incomplete results until
-these mappings become explicit configuration.
+The following rules apply to every configured classification set:
+
+1. Values are comma-separated, trimmed, compared case-insensitively, and
+   deduplicated after case folding.
+2. Done, in-progress, high-severity, and Bug sets must not be empty.
+3. Done and in-progress status sets must not overlap after normalization.
+4. Each blocker fallback set may be empty. This allows a Jira instance to
+   disable a fallback category deliberately.
+5. Invalid values supplied through the configuration API return `400` with an
+   explicit reason. Invalid effective startup configuration stops startup
+   rather than silently restoring defaults.
+
+Blocker classification has explicit precedence:
+
+1. When `JIRA_FIELD_BLOCKER` is configured and the issue supplies a value, its
+   match against `JIRA_BLOCKER_TRUE_VALUES` decides the blocker flag.
+2. When that explicit Jira value is absent, an issue is a blocker when its
+   issue type, severity, or status matches the applicable configured blocker
+   fallback set.
+3. A done issue is not an open blocker even when its blocker flag or fallback
+   classification is true.
+
+Metrics must classify stored raw Jira status, issue-type, severity, and blocker
+values using the effective configuration at recomputation time. They must not
+rely only on a previously derived `issues.is_blocker` value, because that value
+may have been produced under an older configuration.
+
+Every release and sprint snapshot must store the complete normalized
+classification sets and blocker precedence inputs in `calculation_provenance`.
+Changing configuration affects only new immutable snapshots; historical
+snapshots are never rewritten. A comparison between snapshots with different
+effective classification sets is unavailable with an explicit reason rather
+than presenting configuration changes as Jira delivery changes.
 
 ## Jira Time Fields
 
@@ -101,88 +136,226 @@ Status: **Approved — Phase 0.4**
 
 ### Open blockers (`open_blockers`)
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.2**
 
 - Scope: issues currently associated with the release.
-- Formula: count issues where `is_blocker = true` and status is not done.
+- Formula: count issues whose explicit or fallback blocker classification is
+  true and whose status is not done.
 - Unit: tickets.
 - Evidence: sorted matching Jira issue keys are stored on the metric snapshot.
-- Empty scope: stored computation is `0`; API availability identifies the
-  release as not computed when it has no tickets.
+- Required inputs: non-empty status and enough explicit-field or configured
+  fallback data to determine blocker classification.
+- Partial input: return the confirmed minimum count, mark the metric `PARTIAL`,
+  and explain that additional blockers may exist.
+- Empty scope: the API value is `null` and the metric is `NOT_COMPUTED`; an
+  empty release must not present zero blockers as healthy evidence.
 
 ### Open high-severity bugs (`open_high_severity_bugs`)
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.2**
 
 - Scope: issues currently associated with the release.
-- Formula: count issues whose type is Bug, severity is a configured
-  high-severity value, and status is not done.
+- Formula: count issues whose type matches a configured Bug issue type,
+  severity matches a configured high-severity value, and status is not done.
 - Unit: tickets.
 - Evidence: sorted matching Jira issue keys are stored on the metric snapshot.
+- Required inputs: non-empty issue type; severity for a ticket classified as a
+  Bug; and status for a Bug with high severity.
+- Partial input: return the confirmed minimum count, mark the metric `PARTIAL`,
+  and explain that additional high-severity bugs may exist.
+- Empty scope: the API value is `null` and the metric is `NOT_COMPUTED`.
 
 ### Scope completed (`scope_completed_pct`)
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.2**
 
 - Formula: `100 * current done release tickets / current release tickets`.
 - Unit: percent from `0` to `100`.
 - Rounding: two decimal places.
-- Empty scope: `0.0`, with API availability marking the metric unavailable.
+- Every scoped ticket requires a non-empty status. If any status is missing,
+  the value is `null` and the metric is `PARTIAL`; missing status is not
+  silently treated as incomplete work.
+- Empty scope: the API value is `null` and the metric is `NOT_COMPUTED`.
 - Story points are not used.
 
 ### Completed tickets (`completed_tickets`)
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.2**
 
 - Formula: count current release tickets whose status is done.
 - Unit: tickets.
+- Partial input: return the confirmed minimum count when any scoped ticket has
+  no status, mark the metric `PARTIAL`, and explain that additional completed
+  tickets may exist.
+- Evidence: sorted confirmed completed-ticket keys are stored and exposed.
+- Empty scope: the API value is `null` and the metric is `NOT_COMPUTED`.
+
+### Release scope and risk evidence
+
+Status: **Approved — Phase 2.2**
+
+For the four metrics above, `calculation_provenance` stores sorted issue-key
+lists for:
+
+- evaluated tickets;
+- matching tickets;
+- missing status;
+- missing issue type;
+- missing severity; and
+- indeterminate blocker classification.
+
+Only lists applicable to a metric need to be populated, but every applicable
+list must be present even when empty. A zero blocker, high-severity-bug, or
+completed-ticket count is exact only when that metric is `COMPUTED`. A
+`PARTIAL` count is explicitly a confirmed minimum, never an inferred complete
+result.
 
 ### Scope churn, added scope, and removed scope
 
 Fields: `scope_churn_7d_pct`, `scope_added_7d_count`,
 `scope_removed_7d_count`
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.3**
 
-- Window: the seven days before recomputation time.
-- Source: fix-version changelog records in the configured Jira project where
-  the old or new value exactly matches the release name, case-insensitively.
-- Churned scope: distinct Jira issue keys with at least one matching change.
-- Added scope: distinct keys moving from outside the release into the release.
-- Removed scope: distinct keys moving from the release to outside the release.
-- Churn formula:
-  `100 * distinct churned issue keys / current release ticket count`.
-- Rounding: two decimal places.
-- Empty current scope: all three values are `0`.
+The metric uses the stored snapshot time as its single calculation boundary:
 
-The percentage can exceed `100` when removed or repeatedly moved issues exceed
-the current release ticket count. Whether the denominator should instead be
-initial or union scope remains a future product decision.
+- `window_end = snapshot_at`;
+- `window_start = snapshot_at - 7 days`; and
+- both UTC boundaries are inclusive.
+
+No independent current-time call may be made inside the churn calculation.
+
+The source is fix-version changelog records from synchronized issues in the
+configured Jira project. A record qualifies only when its normalized field
+name matches a configured fix-version changelog alias and its old and new
+values prove a membership change for the exact release name,
+case-insensitively:
+
+- Added: the old value does not reference the release and the new value does.
+- Removed: the old value references the release and the new value does not.
+- A record that does not change release membership is ignored.
+
+An issue can appear in both the added and removed evidence lists when it moves
+more than once. It appears only once in the distinct churn numerator.
+
+Definitions:
+
+- `churned issue keys = distinct union of added and removed issue keys`;
+- `observed scope issue keys = current release issue keys union churned issue
+  keys`; and
+- `scope_churn_7d_pct = 100 * churned issue count / observed scope issue
+  count`.
+
+The percentage is rounded to two decimal places and is naturally bounded from
+`0` to `100`; it is not capped after calculation. Added and removed counts are
+the lengths of their distinct evidence lists and can overlap.
+
+Availability rules:
+
+- Relevant changelog completeness covers every synchronized issue in the
+  release's configured Jira project. Any project issue could contain a removal
+  from the release, so checking only current or already-observed issue keys is
+  insufficient.
+- `COMPUTED`: observed scope exists and every synchronized project issue has
+  complete Jira changelog ingestion.
+- `PARTIAL`: any synchronized project issue has incomplete Jira changelog
+  ingestion. Added and removed counts remain confirmed minimum counts, while
+  `scope_churn_7d_pct` is `null`. This status also applies when no observed
+  scope is currently known, because missing history may contain a qualifying
+  membership change.
+- `NOT_COMPUTED`: neither current scope nor qualifying changed scope exists and
+  all synchronized project issue histories are complete.
+
+Complete changelog ingestion with current scope but no qualifying changes
+returns a meaningful `0%`. No current tickets with confirmed removals can still
+produce a computed result. A partial or unavailable percentage must not be
+replaced by zero in confidence, signal, readiness, or reporting calculations.
+
+`calculation_provenance` stores the window boundaries, synchronized project
+issue keys, current-scope keys, observed-scope keys and denominator, churned
+keys, added keys, removed keys, incomplete-project-changelog keys, configured
+changelog aliases, and normalized release value used by the calculation. Every
+issue-key list is sorted.
 
 ### Median cycle time (`median_cycle_time_days`)
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.4**
 
-- Scope: currently done release tickets.
-- Start: earliest transition into an in-progress status.
-- End: earliest transition into a done status.
-- Tickets missing either transition, or whose start is not before the end, are
-  excluded.
-- Formula: statistical median of included elapsed durations.
-- Unit: days.
-- Rounding: four decimal places.
-- No qualifying tickets: `null`.
+Scope is current release membership whose current status is done. For each
+eligible ticket:
 
-### Reopen rate (`reopen_rate_pct`)
+1. Start is the earliest transition into a configured in-progress status.
+2. End is the earliest transition into a configured done status strictly after
+   that start.
+3. This first valid pair is used even when an earlier done transition exists.
+4. Duration is `(end - start) total seconds / 86,400` days.
 
-Status: **Current behavior**
+The metric is the statistical median of valid ticket durations, rounded to
+four decimal places.
 
-- Reopened ticket: a current release ticket with at least one transition from
-  a done status to a non-done status.
-- Formula: `100 * distinct reopened ticket keys / current release ticket count`.
-- Unit: percent from `0` to `100`.
-- Rounding: two decimal places.
-- Empty scope: `0.0`, with API availability marking the metric unavailable.
+Availability rules:
+
+- `COMPUTED`: at least one valid pair exists and all potentially eligible
+  ticket histories are complete.
+- `PARTIAL`: a missing current status or incomplete Jira history could change
+  the included tickets or median. The value is `null`.
+- `NOT_COMPUTED`: evidence is complete but no valid transition pair exists.
+
+`calculation_provenance` stores every included issue key, start, end, and
+duration. Excluded issue keys are sorted and grouped by missing status,
+incomplete history, no in-progress transition, no later done transition, or
+invalid timestamps.
+
+### Reopen event rate (`reopen_rate_pct`)
+
+Status: **Approved — Phase 2.4**
+
+The API field remains `reopen_rate_pct` for compatibility. Its approved
+user-facing meaning is **reopen events per 100 eligible tickets**.
+
+Eligible denominator:
+
+`current scoped tickets that are currently done or have a recorded transition
+into a configured done status`
+
+Numerator:
+
+`total distinct done-to-non-done transition events for eligible tickets`
+
+Formula:
+
+`100 * reopen event count / eligible ticket count`
+
+A reopen event is a stored status transition whose normalized old status is
+done and normalized new status is not done. Event identity is the unique
+combination of issue key, transition timestamp, normalized old status, and
+normalized new status. Duplicate copies of that identity count once.
+
+Every distinct reopen event is counted. Multiple events for one ticket
+therefore increase the numerator multiple times, and the result can exceed
+`100%`; it is never capped. The value is rounded to two decimal places.
+
+Availability rules:
+
+- `COMPUTED`: at least one eligible ticket exists and all relevant current
+  statuses and histories are complete.
+- `PARTIAL`: missing status or incomplete Jira history could change the
+  denominator or event count. Confirmed eligible and event counts remain
+  available, but `reopen_rate_pct` is `null`.
+- `NOT_COMPUTED`: evidence is complete but no scoped ticket has reached done.
+- A complete result with eligible tickets and no reopen events is `0%`.
+
+`calculation_provenance` stores sorted scoped and eligible issue keys, the
+eligible denominator, every distinct reopen event, event count by issue key,
+issue keys reopened multiple times, missing-status keys, and
+incomplete-history keys. Events are ordered by issue key and transition time.
+
+When any ticket has multiple reopen events, the API, UI, and reports state:
+`Ticket {key} was counted {count} times because it was reopened {count} times.`
+
+The same cycle-time and reopen-event-rate contracts apply to sprint metrics,
+using current issue-to-sprint membership. Partial or unavailable values must
+not be replaced by zero in confidence, signals, recommendations, or reports.
 
 ## Release Confidence and Readiness
 
@@ -205,8 +378,8 @@ Release confidence and release signal severity are related but distinct:
 | Open high-severity bugs greater than `0`, otherwise | 9 |
 | Scope churn greater than `20%` | 8 |
 | Scope churn greater than `10%`, otherwise | 4 |
-| Reopen rate greater than `15%` | 6 |
-| Reopen rate greater than `10%`, otherwise | 3 |
+| Reopen event rate greater than `15%` | 6 |
+| Reopen event rate greater than `10%`, otherwise | 3 |
 | Median cycle time greater than `7` days | 4 |
 
 Confidence formula:
@@ -226,18 +399,38 @@ Hard RED conditions:
 - Open blockers greater than `0`.
 - Open high-severity bugs greater than `1`.
 - Scope churn greater than `20%`.
-- Reopen rate greater than `15%`.
+- Reopen event rate greater than `15%`.
 
 Hard YELLOW conditions, when no hard RED condition is active:
 
 - Open high-severity bugs greater than `0`.
 - Scope churn greater than `10%`.
-- Reopen rate greater than `10%`.
+- Reopen event rate greater than `10%`.
 - Median cycle time greater than `7` days.
 
 Hard-rule severity is GREEN when none of these conditions is active. All
 comparisons are strict `>` comparisons, so a value exactly equal to a threshold
 does not breach that threshold.
+
+### Incomplete classification inputs
+
+Status: **Approved — Phase 2.2**
+
+When any classification-dependent release-confidence input is `PARTIAL`:
+
+- `confidence_score` is `null` rather than being calculated from confirmed
+  minimum risk counts;
+- the release metrics response is `PARTIAL` and identifies every affected
+  metric and missing Jira issue key;
+- a confirmed hard RED condition still produces a final RED signal because
+  missing information cannot reduce its severity; and
+- without a confirmed hard RED condition, the final signal and Release Outlook
+  are `INCONCLUSIVE` rather than GREEN, YELLOW, or an apparently healthy
+  outlook.
+
+`INCONCLUSIVE` is an availability state, not a fourth severity level. Reasons
+must identify the incomplete inputs and retain any confirmed active risk
+evidence.
 
 ### Final signal
 
@@ -266,46 +459,56 @@ Release readiness uses five pass/fail gates:
 1. Open blockers `<= 0`.
 2. Open high-severity bugs `<= 1`.
 3. Scope churn `<= 20%`.
-4. Reopen rate `<= 15%`.
+4. Reopen event rate `<= 15%`.
 5. Median cycle time is unavailable or `<= 7` days.
 
 `readiness_pct = 100 * passed gates / total gates`.
 
 ## Sprint Metrics
 
-### Committed scope (`committed_scope`)
+### Current sprint scope (`committed_scope`)
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.5**
 
-- Formula: count current issue-to-sprint membership records.
+- The API field remains `committed_scope` for compatibility. Its approved
+  user-facing label is **Current sprint scope**.
+- Formula: count distinct current issue-to-sprint membership keys.
 - Unit: tickets.
-- This is current membership, not necessarily the sprint-start commitment.
+- This value is current membership at snapshot time and must not be described
+  as sprint-start commitment.
+- Evidence: sorted current membership keys are stored in provenance.
+- Empty membership: the API value is `null` and status is `NOT_COMPUTED`.
 
 ### Completed scope (`completed_scope_pct`)
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.5**
 
 - Formula: `100 * current done sprint tickets / current sprint tickets`.
 - Unit: percent from `0` to `100`.
 - Rounding: two decimal places.
-- Empty scope: `0.0`, with API availability marking the metric unavailable.
+- Every scoped ticket requires a non-empty status. If any status is missing,
+  the value is `null` and the metric is `PARTIAL`.
+- Empty scope: the API value is `null` and status is `NOT_COMPUTED`.
+- Story points are not used.
 
 ### Sprint blockers and high-severity bugs
 
 Fields: `open_blockers`, `open_high_severity_bugs`
 
-Status: **Current behavior**
+Status: **Approved — Phases 2.2 and 2.5**
 
-- These use the same classification rules as their release equivalents.
+- These use the same classification, confirmed-minimum, partial-input, and
+  empty-scope rules as their release equivalents.
 - Scope is current issue-to-sprint membership.
 - Sorted matching issue keys are stored on the sprint metric snapshot.
 
 ### Bugs created during sprint (`bugs_created_during_sprint`)
 
-Status: **Approved — Phase 0.4**
+Status: **Approved — Phases 0.4 and 2.1**
 
-- Count Bug tickets linked to the sprint whose `jira_created_at` is between the
-  sprint start and effective sprint end, inclusively.
+- Count tickets with an issue type in the configured Bug issue-type set whose
+  `jira_created_at` is between the sprint start and effective sprint end,
+  inclusively.
 - For a closed sprint, effective end is completion time when present, otherwise
   configured end time, otherwise snapshot time.
 - For an active or other non-closed sprint, effective end is the earlier of
@@ -317,27 +520,50 @@ Status: **Approved — Phase 0.4**
 
 ### Work-state counts
 
-Fields: `in_progress_count`, `not_started_count`, `rollover_count`
+Fields: `in_progress_count`, `not_started_count`
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.5**
 
-- In progress: current sprint tickets in an in-progress status.
-- Not started: current sprint tickets in neither a done nor in-progress status.
-- Rollover: for a closed sprint, current sprint tickets not currently done;
-  otherwise `0`.
+- In progress: current sprint tickets in a configured in-progress status.
+- Not started: current sprint tickets with a non-empty status in neither the
+  configured done nor in-progress sets.
+- Missing status produces confirmed-minimum counts marked `PARTIAL`; it is not
+  classified as not started.
+- Evidence stores sorted matching and missing-status issue keys.
 
-### Sprint median cycle time and reopen rate
+### Unfinished closed-sprint scope (`rollover_count`)
+
+Status: **Approved — Phase 2.5**
+
+The API field remains `rollover_count` for compatibility. Its approved
+user-facing label is **Unfinished closed-sprint scope**.
+
+- The metric applies only when sprint state is `closed`.
+- Formula: count current sprint-membership tickets whose current status is not
+  done.
+- The value does not prove that a ticket entered another sprint and must not be
+  labelled rollover in the UI or reports.
+- Active, future, or unknown-state sprints return `null` with metric status
+  `NOT_APPLICABLE`.
+- A closed sprint with no current scope returns `null` with `NOT_COMPUTED`.
+- Missing status returns the confirmed minimum unfinished count with `PARTIAL`.
+- A fully evidenced closed sprint with no unfinished tickets returns `0` with
+  `COMPUTED`.
+- Provenance stores sprint state, applicability, current membership keys,
+  matching unfinished keys, and missing-status keys.
+
+### Sprint median cycle time and reopen event rate
 
 Fields: `median_cycle_time_days`, `reopen_rate_pct`
 
-Status: **Current behavior**
+Status: **Approved — Phase 2.4**
 
-- These use the same formulas as the release equivalents, scoped to current
-  sprint membership.
+- These use the same formulas, event identity, availability rules, and stored
+  evidence as the release equivalents, scoped to current sprint membership.
 
 ## Sprint Delivery Confidence
 
-Status: **Approved — Phase 0.3**
+Status: **Approved — Phases 0.3 and 2.5**
 
 LighthousePM calculates delivery confidence only when at least `50%` of the
 current sprint tickets have valid story points. Missing values are never
@@ -415,6 +641,34 @@ When coverage is `100%`:
 - Current-sprint partial-coverage explanations are removed.
 - Point-based cards and recommendations are presented normally.
 
+### Required non-point inputs
+
+Status: **Approved — Phase 2.5**
+
+Meeting the story-point coverage threshold is necessary but not sufficient to
+calculate delivery confidence. The calculation also requires:
+
+- non-empty status for every pointed current-sprint ticket used by progress
+  alignment;
+- complete blocker classification for the current sprint scope;
+- a valid sprint duration with both start and end times and `end > start`; and
+- complete sprint-membership changelog history for every synchronized issue in
+  the sprint's Jira project, because a removed issue may no longer be in current
+  membership.
+
+If any required non-point input is missing, delivery-confidence status is
+`INCONCLUSIVE`, `delivery_confidence_score` is `null`, and explanations list
+the affected input and sorted Jira issue keys. This rule takes precedence over
+the `PARTIAL` score allowed for story-point coverage from `50%` to below `100%`.
+Partial story-point coverage still returns a score when all required non-point
+inputs are complete.
+
+Missing or invalid sprint duration makes both progress alignment and velocity
+fit unavailable: elapsed percentage, remaining-time ratio, and remaining
+capacity must not receive healthy fallback values. This duration requirement
+does not change the independently approved windows for bugs created during the
+sprint or scope stability.
+
 ### Effective-point values
 
 - Committed points: sum of non-negative story points across current sprint
@@ -430,7 +684,9 @@ When coverage is `100%`:
 - If committed points are zero, completion is `100`.
 - Time elapsed: clamped percent of sprint duration elapsed at snapshot time.
 - Component: `clamp(100 * point completion / time elapsed, 0, 100)`.
-- If elapsed time is unavailable or zero, component is `100`.
+- If duration is valid and elapsed time is exactly zero, component is `100`.
+- If elapsed time is unavailable because duration is missing or invalid, the
+  component is unavailable and delivery confidence is `INCONCLUSIVE`.
 
 #### Velocity fit
 
@@ -452,7 +708,9 @@ When coverage is `100%`:
 
 #### Blocker health
 
-- Blocked ratio: `open blockers / committed ticket count`, or `0` for empty scope.
+- Blocked ratio: `open blockers / current sprint-scope count`.
+- Empty scope is `NOT_COMPUTED`; it is not assigned a zero blocked ratio for a
+  delivery-confidence calculation.
 - Component: `clamp(100 * (1 - blocked ratio), 0, 100)`.
 
 #### Scope stability
@@ -463,7 +721,9 @@ When coverage is `100%`:
 - Stability index:
   `(added count + removed count) / initial commitment count`.
 - Component: `clamp(100 * (1 - stability index), 0, 100)`.
-- A missing stability index is currently treated as zero churn.
+- Missing sprint start or incomplete project sprint-membership history makes
+  scope stability unavailable and delivery confidence `INCONCLUSIVE`; missing
+  stability is never replaced by zero churn.
 
 Delivery confidence formula:
 
@@ -471,24 +731,73 @@ Delivery confidence formula:
 
 ### Ticket-based metrics during incomplete coverage
 
-The following remain available because they are not calculated from aggregated
-story points:
+The following are evaluated independently because they are not calculated from
+aggregated story points. Each can still be `PARTIAL`, `NOT_COMPUTED`, or
+`NOT_APPLICABLE` under its own approved availability rules:
 
-- committed ticket count and completed ticket percentage;
+- current sprint-scope count and completed ticket percentage;
 - open blockers and open high-severity bugs;
 - bugs created during the sprint;
-- in-progress, not-started, and rollover counts;
-- median cycle time and reopen rate; and
+- in-progress, not-started, and unfinished closed-sprint counts when
+  applicable;
+- median cycle time and reopen event rate; and
 - ticket-based scope movement and stability evidence.
 
 ### Workload distribution
 
-- Below `50%` current-sprint coverage, workload distribution is
-  `INCONCLUSIVE`.
-- From `50%` up to but not including `100%`, workload distribution uses pointed
-  active tickets, excludes unpointed active tickets, reports how many were
-  excluded, and is marked `PARTIAL`.
-- At `100%`, it uses the complete active sprint scope and is `COMPUTED`.
+Status: **Approved — Phase 2.5.4**
+
+Workload distribution measures how concentrated active current-sprint work is
+among assignees. Active tickets are current-sprint tickets whose non-empty
+status is not in the configured done-status set. Every current-sprint ticket
+requires a status; any missing status makes workload distribution
+`INCONCLUSIVE` because the active scope is unknown.
+
+Valid story points are finite, non-negative values. Null or blank assignees
+belong to the explicit `Unassigned` bucket. Assigned users are grouped by their
+stable Jira identifier when one is available. If Jira supplies no stable
+identifier, the trimmed, case-insensitive display name is used as a fallback
+and the result is marked `PARTIAL`. The displayed label for a fallback group is
+the lexicographically first trimmed source value in that normalized group.
+
+Availability rules:
+
+- No current-sprint tickets: `NOT_COMPUTED` with a `null` value.
+- Below `50%` current-sprint story-point coverage: `INCONCLUSIVE` with a `null`
+  value.
+- From `50%` up to but not including `100%`: use pointed active tickets,
+  exclude unpointed active tickets, list the excluded keys, and mark the result
+  `PARTIAL`.
+- At `100%`: use the complete active sprint scope and mark the result
+  `COMPUTED`, unless assignee-identity fallback makes it `PARTIAL`.
+- No active tickets: `NOT_APPLICABLE` with a `null` value.
+- Active tickets whose included story points sum to zero: `NOT_COMPUTED` with a
+  `null` value; no concentration percentage is inferred.
+
+For each assignee bucket, sum included active story points. Let
+`total_active_points` be the sum across all buckets. Select the bucket with the
+largest point total; ties are resolved by normalized assignee name in ascending
+order. The metric is:
+
+`workload_concentration_pct = 100 * top_assignee_points / total_active_points`.
+
+The percentage is rounded to two decimal places. Risk bands are:
+
+- below `35%`: healthy;
+- from `35%` through `50%`: watch; and
+- above `50%`: critical.
+
+The `Reduce workload concentration` recommendation is generated when the
+percentage is at least `35%`. It is not generated from an `INCONCLUSIVE`,
+`NOT_COMPUTED`, or `NOT_APPLICABLE` result. A recommendation generated from a
+`PARTIAL` result must carry the same partial-data explanation. Recommendation,
+reporting, and frontend code consume the authoritative stored result and do
+not independently recalculate it.
+
+Stored evidence contains sorted current-scope, active, included-active,
+excluded-active, missing-status, and assignee-identity-fallback issue keys;
+story-point totals per assignee; total included active points; top assignee and
+its points; the percentage; story-point coverage; and calculation status.
 
 ### Persistence and API evidence
 
@@ -500,29 +809,47 @@ Sprint snapshots must store:
   `COMPUTED`;
 - the score when calculated;
 - component values and calculation inputs; and
-- historical baseline identifiers and coverage details.
+- historical baseline identifiers and coverage details;
+- workload-concentration percentage, status, and explanations; and
+- structured workload-distribution evidence.
 
 This evidence must be returned by the API so every score and unavailable state
 remains explainable and reproducible.
 
 ## Metric Availability
 
-Status: **Approved for story-point behavior — Phase 0.3**
+Status: **Approved — Phases 0.3 and 2.2–2.5**
 
 - No scoped tickets: computation status is `NOT_COMPUTED`.
 - Tickets exist but no snapshot exists: `NOT_COMPUTED`.
 - Snapshot exists but one or more metric dependencies are missing: `PARTIAL`.
 - All dependencies exist: `COMPUTED`.
-- Changelog-based metrics require at least one stored changelog entry in scope.
+- Classification-dependent release metrics follow the per-metric required-input
+  and partial-value rules above.
+- Scope churn follows its observed-scope and changelog-completeness rules; the
+  absence of changelog rows is not itself evidence that the metric is
+  unavailable.
+- Other changelog-based metrics follow their metric-specific completeness
+  rules.
 - Sprint delivery-confidence availability and status follow the story-point
   coverage rules above. The delivery-confidence status does not suppress
   otherwise available ticket-based metrics.
-- Median cycle time availability currently requires at least one completed
-  ticket and at least one changelog entry; the computed value can still be
-  `null` when no valid transition pair exists.
+- Median cycle time and reopen event rate follow their valid-pair,
+  eligible-denominator, and history-completeness rules above.
 
 APIs must expose unavailable values explicitly and must not replace unknown or
 unavailable values with inferred healthy values.
+
+Every metric-availability item exposes `status`, explicit explanations, and
+sorted missing issue keys. The existing `available`, `reason`, and `depends_on`
+fields remain for API compatibility. `status` is authoritative; `available` is
+true when a computed or confirmed-partial value is returned and false when the
+metric value is `null`.
+
+`NOT_APPLICABLE` is a metric-level availability status for a metric that does
+not apply to the entity's current state, such as unfinished closed-sprint scope
+for an active sprint. It returns a `null` value and `available = false`, and it
+does not make the overall response `PARTIAL`.
 
 ## Risk Aging
 
@@ -639,6 +966,7 @@ The label maps directly from the approved final release signal:
 | GREEN | `ON TRACK` |
 | YELLOW | `NEEDS ATTENTION` |
 | RED | `AT RISK` |
+| Inconclusive | `INCONCLUSIVE` |
 | Not computed | `NOT COMPUTED` |
 
 The UI and reports state: `This outlook reflects the latest stored snapshot and
@@ -664,6 +992,8 @@ Status: **Approved — Phase 0.6**
   ruleset version.
 - Version `1` identifies the approved Phase 0 contract once that contract is
   implemented in runtime code.
+- Version `2` identifies the approved Phase 2 metric-contract hardening once
+  that contract is implemented in runtime code.
 - The version increments whenever a formula, threshold, weight,
   classification, availability rule, or output meaning changes.
 - Wording, layout, and other presentation-only changes do not increment the
@@ -826,3 +1156,17 @@ Phase 0 behavior before new product features are introduced.
 | 1.3 | Replace unsupported predictive user language in `ABOUT.md` with deterministic Release Outlook language | Approved |
 | 1.4 | Align `desktop/README.md` with automatic migration, backup, restart, and recovery behavior | Approved |
 | 1.5 | Add deterministic safeguards against future documentation and contract drift | Approved |
+
+## Phase 2 Decision Register
+
+Phase 2 approves and hardens the remaining metric contracts before their
+formulas or public meaning are changed under a new ruleset version.
+
+| Point | Decision | Status |
+|---|---|---|
+| 2.1 | Make Jira value classifications configurable, reproducible, and comparison-safe | Approved |
+| 2.2 | Define complete availability and evidence contracts for release scope and risk metrics | Approved |
+| 2.3 | Use a bounded, evidence-backed seven-day scope-churn contract | Approved |
+| 2.4 | Define valid cycle-time pairs and an eligible reopen-event-rate denominator | Approved |
+| 2.5 | Clarify sprint scope and unfinished-work semantics without breaking the API | Approved |
+| 2.5.4 | Make workload distribution authoritative, coverage-aware, and reproducible | Approved |

@@ -52,6 +52,9 @@ function signalDescription(signalValue: string | null) {
   if (signalValue === "GREEN") {
     return "Current release confidence is in the green band.";
   }
+  if (signalValue === "INCONCLUSIVE") {
+    return "Release status is inconclusive because required Jira metric inputs are incomplete.";
+  }
   return "Signal not computed yet for this release snapshot.";
 }
 

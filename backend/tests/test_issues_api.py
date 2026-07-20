@@ -63,13 +63,20 @@ def _seed_release(session: Session, release_id: str = "REL-1") -> Release:
     return release
 
 
-def _seed_issue(session: Session, release_id: str, issue_key: str) -> Issue:
+def _seed_issue(
+    session: Session,
+    release_id: str,
+    issue_key: str,
+    *,
+    issue_type: str | None = "Task",
+    status: str | None = "Open",
+) -> Issue:
     now = datetime.now(UTC)
     issue = Issue(
         issue_key=issue_key,
         summary="Example issue",
-        issue_type="Task",
-        status="Open",
+        issue_type=issue_type,
+        status=status,
         priority="Medium",
         assignee="dev2",
         release_id=release_id,
@@ -100,3 +107,15 @@ def test_get_issue_not_found(client: TestClient) -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Issue 'MISSING-1' not found"
+
+
+def test_get_issue_preserves_missing_classification_fields(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, "REL-9")
+        _seed_issue(session, "REL-9", "LHPM-100", issue_type=None, status=None)
+
+    response = client.get("/issues/LHPM-100")
+
+    assert response.status_code == 200
+    assert response.json()["issue_type"] is None
+    assert response.json()["status"] is None

@@ -17,8 +17,6 @@ from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
 from app.repositories.sprint_repository import SprintRepository
-from app.services.confidence_breakdown_service import ConfidenceBreakdownService
-from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.jira_field_mapper import JiraFieldMapper
 from app.services.metric_availability_service import MetricAvailabilityService
 from app.schemas.availability import MetricAvailability
@@ -37,7 +35,27 @@ RELEASE_NO_TICKETS_MESSAGE = "No tickets are available for this scope."
 RELEASE_NO_STORY_POINTS_MESSAGE = "No tickets in this scope have story points."
 
 
-def _release_metric_availability(session: Session, release_id: str):
+def _stored_metric_availability(
+    snapshot: MetricSnapshot | SprintMetricSnapshot | None,
+) -> MetricAvailability | None:
+    stored_availability = (
+        (snapshot.calculation_provenance or {}).get("availability")
+        if snapshot is not None and snapshot.ruleset_version > 0
+        else None
+    )
+    if isinstance(stored_availability, dict):
+        return MetricAvailability.model_validate(stored_availability)
+    return None
+
+
+def _release_metric_availability(
+    session: Session,
+    release_id: str,
+    snapshot: MetricSnapshot | None = None,
+) -> MetricAvailability:
+    stored_availability = _stored_metric_availability(snapshot)
+    if stored_availability is not None:
+        return stored_availability
     return MetricAvailabilityService.build_release_availability(
         session=session,
         release_id=release_id,
@@ -750,7 +768,9 @@ class ReportTemplateEngine:
         sprint_snapshots: list[SprintMetricSnapshot],
     ) -> list[ReportSection]:
         readiness = self._release_readiness(session, release.release_id, snapshot)
-        release_availability = _release_metric_availability(session, release.release_id)
+        release_availability = _release_metric_availability(
+            session, release.release_id, snapshot
+        )
         recommendations = (
             RecommendationEngine.build_release_recommendations(
                 snapshot,
@@ -759,12 +779,10 @@ class ReportTemplateEngine:
             if snapshot
             else []
         )
-        sprint_issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id) if sprint else []
         sprint_has_story_points = _sprint_confidence_available(sprint_snapshot)
         sprint_recommendations = (
             RecommendationEngine.build_sprint_recommendations(
                 sprint_snapshot,
-                sprint_issues=sprint_issues,
                 include_story_point_rules=sprint_has_story_points,
             )
             if sprint_snapshot
@@ -803,7 +821,12 @@ class ReportTemplateEngine:
             ReportSection("Release Metrics", rows=release_metric_rows(snapshot, release_availability)),
             ReportSection(
                 "Sprint Metrics",
-                rows=overview_sprint_metric_rows(sprint, sprint_snapshot, sprint_has_story_points),
+                rows=overview_sprint_metric_rows(
+                    sprint,
+                    sprint_snapshot,
+                    sprint_has_story_points,
+                    _stored_metric_availability(sprint_snapshot),
+                ),
             ),
             ReportSection(
                 "Confidence Metrics",
@@ -921,7 +944,9 @@ class ReportTemplateEngine:
     ) -> list[ReportSection]:
         readiness = self._release_readiness(session, release.release_id, snapshot)
         confidence_breakdown, biggest_driver = _stored_release_confidence_artifacts(snapshot)
-        release_availability = _release_metric_availability(session, release.release_id)
+        release_availability = _release_metric_availability(
+            session, release.release_id, snapshot
+        )
         if not release_availability.context.has_tickets:
             confidence_breakdown = None
             biggest_driver = None
@@ -1012,7 +1037,9 @@ class ReportTemplateEngine:
         readiness = self._release_readiness(session, release.release_id, snapshot)
         confidence_score = readiness.get("confidence_score")
         confidence_breakdown, biggest_driver = _stored_release_confidence_artifacts(snapshot)
-        release_availability = _release_metric_availability(session, release.release_id)
+        release_availability = _release_metric_availability(
+            session, release.release_id, snapshot
+        )
         if not release_availability.context.has_tickets:
             confidence_breakdown = None
             biggest_driver = None
@@ -1085,7 +1112,9 @@ class ReportTemplateEngine:
             release_date=release.release_date,
             latest_snapshot=snapshot,
             final_signal=(
-                str(readiness["signal"]) if readiness.get("signal") in {"GREEN", "YELLOW", "RED"} else None
+                str(readiness["signal"])
+                if readiness.get("signal") in {"GREEN", "YELLOW", "RED", "INCONCLUSIVE"}
+                else None
             ),
             confidence_score=(
                 float(readiness["confidence_score"])
@@ -1185,13 +1214,12 @@ class ReportTemplateEngine:
         snapshot: SprintMetricSnapshot | None,
         snapshots: list[SprintMetricSnapshot],
     ) -> list[ReportSection]:
-        issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id)
         has_story_points = _sprint_confidence_available(snapshot)
+        availability = _stored_metric_availability(snapshot)
         confidence_breakdown, biggest_driver = _stored_sprint_confidence_artifacts(snapshot)
         recommendations = (
             RecommendationEngine.build_sprint_recommendations(
                 snapshot,
-                sprint_issues=issues,
                 include_story_point_rules=has_story_points,
             )
             if snapshot
@@ -1218,8 +1246,8 @@ class ReportTemplateEngine:
                 rows=[
                     *_sprint_confidence_status_rows(snapshot),
                     ("Score", format_percent(delivery_confidence_score)),
-                    ("Committed scope", format_number(snapshot.committed_scope if snapshot else None)),
-                    ("Completed scope", format_percent(snapshot.completed_scope_pct if snapshot else None)),
+                    *sprint_ticket_scope_rows(snapshot, availability),
+                    *sprint_work_state_rows(snapshot, availability),
                     ("Open blockers", format_number(snapshot.open_blockers if snapshot else None)),
                 ],
                 charts=[
@@ -1237,8 +1265,12 @@ class ReportTemplateEngine:
             self._sprint_snapshot_changes(sprint.sprint_id, snapshots, has_story_points),
             ReportSection("Biggest Driver", rows=driver_rows(biggest_driver)),
             ReportSection("Velocity Health", rows=sprint_velocity_rows(snapshot, has_story_points)),
+            ReportSection("Workload Distribution", rows=sprint_workload_rows(snapshot)),
             ReportSection("Scope Stability", rows=sprint_scope_rows(snapshot, has_story_points)),
-            ReportSection("Quality Signals", rows=sprint_quality_rows(snapshot)),
+            ReportSection(
+                "Quality Signals",
+                rows=sprint_quality_rows(snapshot, availability),
+            ),
             ReportSection("Risk Drivers", bullets=sprint_risk_bullets(snapshot)),
             ReportSection("Recommended Actions", bullets=recommendation_bullets(recommendations)),
             ReportSection("Historical Trends", charts=self._sprint_historical_charts(snapshots, has_story_points)),
@@ -1250,13 +1282,12 @@ class ReportTemplateEngine:
         sprint: Sprint,
         snapshot: SprintMetricSnapshot | None,
     ) -> list[ReportSection]:
-        issues = SprintRepository.list_all_sprint_issues(session=session, sprint_id=sprint.sprint_id)
         has_story_points = _sprint_confidence_available(snapshot)
+        availability = _stored_metric_availability(snapshot)
         confidence_breakdown, biggest_driver = _stored_sprint_confidence_artifacts(snapshot)
         recommendations = (
             RecommendationEngine.build_sprint_recommendations(
                 snapshot,
-                sprint_issues=issues,
                 include_story_point_rules=has_story_points,
             )
             if snapshot
@@ -1283,18 +1314,19 @@ class ReportTemplateEngine:
                     *_sprint_confidence_status_rows(snapshot),
                     ("Score", format_percent(delivery_confidence_score)),
                     ("Band", confidence_band(delivery_confidence_score)),
-                    ("Committed scope", format_number(snapshot.committed_scope if snapshot else None)),
-                    ("Completed scope", format_percent(snapshot.completed_scope_pct if snapshot else None)),
+                    *sprint_ticket_scope_rows(snapshot, availability),
+                    *sprint_work_state_rows(snapshot, availability),
                 ],
             ),
             ReportSection("Confidence Breakdown", rows=breakdown_rows(confidence_breakdown)),
             ReportSection("Biggest Driver", rows=driver_rows(biggest_driver)),
+            ReportSection("Workload Distribution", rows=sprint_workload_rows(snapshot)),
             ReportSection("Top Risks", bullets=sprint_top_risk_bullets(snapshot, limit=3)),
             ReportSection("Top Recommendations", bullets=recommendation_bullets(recommendations, limit=3)),
         ]
 
     def _release_readiness(self, session: Session, release_id: str, snapshot: MetricSnapshot | None) -> dict[str, object]:
-        release_availability = _release_metric_availability(session, release_id)
+        release_availability = _release_metric_availability(session, release_id, snapshot)
         if snapshot is None:
             signal = SignalRepository.get_latest_signal(session=session, release_id=release_id)
             return {
@@ -1345,7 +1377,11 @@ class ReportTemplateEngine:
         gate_count = len(gates) if isinstance(gates, list) else 0
         passed = sum(1 for gate in gates if isinstance(gate, dict) and gate.get("passed") is True)
         details["reasons"] = signal_row.reasons if signal_row else []
-        details["readiness_pct"] = None if gate_count == 0 else round((passed / gate_count) * 100, 2)
+        details["readiness_pct"] = (
+            None
+            if gate_count == 0 or snapshot.confidence_status == "PARTIAL"
+            else round((passed / gate_count) * 100, 2)
+        )
         return details
 
     def _release_snapshot_changes(self, release_id: str, snapshots: list[MetricSnapshot]) -> ReportSection:
@@ -1447,11 +1483,10 @@ class ReportTemplateEngine:
                 color=self.theme.metric_colors["cycleTime"].rgb,
             ),
             ChartSpec(
-                title="Historical Reopen Rate",
+                title="Historical Reopen Events per 100 Eligible Tickets",
                 kind="line",
                 points=[(format_short_datetime(snapshot.snapshot_at), snapshot.reopen_rate_pct) for snapshot in snapshots],
                 color=self.theme.metric_colors["reopenRate"].rgb,
-                y_max=100,
                 value_suffix="%",
             ),
         ]
@@ -1610,11 +1645,10 @@ class ReportTemplateEngine:
                 color=self.theme.metric_colors["cycleTime"].rgb,
             ),
             ChartSpec(
-                title="Historical Reopen Rate",
+                title="Historical Reopen Events per 100 Eligible Tickets",
                 kind="line",
                 points=[(format_short_datetime(snapshot.snapshot_at), snapshot.reopen_rate_pct) for snapshot in snapshots],
                 color=self.theme.metric_colors["reopenRate"].rgb,
-                y_max=100,
                 value_suffix="%",
             ),
         ]
@@ -1907,6 +1941,8 @@ def decision_recommendation_lines(readiness: dict[str, object]) -> list[str]:
         return ["Proceed only with named mitigation owners for the top risks. Recheck confidence after recommended actions are completed."]
     if signal == "RED":
         return ["Do not release until red-level risks are resolved and a fresh LighthousePM snapshot confirms improved confidence."]
+    if signal == "INCONCLUSIVE":
+        return ["Do not make a release decision until the missing required Jira metric inputs are completed and a fresh snapshot is computed."]
     return ["Do not make a release decision until release metrics and signal have been computed."]
 
 
@@ -1924,6 +1960,7 @@ def overview_sprint_metric_rows(
     sprint: Sprint | None,
     snapshot: SprintMetricSnapshot | None,
     has_story_points: bool = True,
+    availability: MetricAvailability | None = None,
 ) -> list[tuple[str, str]]:
     if sprint is None:
         return [("Status", "No active sprint is available for the overview dashboard.")]
@@ -1939,11 +1976,16 @@ def overview_sprint_metric_rows(
         ("Goal", sprint.goal or "N/A"),
         ("Start", format_datetime(sprint.start_date)),
         ("End", format_datetime(sprint.end_date)),
-        ("Committed scope", format_number(snapshot.committed_scope if snapshot else None)),
-        ("Completed scope", format_percent(snapshot.completed_scope_pct if snapshot else None)),
+        *sprint_ticket_scope_rows(snapshot, availability),
+        *sprint_work_state_rows(snapshot, availability),
         ("Open blockers", format_number(snapshot.open_blockers if snapshot else None)),
         ("High severity bugs", format_number(snapshot.open_high_severity_bugs if snapshot else None)),
+        (
+            "Reopen events per 100 eligible tickets",
+            _snapshot_metric_value(snapshot, availability, "reopen_rate_pct", format_percent),
+        ),
     ]
+    rows.extend(_metric_explanation_rows(availability, "reopen_rate_pct"))
     if has_story_points:
         rows.append(("Delivery confidence", format_percent(snapshot.delivery_confidence_score if snapshot else None)))
     else:
@@ -2011,7 +2053,10 @@ def overview_health_rows(
             ),
         ),
         ("Sprint completed scope", format_percent(sprint_snapshot.completed_scope_pct if sprint_snapshot else None)),
-        ("Sprint reopen rate", format_percent(sprint_snapshot.reopen_rate_pct if sprint_snapshot else None)),
+        (
+            "Sprint reopen events per 100 eligible tickets",
+            format_percent(sprint_snapshot.reopen_rate_pct if sprint_snapshot else None),
+        ),
     ]
 
 
@@ -2151,9 +2196,13 @@ def release_metric_rows(
                     lambda value: f"{format_number(value)} days",
                 ),
             ),
-            ("Reopen rate", _release_metric_value(snapshot, availability, "reopen_rate_pct", format_percent)),
+            (
+                "Reopen events per 100 eligible tickets",
+                _release_metric_value(snapshot, availability, "reopen_rate_pct", format_percent),
+            ),
         ]
     )
+    rows.extend(_metric_explanation_rows(availability, "reopen_rate_pct"))
     if availability is not None and availability.context.has_tickets and not availability.context.has_story_points:
         rows.append(("Story-point metrics", f"N/A | {RELEASE_NO_STORY_POINTS_MESSAGE}"))
     return rows
@@ -2169,6 +2218,37 @@ def _release_metric_value(
     if item is not None and not item.available:
         return f"N/A | {item.reason or 'Metric is unavailable.'}"
     return formatter(getattr(snapshot, metric_name))
+
+
+def _snapshot_metric_value(
+    snapshot: MetricSnapshot | SprintMetricSnapshot,
+    availability: MetricAvailability | None,
+    metric_name: str,
+    formatter,
+) -> str:
+    item = availability.metrics.get(metric_name) if availability is not None else None
+    if item is not None and not item.available:
+        explanation = item.explanations[0] if item.explanations else item.reason
+        return f"N/A | {explanation or 'Metric is unavailable.'}"
+    return formatter(getattr(snapshot, metric_name))
+
+
+def _metric_explanation_rows(
+    availability: MetricAvailability | None,
+    metric_name: str,
+) -> list[tuple[str, str]]:
+    item = availability.metrics.get(metric_name) if availability is not None else None
+    if item is None:
+        return []
+    repeated_event_explanations = [
+        explanation
+        for explanation in item.explanations
+        if explanation.startswith("Ticket ") and " was counted " in explanation
+    ]
+    return [
+        ("Reopen event evidence" if index == 0 else "Additional reopen event evidence", explanation)
+        for index, explanation in enumerate(repeated_event_explanations)
+    ]
 
 
 def sprint_velocity_rows(snapshot: SprintMetricSnapshot | None, has_story_points: bool = True) -> list[tuple[str, str]]:
@@ -2206,15 +2286,107 @@ def sprint_scope_rows(snapshot: SprintMetricSnapshot | None, has_story_points: b
     ]
 
 
-def sprint_quality_rows(snapshot: SprintMetricSnapshot | None) -> list[tuple[str, str]]:
+def sprint_workload_rows(snapshot: SprintMetricSnapshot | None) -> list[tuple[str, str]]:
+    if snapshot is None or snapshot.workload_distribution_status is None:
+        return [("Status", "Workload distribution has not been computed yet.")]
+    evidence = snapshot.workload_distribution_evidence or {}
+    top_assignee = evidence.get("top_assignee") or {}
+    rows = [
+        ("Status", snapshot.workload_distribution_status.replace("_", " ").title()),
+        ("Concentration", format_percent(snapshot.workload_concentration_pct)),
+        ("Risk band", str(evidence.get("risk_band") or "N/A").title()),
+        ("Top assignee", str(top_assignee.get("assignee") or "N/A")),
+        ("Top-assignee points", format_number(top_assignee.get("story_points"))),
+        ("Total included active points", format_number(evidence.get("total_active_points"))),
+    ]
+    rows.extend(
+        ("Explanation" if index == 0 else "Additional explanation", explanation)
+        for index, explanation in enumerate(snapshot.workload_distribution_explanations or [])
+    )
+    return rows
+
+
+def sprint_quality_rows(
+    snapshot: SprintMetricSnapshot | None,
+    availability: MetricAvailability | None = None,
+) -> list[tuple[str, str]]:
     if snapshot is None:
         return [("Status", "No sprint quality metrics have been computed yet.")]
-    return [
+    rows = [
         ("Open high-severity bugs", format_number(snapshot.open_high_severity_bugs)),
         ("Bugs created during sprint", format_number(snapshot.bugs_created_during_sprint)),
-        ("Reopen rate", format_percent(snapshot.reopen_rate_pct)),
-        ("Median cycle time", f"{format_number(snapshot.median_cycle_time_days)} days"),
+        (
+            "Reopen events per 100 eligible tickets",
+            _snapshot_metric_value(snapshot, availability, "reopen_rate_pct", format_percent),
+        ),
+        (
+            "Median cycle time",
+            _snapshot_metric_value(
+                snapshot,
+                availability,
+                "median_cycle_time_days",
+                lambda value: f"{format_number(value)} days",
+            ),
+        ),
     ]
+    rows.extend(_metric_explanation_rows(availability, "reopen_rate_pct"))
+    return rows
+
+
+def sprint_ticket_scope_rows(
+    snapshot: SprintMetricSnapshot | None,
+    availability: MetricAvailability | None = None,
+) -> list[tuple[str, str]]:
+    if snapshot is None:
+        return [
+            ("Current sprint scope", "N/A"),
+            ("Completed scope", "N/A"),
+        ]
+    return [
+        (
+            "Current sprint scope",
+            _snapshot_metric_value(snapshot, availability, "committed_scope", format_number),
+        ),
+        (
+            "Completed scope",
+            _snapshot_metric_value(snapshot, availability, "completed_scope_pct", format_percent),
+        ),
+    ]
+
+
+def sprint_work_state_rows(
+    snapshot: SprintMetricSnapshot | None,
+    availability: MetricAvailability | None = None,
+) -> list[tuple[str, str]]:
+    if snapshot is None:
+        return [
+            ("In progress", "N/A"),
+            ("Not started", "N/A"),
+            ("Unfinished closed-sprint scope", "N/A"),
+        ]
+    rows = [
+        (
+            "In progress",
+            _snapshot_metric_value(snapshot, availability, "in_progress_count", format_number),
+        ),
+        (
+            "Not started",
+            _snapshot_metric_value(snapshot, availability, "not_started_count", format_number),
+        ),
+        (
+            "Unfinished closed-sprint scope",
+            _snapshot_metric_value(snapshot, availability, "rollover_count", format_number),
+        ),
+    ]
+    for metric_name, label in (
+        ("in_progress_count", "In-progress count evidence"),
+        ("not_started_count", "Not-started count evidence"),
+        ("rollover_count", "Unfinished closed-sprint scope evidence"),
+    ):
+        item = availability.metrics.get(metric_name) if availability is not None else None
+        if item is not None and item.status == "PARTIAL":
+            rows.extend((label, explanation) for explanation in item.explanations)
+    return rows
 
 
 def sprint_risk_bullets(snapshot: SprintMetricSnapshot | None) -> list[str]:
@@ -2225,9 +2397,35 @@ def sprint_risk_bullets(snapshot: SprintMetricSnapshot | None) -> list[str]:
         bullets.append(f"{snapshot.open_blockers} open blockers require attention.")
     if snapshot.open_high_severity_bugs > 0:
         bullets.append(f"{snapshot.open_high_severity_bugs} open high-severity bugs add quality risk.")
-    if snapshot.rollover_count > 0:
-        bullets.append(f"{snapshot.rollover_count} rollover issues indicate delivery risk.")
-    return bullets or ["No blocker, high-severity bug, or rollover risk is active in this snapshot."]
+    availability = _stored_metric_availability(snapshot)
+    unfinished_item = (
+        availability.metrics.get("rollover_count")
+        if availability is not None
+        else None
+    )
+    if snapshot.rollover_count is not None and snapshot.rollover_count > 0:
+        bullets.append(
+            f"{snapshot.rollover_count} current closed-sprint tickets are unfinished and require follow-up."
+        )
+    if unfinished_item is not None and unfinished_item.status == "PARTIAL":
+        bullets.extend(unfinished_item.explanations)
+    if unfinished_item is not None and unfinished_item.status == "NOT_APPLICABLE":
+        bullets.append("Unfinished closed-sprint scope is not applicable to this sprint state.")
+    if bullets:
+        return bullets
+    if snapshot.rollover_count is None:
+        explanation = (
+            unfinished_item.explanations[0]
+            if unfinished_item is not None and unfinished_item.explanations
+            else "The metric is unavailable."
+        )
+        return [
+            "No computed blocker or high-severity bug risk is active. "
+            f"Unfinished closed-sprint scope is unavailable: {explanation}"
+        ]
+    return [
+        "No blocker, high-severity bug, or unfinished closed-sprint risk is active in this snapshot."
+    ]
 
 
 def sprint_top_risk_bullets(snapshot: SprintMetricSnapshot | None, limit: int) -> list[str]:

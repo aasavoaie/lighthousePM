@@ -100,6 +100,8 @@ def make_issue(
         assignee="test_user",
         release_id=release_id,
         is_blocker=is_blocker,
+        jira_blocker_flag=True if is_blocker else None,
+        jira_changelog_complete=True,
         created_at=now,
         updated_at=now,
     )
@@ -149,7 +151,7 @@ def make_history(
 def test_pipeline_empty_release_signal_is_not_computed(db_session: Session) -> None:
     """
     Scenario: Release exists but has no issues.
-    Expected: Metrics all zero; signal not computed.
+    Expected: Count metrics are zero, churn is unavailable, and signal is not computed.
     """
     # Setup
     make_release(db_session, release_id="REL-1")
@@ -163,8 +165,8 @@ def test_pipeline_empty_release_signal_is_not_computed(db_session: Session) -> N
     assert snapshot.open_blockers == 0
     assert snapshot.open_high_severity_bugs == 0
     assert snapshot.scope_completed_pct == 0.0
-    assert snapshot.scope_churn_7d_pct == 0.0
-    assert snapshot.reopen_rate_pct == 0.0
+    assert snapshot.scope_churn_7d_pct is None
+    assert snapshot.reopen_rate_pct is None
     assert snapshot.median_cycle_time_days is None
 
     # Verify: Signal not computed
@@ -328,8 +330,8 @@ def test_pipeline_yellow_from_elevated_cycle_time(db_session: Session) -> None:
 
 def test_pipeline_red_from_reopened_issues(db_session: Session) -> None:
     """
-    Scenario: One out of ten issues has been reopened (Done -> In Progress).
-    Expected: reopen_rate_pct = 50%; the hard rule raises the final signal to RED.
+    Scenario: One eligible issue has been reopened (Done -> In Progress).
+    Expected: reopen_rate_pct = 100%; the hard rule raises the final signal to RED.
     """
     # Setup
     now = datetime.now(UTC)
@@ -350,7 +352,14 @@ def test_pipeline_red_from_reopened_issues(db_session: Session) -> None:
         status="To Do",
     )
 
-    # Only TEST-1 is reopened: Done -> In Progress
+    make_history(
+        db_session,
+        "TEST-1",
+        "status",
+        "To Do",
+        "Done",
+        changed_at=now - timedelta(hours=1),
+    )
     make_history(
         db_session,
         "TEST-1",
@@ -365,7 +374,7 @@ def test_pipeline_red_from_reopened_issues(db_session: Session) -> None:
 
     # Verify
     snapshot = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").order_by(MetricSnapshot.id.desc()).first()
-    assert snapshot.reopen_rate_pct == 50.0  # 1 reopened / 2 total
+    assert snapshot.reopen_rate_pct == 100.0  # 1 event / 1 eligible ticket
 
     # The hard RED rule takes precedence over the GREEN confidence band.
     assert signal.signal == "RED"
@@ -413,9 +422,9 @@ def test_pipeline_multiple_triggers_red(db_session: Session) -> None:
     AnalyticsService().recompute_release_metrics(db_session, "REL-1")
     signal = SignalService().recompute_release_signal(db_session, "REL-1")
 
-    # Verify
+    # Verify: the explicit blocker and Critical-severity fallback are both blockers.
     snapshot = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").one()
-    assert snapshot.open_blockers == 1
+    assert snapshot.open_blockers == 2
     assert snapshot.open_high_severity_bugs == 2
 
     # Both reasons should be present
@@ -484,7 +493,7 @@ def test_pipeline_idempotency_same_signal(db_session: Session) -> None:
     assert signal1_id != signal2_id
     assert len(signal_rows) == 2
     assert [row.metric_snapshot_id for row in signal_rows] == [snapshot1_id, snapshot2_id]
-    assert all(row.ruleset_version == 1 for row in signal_rows)
+    assert all(row.ruleset_version == 2 for row in signal_rows)
 
     # Both snapshots should have same metric values
     snapshot2 = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").order_by(MetricSnapshot.id.desc()).first()

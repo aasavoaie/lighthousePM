@@ -22,17 +22,20 @@ def _release_snapshot(**overrides):
         median_cycle_time_days=values["median_cycle_time_days"],
     )
     values["confidence_score"] = confidence_score
-    values["calculation_provenance"] = {
-        "component_outputs": {
-            "risk_points": SignalService._compute_release_risk_points(
-                open_blockers=values["open_blockers"],
-                open_high_severity_bugs=values["open_high_severity_bugs"],
-                scope_churn_7d_pct=values["scope_churn_7d_pct"],
-                reopen_rate_pct=values["reopen_rate_pct"],
-                median_cycle_time_days=values["median_cycle_time_days"],
-            )
-        }
-    }
+    values.setdefault(
+        "calculation_provenance",
+        {
+            "component_outputs": {
+                "risk_points": SignalService._compute_release_risk_points(
+                    open_blockers=values["open_blockers"],
+                    open_high_severity_bugs=values["open_high_severity_bugs"],
+                    scope_churn_7d_pct=values["scope_churn_7d_pct"],
+                    reopen_rate_pct=values["reopen_rate_pct"],
+                    median_cycle_time_days=values["median_cycle_time_days"],
+                )
+            }
+        },
+    )
     return SimpleNamespace(**values)
 
 
@@ -98,6 +101,34 @@ def test_release_comparison_returns_no_contributors_when_unchanged() -> None:
     assert SnapshotComparisonService.primary_driver(comparison) == "No material change"
 
 
+def test_release_comparison_keeps_confidence_delta_unavailable_for_null_confidence() -> None:
+    previous = SimpleNamespace(
+        open_blockers=0,
+        open_high_severity_bugs=0,
+        scope_churn_7d_pct=0.0,
+        reopen_rate_pct=0.0,
+        median_cycle_time_days=2.0,
+        completed_tickets=1,
+        confidence_score=100.0,
+        calculation_provenance={"component_outputs": {"risk_points": {}}},
+    )
+    current = SimpleNamespace(
+        open_blockers=1,
+        open_high_severity_bugs=0,
+        scope_churn_7d_pct=0.0,
+        reopen_rate_pct=None,
+        median_cycle_time_days=None,
+        completed_tickets=1,
+        confidence_score=None,
+        calculation_provenance={"component_outputs": {"risk_points": None}},
+    )
+
+    comparison = SnapshotComparisonService.compare_release_snapshots(current, previous)
+
+    assert comparison.confidence_delta is None
+    assert any(item.metric == "open_blockers" for item in comparison.contributors)
+
+
 def test_sprint_comparison_uses_delivery_confidence_component_weights() -> None:
     previous = _sprint_snapshot(
         delivery_confidence_score=62.0,
@@ -135,3 +166,35 @@ def test_sprint_comparison_keeps_confidence_delta_unavailable_when_confidence_is
 
     assert comparison.confidence_delta is None
     assert comparison.contributors == []
+
+
+def test_classification_comparison_boundary_requires_matching_mappings() -> None:
+    classification = {"done_statuses": ["done"]}
+    matching_current = _release_snapshot(
+        calculation_provenance={"classification": classification}
+    )
+    matching_previous = _release_snapshot(
+        calculation_provenance={"classification": classification}
+    )
+    different_previous = _release_snapshot(
+        calculation_provenance={"classification": {"done_statuses": ["closed"]}}
+    )
+
+    assert (
+        SnapshotComparisonService.classification_unavailable_reason(
+            matching_current,
+            matching_previous,
+        )
+        is None
+    )
+    assert SnapshotComparisonService.classification_unavailable_reason(
+        matching_current,
+        different_previous,
+    ) == SnapshotComparisonService.CLASSIFICATION_MISMATCH_REASON
+
+
+def test_legacy_snapshots_without_classification_remain_comparable() -> None:
+    current = _sprint_snapshot(calculation_provenance={})
+    previous = _sprint_snapshot(calculation_provenance={})
+
+    assert SnapshotComparisonService.classification_unavailable_reason(current, previous) is None

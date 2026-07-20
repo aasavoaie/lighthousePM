@@ -314,7 +314,7 @@ directly from the local backend to the configured Jira Cloud instance.
 
 The local backend upgrades the database to the single current Alembic head
 before it reports ready and before the desktop workspace opens. The current
-head is `20260716_0011`.
+head is `20260720_0017`.
 
 Startup handles these database states deterministically:
 
@@ -331,7 +331,7 @@ Before migrating an existing SQLite application schema, the backend uses
 SQLite's backup operation to create:
 
 ```text
-%APPDATA%\LighthousePM\data\lighthouse.db.pre-20260716_0011.bak
+%APPDATA%\LighthousePM\data\lighthouse.db.pre-20260720_0017.bak
 ```
 
 The revision suffix always identifies the migration target. The backup is

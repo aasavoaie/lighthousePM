@@ -15,6 +15,12 @@ def test_settings_defaults() -> None:
     assert settings.jira_sync_interval_seconds == 0
     assert settings.jira_field_severity == "priority"
     assert settings.jira_field_release == "fixVersions"
+    assert settings.done_statuses == frozenset({"done", "closed", "resolved"})
+    assert settings.in_progress_statuses == frozenset(
+        {"in progress", "in development", "in review", "in testing"}
+    )
+    assert settings.high_severity_values == frozenset({"high", "highest", "critical"})
+    assert settings.bug_issue_types == frozenset({"bug"})
 
 
 def test_get_settings_cache() -> None:
@@ -55,3 +61,45 @@ def test_validate_startup_settings_skips_validation_when_sync_disabled() -> None
     )
 
     settings.validate_startup_settings()
+
+
+def test_classification_values_are_normalized_and_deduplicated() -> None:
+    settings = Settings(
+        _env_file=None,
+        jira_done_statuses=" Done, CLOSED,done ",
+        jira_in_progress_statuses="Building, Review",
+        jira_high_severity_values="Sev-1, SEV-1",
+        jira_bug_issue_types="Defect, BUG",
+    )
+
+    settings.validate_startup_settings()
+
+    assert settings.done_statuses == frozenset({"done", "closed"})
+    assert settings.in_progress_statuses == frozenset({"building", "review"})
+    assert settings.high_severity_values == frozenset({"sev-1"})
+    assert settings.bug_issue_types == frozenset({"defect", "bug"})
+
+
+def test_classification_validation_runs_when_sync_is_disabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        jira_sync_enabled=False,
+        jira_done_statuses="Done,Shared",
+        jira_in_progress_statuses="shared,Building",
+    )
+
+    try:
+        settings.validate_startup_settings()
+        assert False, "Expected overlapping status classifications to fail"
+    except ValueError as exc:
+        assert "must not overlap" in str(exc)
+
+
+def test_required_classification_sets_must_not_be_empty() -> None:
+    settings = Settings(_env_file=None, jira_bug_issue_types=" , ")
+
+    try:
+        settings.validate_startup_settings()
+        assert False, "Expected an empty Bug classification to fail"
+    except ValueError as exc:
+        assert "JIRA_BUG_ISSUE_TYPES" in str(exc)

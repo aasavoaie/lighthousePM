@@ -25,8 +25,8 @@ class SprintMetricSnapshot(Base):
     calculation_provenance: Mapped[dict[str, object]] = mapped_column(
         "calculation_provenance", JSON, nullable=False, default=dict
     )
-    committed_scope: Mapped[int] = mapped_column("committed_scope", Integer, nullable=False)
-    completed_scope_pct: Mapped[float] = mapped_column("completed_scope_pct", Float, nullable=False)
+    committed_scope: Mapped[int | None] = mapped_column("committed_scope", Integer, nullable=True)
+    completed_scope_pct: Mapped[float | None] = mapped_column("completed_scope_pct", Float, nullable=True)
     open_blockers: Mapped[int] = mapped_column("open_blockers", Integer, nullable=False)
     open_high_severity_bugs: Mapped[int] = mapped_column("open_high_severity_bugs", Integer, nullable=False)
     bugs_created_during_sprint: Mapped[int] = mapped_column(
@@ -62,11 +62,23 @@ class SprintMetricSnapshot(Base):
         nullable=False,
         default=list,
     )
-    in_progress_count: Mapped[int] = mapped_column("in_progress_count", Integer, nullable=False)
-    not_started_count: Mapped[int] = mapped_column("not_started_count", Integer, nullable=False)
-    rollover_count: Mapped[int] = mapped_column("rollover_count", Integer, nullable=False)
+    in_progress_count: Mapped[int | None] = mapped_column("in_progress_count", Integer, nullable=True)
+    not_started_count: Mapped[int | None] = mapped_column("not_started_count", Integer, nullable=True)
+    rollover_count: Mapped[int | None] = mapped_column("rollover_count", Integer, nullable=True)
     median_cycle_time_days: Mapped[float | None] = mapped_column("median_cycle_time_days", Float, nullable=True)
-    reopen_rate_pct: Mapped[float] = mapped_column("reopen_rate_pct", Float, nullable=False)
+    reopen_rate_pct: Mapped[float | None] = mapped_column("reopen_rate_pct", Float, nullable=True)
+    workload_concentration_pct: Mapped[float | None] = mapped_column(
+        "workload_concentration_pct", Float, nullable=True
+    )
+    workload_distribution_status: Mapped[str | None] = mapped_column(
+        "workload_distribution_status", String(32), nullable=True
+    )
+    workload_distribution_explanations: Mapped[list[str] | None] = mapped_column(
+        "workload_distribution_explanations", JSON, nullable=True
+    )
+    workload_distribution_evidence: Mapped[dict[str, Any] | None] = mapped_column(
+        "workload_distribution_evidence", JSON, nullable=True
+    )
     delivery_confidence_score: Mapped[float | None] = mapped_column(
         "delivery_confidence_score",
         Float,

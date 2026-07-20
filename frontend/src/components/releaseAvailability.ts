@@ -16,6 +16,14 @@ export function getReleaseScoreDisplay(metrics: ReleaseMetricsResponse | null) {
       isAvailable: false,
     };
   }
+  if (metrics?.computation_status === "PARTIAL" && metrics.confidence_score === null) {
+    return {
+      value: "Inconclusive",
+      label: "Confidence",
+      reason: metrics.unavailable_reason ?? "Classification inputs are incomplete.",
+      isAvailable: false,
+    };
+  }
   return {
     value: null,
     label: "Confidence",
@@ -49,11 +57,22 @@ export function getReleaseMetricDisplay(
   metricName: keyof MetricValues
 ) {
   const availability = getReleaseMetricAvailability(metrics, metricName);
+  const explanations = availability?.explanations ?? [];
+  if (availability?.status === "PARTIAL" && availability.available) {
+    return {
+      value: null,
+      badge: "Partial",
+      reason: availability.explanations[0] ?? availability.reason,
+      explanations,
+      isAvailable: true,
+    };
+  }
   if (availability && !availability.available) {
     return {
       value: "N/A",
-      badge: getReleaseMetricUnavailableBadge(availability.reason),
-      reason: availability.reason,
+      badge: availability.status === "PARTIAL" ? "Partial" : getReleaseMetricUnavailableBadge(availability.reason),
+      reason: availability.explanations[0] ?? availability.reason,
+      explanations,
       isAvailable: false,
     };
   }
@@ -61,6 +80,7 @@ export function getReleaseMetricDisplay(
     value: null,
     badge: null,
     reason: null,
+    explanations,
     isAvailable: true,
   };
 }
@@ -76,7 +96,7 @@ export function getReleaseChartEmptyMessage(
   if (hasComputablePoints) {
     return defaultMessage;
   }
-  if (metrics?.computation_status === "NOT_COMPUTED") {
+  if (metrics?.computation_status === "NOT_COMPUTED" || metrics?.computation_status === "PARTIAL") {
     return metrics.unavailable_reason ?? NO_TICKETS_REASON;
   }
   return defaultMessage;

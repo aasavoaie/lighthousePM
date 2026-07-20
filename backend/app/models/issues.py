@@ -14,10 +14,13 @@ class Issue(Base):
     id: Mapped[int] = mapped_column("id", primary_key=True, autoincrement=True)
     issue_key: Mapped[str] = mapped_column("issue_key", String(32), unique=True, index=True)
     summary: Mapped[str] = mapped_column("summary", Text)
-    issue_type: Mapped[str] = mapped_column("issue_type", String(64))
-    status: Mapped[str] = mapped_column("status", String(64), index=True)
+    issue_type: Mapped[str | None] = mapped_column("issue_type", String(64), nullable=True)
+    status: Mapped[str | None] = mapped_column("status", String(64), index=True, nullable=True)
     priority: Mapped[str | None] = mapped_column("priority", String(64), nullable=True)
     assignee: Mapped[str | None] = mapped_column("assignee", String(128), nullable=True)
+    jira_assignee_id: Mapped[str | None] = mapped_column(
+        "jira_assignee_id", String(128), nullable=True
+    )
     story_points: Mapped[float | None] = mapped_column("story_points", Float, nullable=True)
     release_id: Mapped[str | None] = mapped_column(
         "release_id",

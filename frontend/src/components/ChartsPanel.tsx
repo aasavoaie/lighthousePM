@@ -68,7 +68,7 @@ const chartMetricLabels: Record<ChartMetricName, string> = {
   scope_added_7d_count: "Scope added",
   scope_removed_7d_count: "Scope removed",
   median_cycle_time_days: "Median cycle time",
-  reopen_rate_pct: "Reopen rate",
+  reopen_rate_pct: "Reopen events per 100 eligible tickets",
   confidence_score: "Confidence",
   gates_passed_count: "Gates passed",
   readiness_pct: "Readiness",
@@ -184,7 +184,7 @@ function renderComparisonTable(rows: ReleaseComparisonRow[]) {
             <th>Confidence</th>
             <th>Blockers</th>
             <th>Bugs</th>
-            <th>Reopen</th>
+            <th>Reopen events / 100 eligible tickets</th>
           </tr>
         </thead>
         <tbody>

@@ -97,8 +97,11 @@ const noTicketMetrics = metricsResponse({
     },
     metrics: {
       scope_completed_pct: {
+        status: "NOT_COMPUTED",
         available: false,
         reason: "No tickets are available for this scope.",
+        explanations: ["No tickets are available for this scope."],
+        missing_issue_keys: [],
         depends_on: ["ticket_count", "release_assignment"],
       },
     },
@@ -116,29 +119,119 @@ assertEqual(metricDisplay.value, "N/A", "unavailable metric card displays N/A");
 assertEqual(metricDisplay.badge, "No tickets", "unavailable metric card shows no-ticket badge");
 assertEqual(metricDisplay.reason, "No tickets are available for this scope.", "unavailable metric card exposes reason");
 
-const noStoryPointMetricDisplay = getReleaseMetricDisplay(
-  metricsResponse({
-    metric_availability: {
-      context: {
-        has_tickets: true,
-        has_story_points: false,
-        has_completed_tickets: true,
-        has_release_scope: true,
-        has_sprint_scope: false,
-        has_changelog: true,
+const partialReason = "Open blockers are a confirmed minimum because classification is incomplete.";
+const partialMetrics = metricsResponse({
+  computation_status: "PARTIAL",
+  unavailable_reason: partialReason,
+  confidence_score: null,
+  metric_availability: {
+    context: {
+      has_tickets: true,
+      has_story_points: false,
+      has_completed_tickets: true,
+      has_release_scope: true,
+      has_sprint_scope: false,
+      has_changelog: true,
+    },
+    metrics: {
+      open_blockers: {
+        status: "PARTIAL",
+        available: true,
+        reason: partialReason,
+        explanations: [partialReason],
+        missing_issue_keys: ["LHPM-1"],
+        depends_on: ["ticket_count", "release_assignment"],
       },
+      scope_completed_pct: {
+        status: "PARTIAL",
+        available: false,
+        reason: "Scope completed is unavailable because one ticket has no status.",
+        explanations: ["Scope completed is unavailable because one ticket has no status."],
+        missing_issue_keys: ["LHPM-2"],
+        depends_on: ["ticket_count", "release_assignment"],
+      },
+    },
+  },
+});
+const partialCountDisplay = getReleaseMetricDisplay(partialMetrics, "open_blockers");
+assertEqual(partialCountDisplay.badge, "Partial", "confirmed-minimum metric shows a partial badge");
+assertEqual(partialCountDisplay.isAvailable, true, "confirmed-minimum count remains available");
+const partialScopeDisplay = getReleaseMetricDisplay(partialMetrics, "scope_completed_pct");
+assertEqual(partialScopeDisplay.badge, "Partial", "unavailable partial percentage shows a partial badge");
+assertEqual(partialScopeDisplay.isAvailable, false, "partial percentage remains unavailable");
+const partialScoreDisplay = getReleaseScoreDisplay(partialMetrics);
+assertEqual(partialScoreDisplay.value, "Inconclusive", "partial release confidence is inconclusive");
+assertEqual(partialScoreDisplay.isAvailable, false, "partial release confidence is unavailable");
+
+const partialChurnReason =
+  "Scope churn is partial because Jira changelog ingestion is incomplete for 1 project ticket(s). Added and removed counts are confirmed minima; the percentage is unavailable.";
+const partialChurnMetrics = metricsResponse({
+  computation_status: "PARTIAL",
+  unavailable_reason: partialChurnReason,
+  confidence_score: null,
+  metrics: {
+    ...metricsResponse().metrics,
+    scope_churn_7d_pct: null,
+    scope_added_7d_count: 2,
+    scope_removed_7d_count: 1,
+  },
+  metric_availability: {
+    ...metricsResponse().metric_availability!,
+    metrics: {
+      ...metricsResponse().metric_availability!.metrics,
+      scope_churn_7d_pct: {
+        status: "PARTIAL",
+        available: false,
+        reason: partialChurnReason,
+        explanations: [partialChurnReason],
+        missing_issue_keys: ["LHPM-9"],
+        depends_on: ["project_changelog_completeness", "observed_release_scope"],
+      },
+      scope_added_7d_count: {
+        status: "PARTIAL",
+        available: true,
+        reason: partialChurnReason,
+        explanations: [partialChurnReason],
+        missing_issue_keys: ["LHPM-9"],
+        depends_on: ["project_changelog_completeness", "observed_release_scope"],
+      },
+    },
+  },
+});
+const partialChurnDisplay = getReleaseMetricDisplay(partialChurnMetrics, "scope_churn_7d_pct");
+assertEqual(partialChurnDisplay.badge, "Partial", "partial churn percentage shows a partial badge");
+assertEqual(partialChurnDisplay.isAvailable, false, "partial churn percentage remains unavailable");
+assertEqual(partialChurnDisplay.reason, partialChurnReason, "partial churn explains incomplete history");
+const partialAddedDisplay = getReleaseMetricDisplay(partialChurnMetrics, "scope_added_7d_count");
+assertEqual(partialAddedDisplay.badge, "Partial", "confirmed added count shows a partial badge");
+assertEqual(partialAddedDisplay.isAvailable, true, "confirmed added count remains visible");
+
+const repeatedReopenExplanation = "Ticket LHPM-1 was counted 2 times because it was reopened 2 times.";
+const repeatedReopenDisplay = getReleaseMetricDisplay(
+  metricsResponse({
+    metrics: { ...metricsResponse().metrics, reopen_rate_pct: 200 },
+    metric_availability: {
+      ...metricsResponse().metric_availability!,
       metrics: {
-        scope_completed_pct: {
-          available: false,
-          reason: "No tickets in this scope have story points.",
-          depends_on: ["ticket_count", "story_points", "release_assignment"],
+        reopen_rate_pct: {
+          status: "COMPUTED",
+          available: true,
+          reason: null,
+          explanations: [repeatedReopenExplanation],
+          missing_issue_keys: [],
+          depends_on: ["ticket_count", "completed_tickets", "history_changelog", "release_assignment"],
         },
       },
     },
   }),
-  "scope_completed_pct"
+  "reopen_rate_pct"
 );
-assertEqual(noStoryPointMetricDisplay.badge, "No story points", "story-point unavailable metric shows story-point badge");
+assertEqual(repeatedReopenDisplay.isAvailable, true, "reopen values above 100 remain available");
+assertEqual(
+  repeatedReopenDisplay.explanations[0],
+  repeatedReopenExplanation,
+  "release display exposes repeated-reopen evidence"
+);
 
 assertEqual(
   noTicketCharts.series.confidence_score.some((point) => point.value !== null),

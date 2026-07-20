@@ -39,7 +39,7 @@ class DriverAnalysisService:
             "Stabilize the release scope and defer non-critical fix-version changes.",
         ),
         "reopen_rate_pct": (
-            "Reopen Rate",
+            "Reopen Events per 100 Eligible Tickets",
             "Quality",
             "Reopened work is the largest drag on release confidence.",
             "Review reopened tickets for common acceptance or quality gaps and close the loop before release.",

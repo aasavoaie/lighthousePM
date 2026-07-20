@@ -30,7 +30,7 @@ const metricLabels: Record<keyof MetricValues, string> = {
   scope_added_7d_count: "Scope added",
   scope_removed_7d_count: "Scope removed",
   median_cycle_time_days: "Median cycle time (days)",
-  reopen_rate_pct: "Reopen rate",
+  reopen_rate_pct: "Reopen events per 100 eligible tickets",
 };
 
 const metricDirections: Record<keyof MetricValues, "higher-is-better" | "lower-is-better" | "neutral"> = {
@@ -234,8 +234,12 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
     const availabilityDisplay = getReleaseMetricDisplay(metrics, metricName);
     const sparklineData = buildSparklineData(charts, metricName);
     const comparison = buildComparison(charts, metricName);
+    const availabilityExplanations = availabilityDisplay.explanations.filter(
+      (explanation) => explanation !== availabilityDisplay.reason
+    );
     const details = [
       ...(availabilityDisplay.reason ? [availabilityDisplay.reason] : []),
+      ...availabilityExplanations,
       ...(options?.details ?? []),
     ];
     return (
@@ -327,8 +331,12 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
                 {renderReleaseMetricCard("completed_tickets")}
                 {renderReleaseMetricCard("scope_churn_7d_pct", {
                   details: [
-                    `${metrics.metrics.scope_added_7d_count ?? 0} issues added`,
-                    `${metrics.metrics.scope_removed_7d_count ?? 0} issues removed`,
+                    ...(metrics.metrics.scope_added_7d_count === null
+                      ? []
+                      : [`${metrics.metrics.scope_added_7d_count} issues added`]),
+                    ...(metrics.metrics.scope_removed_7d_count === null
+                      ? []
+                      : [`${metrics.metrics.scope_removed_7d_count} issues removed`]),
                   ],
                 })}
               </MetricCategorySection>
