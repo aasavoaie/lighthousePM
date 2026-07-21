@@ -25,3 +25,7 @@ packages = ["app"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+  "postgres: tests requiring an explicit disposable PostgreSQL integration target",
+  "docker: tests requiring an isolated disposable Docker Compose project",
+]

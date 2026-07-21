@@ -1,12 +1,15 @@
+from inspect import signature
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import StaticPool
 import pytest
 
+from app import models
 import app.db.init as db_init_module
 from app.config import Settings
 from app.db.base import Base
@@ -23,6 +26,7 @@ def _sqlite_url(database_path: Path) -> str:
 
 
 def test_all_mvp_tables_registered() -> None:
+    assert models.Release.metadata is Base.metadata
     table_names = set(Base.metadata.tables.keys())
     assert {
         "issues",
@@ -33,59 +37,37 @@ def test_all_mvp_tables_registered() -> None:
     }.issubset(table_names)
 
 
-def test_init_db_calls_create_all(monkeypatch) -> None:
-    called = {"value": False}
-
-    def _fake_create_all(*args, **kwargs) -> None:
-        called["value"] = True
-
-    monkeypatch.setattr(Base.metadata, "create_all", _fake_create_all)
-    init_db(ensure_compat_columns=False, ensure_migrations=False)
-
-    assert called["value"] is True
-
-
-def test_init_db_uses_migrations_instead_of_create_all(monkeypatch) -> None:
+def test_init_db_uses_only_migration_orchestrator(monkeypatch) -> None:
     events: list[str] = []
 
     monkeypatch.setattr(db_init_module, "migrate_database", lambda _engine: events.append("migrate"))
     monkeypatch.setattr(Base.metadata, "create_all", lambda *args, **kwargs: events.append("create_all"))
 
-    init_db(ensure_compat_columns=False)
+    init_db()
 
     assert events == ["migrate"]
 
 
-def test_init_db_compat_columns_include_release_scope_counts(monkeypatch) -> None:
-    statements: list[str] = []
+def test_init_db_has_no_schema_bypass_parameters() -> None:
+    assert list(signature(init_db).parameters) == []
 
-    class FakeDialect:
-        name = "postgresql"
 
-    class FakeConnection:
-        def execute(self, statement) -> None:
-            statements.append(str(statement))
+def test_init_db_module_has_no_runtime_schema_fallback_or_ddl() -> None:
+    source = Path(db_init_module.__file__).read_text(encoding="utf-8")
 
-    class FakeBegin:
-        def __enter__(self) -> FakeConnection:
-            return FakeConnection()
+    assert "create_all" not in source
+    assert "ALTER TABLE" not in source
+    assert "CREATE INDEX" not in source
 
-        def __exit__(self, exc_type, exc, traceback) -> None:
-            return None
 
-    class FakeEngine:
-        dialect = FakeDialect()
+def test_migration_graph_has_single_head() -> None:
+    config = Config()
+    config.set_main_option(
+        "script_location",
+        str(Path(__file__).resolve().parents[1] / "alembic"),
+    )
 
-        def begin(self) -> FakeBegin:
-            return FakeBegin()
-
-    monkeypatch.setattr(db_init_module, "engine", FakeEngine())
-    monkeypatch.setattr(Base.metadata, "create_all", lambda *args, **kwargs: None)
-
-    init_db(ensure_migrations=False)
-
-    assert any("scope_added_7d_count INTEGER NOT NULL DEFAULT 0" in statement for statement in statements)
-    assert any("scope_removed_7d_count INTEGER NOT NULL DEFAULT 0" in statement for statement in statements)
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260720_0017"]
 
 
 def test_create_database_engine_supports_file_backed_sqlite(tmp_path: Path) -> None:
@@ -135,6 +117,14 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
             for column in schema.get_columns("sprint_metric_snapshots")
         }
         signal_columns = {column["name"] for column in schema.get_columns("release_signals")}
+        with database_engine.connect() as connection:
+            current_revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
+
+        migrate_database(database_engine)
+        with database_engine.connect() as connection:
+            revision_after_second_start = connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
     finally:
         database_engine.dispose()
 
@@ -150,6 +140,8 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "sprint_metric_snapshots",
         "sprints",
     }.issubset(table_names)
+    assert current_revision == "20260720_0017"
+    assert revision_after_second_start == current_revision
     assert {
         "completed_tickets",
         "open_blocker_issue_keys",

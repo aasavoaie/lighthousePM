@@ -991,6 +991,46 @@ input {
   color: #111832;
 }
 
+.api-auth-shell {
+  align-items: center;
+  background: #eef3f8;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.api-auth-card {
+  background: #ffffff;
+  border: 1px solid #d6e1ec;
+  border-radius: 16px;
+  box-shadow: 0 20px 45px rgba(16, 51, 94, 0.14);
+  display: grid;
+  gap: 16px;
+  max-width: 520px;
+  padding: 32px;
+  width: 100%;
+}
+
+.api-auth-card h1,
+.api-auth-card p {
+  margin: 0;
+}
+
+.api-auth-card label {
+  display: grid;
+  font-weight: 700;
+  gap: 8px;
+}
+
+.api-auth-card input {
+  border: 1px solid #b9c9da;
+  border-radius: 8px;
+  font: inherit;
+  padding: 11px 12px;
+  width: 100%;
+}
+
 .recommendation-title-label {
   display: flex;
   align-items: center;

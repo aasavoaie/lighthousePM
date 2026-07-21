@@ -404,17 +404,163 @@ Application startup runs the Alembic migration chain before accepting API
 requests or starting scheduled work. The current single head is
 `20260720_0017`.
 
+Alembic is the only runtime schema authority for both PostgreSQL and SQLite.
+Application startup does not use `Base.metadata.create_all()` and does not run
+compatibility `ALTER TABLE`, `CREATE INDEX`, or other schema-repair statements
+outside ordered Alembic revisions. `create_all()` is limited to isolated test
+fixtures.
+
 - Fresh databases are created through Alembic.
 - Versioned databases upgrade to the single current head.
-- Recognized pre-Alembic SQLite schemas are deterministically stamped at their
-  actual historical revision and upgraded in order.
-- A consistent SQLite backup is created before migration. For the current
-  migration head its suffix is `.pre-20260720_0017.bak`.
+- Recognized unversioned schemas are deterministically stamped at their actual
+  historical revision and upgraded in order.
+- Before migration, a consistent SQLite backup is written to a unique
+  temporary file beside the active database, flushed and closed, and then
+  atomically published. For the current migration head its canonical suffix is
+  `.pre-20260720_0017.bak`.
 - Unknown or partially migrated legacy schemas stop startup instead of being
   guessed or silently modified.
 - Repeated startup at the current revision is idempotent.
 - The current head keeps Jira `issues.status` and `issues.issue_type` nullable
   so missing source classifications remain explicit instead of being invented.
+
+Every prior revision retained in the single Alembic chain is a supported
+versioned upgrade source. For the current chain, this is `20260407_0001`
+through `20260717_0016`. Recognized unversioned SQLite sources are limited to
+the explicit legacy-shape registry, currently `20260407_0001` through
+`20260716_0010`; other unversioned shapes fail closed.
+
+The automated upgrade matrix derives its sources from the Alembic graph and
+legacy registry. It verifies migration to head, representative data
+preservation, current schema shape, SQLite pre-migration backup creation, and
+idempotent restart. The complete versioned matrix must run on file-backed
+SQLite and a real PostgreSQL instance. Migration-specific downgrade tests are
+additional checks; downgrade is not a supported desktop recovery path.
+
+Run the PostgreSQL portion against the Docker Compose database using an admin
+URL that can create and remove disposable `lighthouse_migration_*` databases:
+
+```bash
+docker compose up -d postgres
+cd backend
+MIGRATION_TEST_POSTGRES_ADMIN_URL=postgresql+psycopg://postgres:postgres@localhost:5432/postgres \
+  pytest tests/test_migration_upgrade_matrix.py tests/test_application_startup_acceptance.py -m postgres
+```
+
+The test refuses to drop databases outside the `lighthouse_migration_*`
+namespace. The normal `lighthouse` application database is not modified.
+
+Migration acceptance also runs through the application startup boundary. Clean
+startup tests begin without a database or parent directory and verify current
+head, health readiness, structured empty API responses, and the absence of an
+unnecessary migration backup. Existing-database tests verify current and older
+states, representative related data through public APIs, required SQLite backup
+behavior, and idempotent restart.
+
+Application-level coverage includes file-backed SQLite, real PostgreSQL, one
+recognized unversioned SQLite database, and the desktop backend entry point
+running against temporary storage. Exhaustive per-revision coverage remains in
+the Phase 3.3 migration matrix; the application tests use representative source
+states to exercise startup, readiness, authentication, and API access.
+
+SQLite migration backup publication is fail-closed. Alembic stamping and
+migration begin only after the temporary backup has been flushed, closed, and
+atomically published at the canonical `.pre-<revision>.bak` path. A failed copy
+or publication stops startup, leaves the source at its original revision, and
+does not expose a new canonical backup. Temporary files are non-authoritative
+and are never reused as backups. An existing canonical backup is not
+overwritten.
+
+Every new or existing canonical migration backup is validated read-only before
+publication or reuse. Validation requires a regular SQLite file,
+`PRAGMA integrity_check` equal to `ok`, a known Alembic revision or recognized
+legacy schema, a source revision matching the active pre-migration database,
+and a supported source-to-target revision relationship. Failure stops startup
+before Alembic changes either database and reports the backup path and failed
+rule. The invalid file is preserved rather than deleted or overwritten.
+
+Automatic migration backups remain a manual recovery format. The packaged
+local validator must report integrity, source revision, revision identity type,
+filename target revision, installed-chain compatibility, and a final `VALID`
+or `INVALID` result before recovery instructions allow the file to replace the
+active database.
+
+Run the packaged validator from the backend executable directory:
+
+```powershell
+.\lighthousepm-backend.exe --validate-sqlite-backup `
+  "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260720_0017.bak" `
+  --migration-backup
+```
+
+The command prints one structured JSON result and exits nonzero when `status`
+is `INVALID`.
+
+### Settings backup validation
+
+Settings Backup uses manifest version `2`. Its completed manifest records the
+application identity, format version, creation time, allowed relative payload
+paths, byte sizes, SHA-256 digests, and database revision identity. The database
+payload is a consistent standalone SQLite file; version 2 does not carry WAL or
+SHM files. The manifest is published last so incomplete backup directories are
+not selectable.
+
+Settings Restore accepts only a complete version-2 manifest. Version 1 lacks
+stored checksums and is preserved but rejected as an unverifiable legacy
+format. Missing, malformed, non-positive, unknown, and future versions also
+fail closed.
+
+Before the backend is stopped or active files are changed, restore preflight
+checks the manifest identity and version, fixed path allowlist, regular-file
+status, sizes and hashes, SQLite integrity and supported revision, UTF-8
+configuration structure, and encrypted-token decryptability. Any failure
+leaves the running backend and all active files unchanged and identifies the
+selected backup and failed rule.
+
+After successful preflight, restoring a database removes stale active WAL and
+SHM files, optional configuration and token files are replaced only when
+included, and backend restart passes through the normal migration-readiness
+gate. Transactional rollback after a failure during validated replacement is
+defined below.
+
+### Transactional desktop storage operations
+
+Settings Restore, Clear Data, and Factory Reset use one operation lock and a
+versioned recovery journal under
+`%APPDATA%\LighthousePM\recovery\<operation-id>\`. The backend must stop and
+confirm process exit before any active-file mutation; a fixed delay alone is
+not sufficient.
+
+Before mutation, affected active paths are captured with their original
+presence, sizes, and SHA-256 digests. The journal is atomically published and
+updated through deterministic states. Success requires the requested file
+outcome, backend readiness, and operation-specific verification. Recovery data
+is removed only after success is confirmed.
+
+Replacement, deletion, or restart failure restores the previous state and
+restarts it through the same readiness gate. The requested operation still
+reports failure with `previous state restored`. If rollback or its restart
+fails, the recovery directory and diagnostics remain, and the backend and
+workspace stay closed.
+
+Before normal backend startup, Electron checks for one unfinished journal and
+recovers it deterministically. Missing, multiple, malformed, or checksum-invalid
+recovery state fails closed. Recovery journals are internal and cannot be
+selected by Settings Restore. This mechanism never automatically restores a
+migration `.pre-<revision>.bak` after schema migration failure.
+
+Clear Data retains configuration, encrypted token, logs, and automatic
+migration backups while replacing the active database set with a fresh empty
+current-head database. Factory Reset also removes configuration, token, and
+previous logs, retains automatic migration backups, and returns to first-run
+state. Both operations roll back their previous state if readiness fails.
+
+Automated lifecycle tests cover backup/restore round trips, optional payloads,
+every replacement and rollback boundary, restart failures, interrupted-journal
+recovery, Clear Data and Factory Reset success and rollback, concurrent
+operation rejection, and exact user-facing outcomes. They use isolated
+temporary user data and representative upgrade sources; the exhaustive Alembic
+source matrix remains separate.
 
 Manual migration from `backend/`:
 
@@ -422,8 +568,17 @@ Manual migration from `backend/`:
 alembic upgrade head
 ```
 
-Schema changes require a new Alembic revision; `create_all` is not the
-production migration mechanism.
+Schema changes require a new ordered Alembic revision supporting the configured
+database dialects. An unknown, partial, inconsistent, multi-head, or failed
+migration state prevents API readiness and scheduled work.
+
+For the packaged desktop application, Electron starts the managed backend and
+waits for a successful health response before loading the workspace. Backend
+startup validates configuration, migrates the database, and only then starts
+scheduled work and reports healthy. The same gate applies after restore, Clear
+Data, Factory Reset, and any other desktop-managed backend restart. A migration
+failure leaves the workspace closed, does not start scheduled work, and directs
+the user to the desktop backend log; it never triggers an automatic data reset.
 
 ## Local development
 
@@ -441,11 +596,52 @@ production migration mechanism.
 cd backend
 python -m pip install -e .
 python -m pip install -r requirements-dev.txt
-uvicorn app.main:app --reload --port 8000
+DEPLOYMENT_MODE=local-browser APP_HOST=127.0.0.1 \
+  uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 The API documentation is available at `http://127.0.0.1:8000/docs` while the
 development server is running.
+
+`DEPLOYMENT_MODE` must be one of `desktop`, `local-browser`, or `docker`, and
+`APP_HOST` must match the host passed to the server. Direct backend development
+uses `local-browser` and loopback by default. The Electron and Docker launch
+paths set their deployment identity and effective bind host automatically.
+Desktop mode additionally requires managed SQLite storage and empty
+`CORS_ORIGINS`. Browser modes accept only exact HTTP or HTTPS origins; wildcard
+origins and origins containing paths, credentials, queries, or fragments stop
+startup before migration.
+
+API authentication is required in `prod`, for every non-loopback bind, and in
+desktop or Docker mode. Configure exactly one of `LIGHTHOUSE_API_TOKEN` or
+`LIGHTHOUSE_API_TOKEN_FILE`; a required missing token or an invalid/conflicting
+source stops startup before migration and scheduled work. Loopback-only `dev`
+or `test` local-browser mode may remain anonymous, but a configured token
+protects it immediately. All routes except `/health` use
+`Authorization: Bearer <token>`. Browser deployments request the token from the
+operator and retain it only in page memory; reload or page close clears it.
+
+Every registered route has one explicit security class. `GET /health` is the
+only public route. Dashboard, reporting, OpenAPI, and documentation reads are
+protected reads. Jira configuration, administration status, Jira sync, and
+release or sprint recomputation are privileged operations. The same operator
+token authorizes both protected classes; LighthousePM does not provide native
+roles in this release. Privileged responses use `Cache-Control: no-store`, and
+their validation and HTTP errors suppress submitted bodies and redact
+credential values.
+
+Jira credentials follow the same direct-value or file-source rule through
+`JIRA_API_TOKEN` and `JIRA_API_TOKEN_FILE`. In non-Electron deployments the
+Settings API never persists a Jira token: Save writes nonsecret fields only,
+while Test Connection may use the entered token for that request. Update the
+external token source and restart the backend for a durable change. Electron
+continues to persist its Jira token with operating-system-backed `safeStorage`.
+
+Production PostgreSQL connections configure exactly one of
+`POSTGRES_PASSWORD` or `POSTGRES_PASSWORD_FILE` and omit the password from
+`DATABASE_URL`; the backend inserts it into the effective connection URL in
+memory. Passwords embedded in `DATABASE_URL` are accepted only for loopback
+`dev` or `test` compatibility and are rejected in production and Docker mode.
 
 Backend verification:
 
@@ -455,16 +651,101 @@ pytest tests -q
 ruff check app tests alembic
 ```
 
+Run the complete Phase 4 security acceptance gate from the desktop directory:
+
+```bash
+cd desktop
+npm run verify:security
+```
+
+This command runs the full backend tests and lint, frontend tests and production
+build, and desktop tests. When Docker is available it also requires the
+isolated Compose authentication and configuration-write smoke test. CI jobs
+that are expected to provide Docker must set
+`LIGHTHOUSE_REQUIRE_DOCKER_SECURITY=1`; the gate then fails if the Docker CLI
+or daemon is unavailable. `npm run release:windows` runs the same security gate
+before building and verifying release artifacts. All acceptance credentials,
+configuration, containers, and volumes are synthetic and disposable.
+
 ### Docker Compose
 
 From the repository root:
 
 ```bash
+mkdir -p .secrets .config
+cp backend/docker.env.example .config/backend.env
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Save independently generated values as .secrets/lighthouse_api_token and
+# .secrets/postgres_password, then run:
+LIGHTHOUSE_CONFIG_DIR=./.config \
+LIGHTHOUSE_API_TOKEN_FILE=./.secrets/lighthouse_api_token \
+POSTGRES_PASSWORD_FILE=./.secrets/postgres_password \
 docker compose up --build
 ```
 
-The backend is exposed on `http://127.0.0.1:8000` and uses the Compose
-PostgreSQL service.
+The backend listens on `0.0.0.0:8000` inside its container but is published to
+`http://127.0.0.1:8000` on the host by default. `LIGHTHOUSE_BACKEND_PORT` may
+change the host port without changing the loopback-only binding. Docker mode
+always requires the API bearer token. Compose mounts the host token file at
+`/run/secrets/lighthouse_api_token`; it does not place that token value in the
+rendered environment. Keep the host file private and outside version control.
+The PostgreSQL password is likewise mounted at
+`/run/secrets/postgres_password` for both containers. The base Compose file
+does not load `backend/.env`, contain a database password, or render either
+secret value. `.config/backend.env` is a writable, gitignored, nonsecret file
+used for deterministic Settings updates across container restarts.
+
+An existing `pgdata` volume created by the earlier Compose configuration still
+has its original database password; changing the secret file alone does not
+change that stored PostgreSQL role password. Start that volume once with its
+current password in the secret file, run `docker compose exec postgres psql -U
+postgres -d lighthouse`, use the interactive `\password postgres` command,
+then place the same new value in `.secrets/postgres_password` and restart the
+services. The interactive command avoids putting the new password in shell
+history. Fresh volumes need no migration step.
+
+Jira sync is disabled in the base configuration. To enable it, fill the
+nonsecret Jira connection and mapping fields in `.config/backend.env`, set
+`JIRA_SYNC_ENABLED=true`, save the Jira token in
+`.secrets/jira_api_token`, and include the Jira override:
+
+```bash
+LIGHTHOUSE_CONFIG_DIR=./.config \
+LIGHTHOUSE_API_TOKEN_FILE=./.secrets/lighthouse_api_token \
+POSTGRES_PASSWORD_FILE=./.secrets/postgres_password \
+JIRA_API_TOKEN_FILE=./.secrets/jira_api_token \
+docker compose -f docker-compose.yml -f docker-compose.jira.yml up --build
+```
+
+PostgreSQL is not published to the host by the base configuration. Administer
+it through the private Compose network:
+
+```bash
+docker compose exec postgres psql -U postgres -d lighthouse
+```
+
+When a host database connection is required, enable the separate loopback-only
+override:
+
+```bash
+LIGHTHOUSE_CONFIG_DIR=./.config \
+LIGHTHOUSE_API_TOKEN_FILE=./.secrets/lighthouse_api_token \
+POSTGRES_PASSWORD_FILE=./.secrets/postgres_password \
+  docker compose -f docker-compose.yml -f docker-compose.postgres-local.yml up --build
+```
+
+This publishes PostgreSQL only at
+`127.0.0.1:${LIGHTHOUSE_POSTGRES_PORT:-5432}`. The base and override files do
+not publish either service on an IPv4 or IPv6 wildcard address. Both services
+use a project-scoped bridge network, and Compose-generated names allow isolated
+project instances without fixed-container-name collisions.
+
+The default browser origins are `http://127.0.0.1:5173` and
+`http://localhost:5173`. Override them with a comma-separated exact-origin
+list in `LIGHTHOUSE_CORS_ORIGINS`; wildcard origins are rejected. Publishing
+the backend on a non-loopback interface is an explicit security-boundary
+change and is unsupported without the production authentication, restrictive
+CORS, TLS reverse-proxy, and network controls defined in the security contract.
 
 ### Frontend
 

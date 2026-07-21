@@ -1094,6 +1094,949 @@ For an existing SQLite database created before Alembic version tracking:
 Fresh databases must be created through the same Alembic migration chain. A
 successful startup must leave the database stamped at the single current head.
 
+## Schema Authority and Migration Entry Point
+
+Status: **Approved — Phase 3.1**
+
+Alembic is the only runtime mechanism allowed to create or modify LighthousePM
+application tables, columns, constraints, and indexes. This rule applies to
+both configured database dialects: PostgreSQL and SQLite.
+
+- Application startup must always upgrade the configured database to the
+  single current Alembic head before API readiness or scheduled work.
+- `Base.metadata.create_all()` may be used only by isolated test fixtures. It
+  must not be reachable through the application startup path.
+- Runtime compatibility `ALTER TABLE`, `CREATE INDEX`, or other schema-repair
+  statements outside ordered Alembic revisions are prohibited.
+- Every schema change requires an ordered Alembic revision that handles both
+  configured database dialects. Any intentional dialect-specific operation
+  must remain explicit inside that revision.
+- A fresh database is created by upgrading an empty database through the
+  complete migration chain.
+- A versioned database upgrades from its recorded revision.
+- An unversioned database may be stamped only after deterministic schema
+  identification proves a recognized historical revision.
+- Unknown, partial, inconsistent, or multi-head states must stop startup with
+  an explicit error. The application must not guess, repair, or continue with
+  a partially migrated schema.
+- Migration failure must prevent the scheduler, API readiness, and desktop
+  workspace from starting.
+
+Making the migration entry point authoritative does not change metric formulas,
+thresholds, availability, or output meaning. The runtime `ruleset_version`
+therefore remains `2`.
+
+## Desktop Migration Readiness Gate
+
+Status: **Approved — Phase 3.2**
+
+For the managed desktop application, migration is a mandatory backend-readiness
+gate. Electron may create the local backend operating-system process so that it
+can run its startup lifecycle, but that backend must not report ready and the
+desktop workspace must not open until migration reaches the single current
+Alembic head successfully.
+
+The startup order is deterministic:
+
+1. Validate the effective backend startup configuration.
+2. Upgrade the configured database to the single current Alembic head.
+3. Start scheduled work.
+4. Complete API startup and allow the health endpoint to report ready.
+5. Load the desktop workspace after Electron observes successful health.
+
+The same readiness gate applies to initial desktop startup and every
+desktop-managed backend restart, including restarts after backup restore, local
+data clearing, and factory reset.
+
+If configuration validation or migration fails:
+
+- scheduled work must not start;
+- API health must not report ready;
+- the desktop workspace must not open;
+- Electron must show the backend-startup error state and direct the user to the
+  backend log; and
+- the desktop must not automatically clear, reset, restore, or otherwise guess
+  how to repair the database.
+
+A successful health response is the desktop's proof that the backend startup
+lifecycle, including migration, has completed. The health endpoint is not a
+second migration mechanism and must not contain schema-changing logic.
+
+This readiness contract changes startup ordering and failure handling only. It
+does not change metric formulas, thresholds, availability, or output meaning,
+so the runtime `ruleset_version` remains `2`.
+
+## Supported Schema Upgrade Matrix
+
+Status: **Approved — Phase 3.3**
+
+Every non-head revision retained in the single Alembic ancestor chain is a
+supported versioned upgrade source. With current head `20260720_0017`, the
+supported prior versioned revisions are `20260407_0001` through
+`20260717_0016`. The current head is also a supported startup source and must
+remain idempotent.
+
+Supported unversioned legacy schemas are limited to the explicit deterministic
+legacy-shape registry. The current registry recognizes schema milestones
+`20260407_0001` through `20260716_0010`. An unversioned schema outside that
+registry is not implicitly supported merely because it resembles a newer or
+older database.
+
+Unknown Alembic revisions and unknown, incomplete, or inconsistent unversioned
+schemas must continue to fail closed. A supported source may be removed only by
+an explicit compatibility decision that updates this catalog, the technical and
+desktop documentation, and the upgrade-test matrix together.
+
+Automated upgrade coverage must be derived from the Alembic graph and the
+legacy-shape registry so a new revision or supported legacy shape cannot be
+added without becoming a required test source. For every supported starting
+state, the applicable matrix must verify that:
+
+1. migration reaches the single current Alembic head;
+2. representative data that existed at the source revision is preserved;
+3. the resulting schema contains the expected current tables and columns;
+4. an existing file-backed SQLite database produces its required
+   pre-migration backup;
+5. a second startup is idempotent; and
+6. failure does not silently stamp, skip, or repair an unsupported state.
+
+The complete versioned-revision matrix must run against both file-backed SQLite
+and a real PostgreSQL instance. PostgreSQL behavior must not be inferred from
+SQLite. The unversioned legacy-shape matrix is required for SQLite because that
+is the supported pre-Alembic desktop adoption path.
+
+Downgrades are not a supported desktop recovery mechanism and are not part of
+the supported-source matrix. Migration-specific upgrade/downgrade round-trip
+tests may remain as additional checks, but they do not replace full-chain
+upgrade coverage from each supported source.
+
+This matrix changes upgrade assurance only. It does not change product metrics,
+signals, thresholds, or output meaning, so the runtime `ruleset_version`
+remains `2`.
+
+## Clean-Install and Existing-Database Startup Acceptance
+
+Status: **Approved — Phase 3.4**
+
+Schema correctness must also be verified through the real application startup
+boundary. Direct calls to the migration orchestrator and per-revision tests do
+not replace clean-install and existing-database startup acceptance.
+
+An isolated clean startup must begin without an application database or data
+directory and verify that:
+
+1. the required parent directory and database are created;
+2. the database reaches the single current Alembic head through the complete
+   migration chain;
+3. application health reports ready only after migration;
+4. empty public API collections return their structured empty contracts;
+5. no pre-migration backup is created for the new database; and
+6. startup succeeds without Jira credentials when Jira sync is disabled.
+
+An existing database already at the current head must start without a schema
+rewrite or migration backup. Representative release, sprint, issue, metric, and
+signal records must remain readable through the application APIs, and repeated
+startup must remain idempotent.
+
+An existing supported older database must verify that migration completes
+before readiness, the required SQLite pre-migration backup is created, related
+representative records survive, and the preserved records are readable through
+the public APIs. A second startup must not recreate or overwrite the backup.
+
+Application-level automated coverage must include:
+
+- file-backed SQLite clean, current-head, and supported older versioned states;
+- a recognized unversioned SQLite state;
+- real PostgreSQL clean and supported older versioned states; and
+- the actual desktop backend entry point with temporary SQLite storage,
+  successful health polling, authenticated API access, and clean process
+  termination.
+
+The Phase 3.3 matrix remains responsible for exhaustive per-revision migration
+coverage. Phase 3.4 uses representative older databases to prove the complete
+startup and API boundary rather than duplicating that matrix.
+
+Packaged Windows acceptance has two required paths:
+
+1. A genuinely clean install with no existing LighthousePM user-data directory.
+2. Installation over a previous LighthousePM version containing synchronized
+   data and valid configuration.
+
+The upgrade path must preserve the active database, `backend.env`, and encrypted
+Jira token. Acceptance must confirm preserved data in the workspace; a running
+process alone is not sufficient evidence. Automated tests and acceptance runs
+must use isolated temporary storage or disposable PostgreSQL databases and must
+never modify developer or production application data.
+
+This startup-acceptance contract changes upgrade assurance only. It does not
+change metrics, signals, thresholds, or output meaning, so the runtime
+`ruleset_version` remains `2`.
+
+## Atomic SQLite Migration Backups
+
+Status: **Approved — Phase 3.5**
+
+Before migrating an existing file-backed SQLite database, LighthousePM must
+create and atomically publish a consistent pre-migration backup.
+
+The backup must be created with SQLite's online backup operation and written
+to a uniquely named temporary file in the same directory as the active
+database. The temporary backup must be flushed and closed before it is
+atomically published as `<database>.pre-<target-revision>.bak`. Alembic
+stamping or migration must not begin until publication succeeds.
+
+If copying, flushing, closing, or publishing the backup fails:
+
+- startup must stop with an explicit error;
+- Alembic stamping and migration must not begin;
+- no new canonical `.pre-<revision>.bak` file may be exposed;
+- the active database must remain at its original revision;
+- the temporary file from that attempt must be removed when possible; and
+- any remaining temporary file is non-authoritative, must never be treated as
+  a valid migration backup, and must not prevent a later retry.
+
+An existing canonical backup for the same target revision must never be
+overwritten. Repeated startup reuses that canonical backup. Phase 3.5 does not
+determine whether a pre-existing canonical backup is valid; integrity and
+revision validation are defined separately by Phase 3.6. Migration startup is
+a single-writer operation, and a concurrent attempt must not replace an
+already published backup.
+
+Automatic migration backups apply only to an existing application schema in a
+file-backed SQLite database that requires migration. They are not created for
+a fresh database, an in-memory or URI-managed SQLite database, PostgreSQL, or
+a database already at the current Alembic head.
+
+Automated coverage must verify successful atomic publication with no temporary
+file left behind; copy and publication failures before migration; preservation
+of the source revision and data after failure; rejection of stale temporary
+files as backups; successful retry; preservation of an existing canonical
+backup; inclusion of committed WAL-resident data; and unchanged fresh-database
+and current-head behavior. Existing migration-matrix and application-startup
+coverage must continue to pass.
+
+This backup-publication contract changes operational safety only. It does not
+change metrics, signals, thresholds, or API meaning, so the runtime
+`ruleset_version` remains `2`.
+
+## Backup Version and Integrity Validation
+
+Status: **Approved — Phase 3.6**
+
+Backup validation applies at three boundaries: before an automatic migration
+backup is published or reused, before an automatic migration backup is copied
+back manually, and before Electron restores a Settings backup.
+
+### Automatic migration backups
+
+A newly created temporary backup and an existing canonical backup must be
+validated read-only before they can authorize migration. The backup must be a
+regular readable SQLite file, and `PRAGMA integrity_check` must return exactly
+`ok`. Its schema identity must be deterministically established as exactly one
+known Alembic revision or a recognized unversioned legacy schema.
+
+The backup's source revision must match the active database's pre-migration
+revision and must be a supported ancestor of the target revision. The
+canonical filename's target revision must match the current migration target.
+A new temporary backup is validated before atomic publication; an existing
+canonical backup is validated before reuse.
+
+Validation failure must stop startup before Alembic stamping or migration. The
+active database and backup remain unchanged, and the invalid backup must not be
+deleted, replaced, or silently repaired. The error must identify the backup
+path and the failed rule so the user can preserve or explicitly move the
+invalid file before retrying.
+
+Automatic `.pre-<revision>.bak` files remain outside Settings Restore. Before
+manual replacement of the active database, a local validator must report the
+SQLite integrity result, recorded or inferred source revision, revision
+identity type (`alembic` or `recognized_legacy`), filename target revision,
+compatibility with the installed migration chain, and a final `VALID` or
+`INVALID` result. Corrupt, unknown, unsupported, mismatched, or future
+revisions must produce an unsuccessful exit status. Recovery instructions must
+not recommend copying an unvalidated backup.
+
+### Settings backup format version 2
+
+New Settings backups use manifest version `2`. The manifest must record
+`app: "LighthousePM"`, `version: 2`, a creation timestamp, every included
+relative file path, exact byte size and SHA-256 digest for every payload, and
+the database revision plus revision-identity type when a database is included.
+
+Allowed payload paths are limited to:
+
+- `data/lighthouse.db`;
+- `backend.env`; and
+- `secrets/jira-token.bin`.
+
+The database payload must be a consistent standalone SQLite backup. Version 2
+does not include WAL or SHM files. The manifest must be written last and
+atomically; a directory without its completed manifest is not selectable for
+restore. SHA-256 detects accidental file changes but does not authenticate a
+backup against deliberate coordinated modification.
+
+Manifest version `1` lacks stored file hashes and does not satisfy this
+integrity contract. Version-1 backups must be preserved but rejected by
+automatic restore with an explicit legacy-format explanation. Unknown,
+missing, malformed, zero, negative, and future versions also fail closed. The
+application must not silently add hashes to a legacy manifest and thereby
+bless its current contents without evidence of their original integrity.
+
+### Settings restore preflight
+
+Before stopping the backend or modifying any active file, Electron must
+validate the selected backup completely:
+
+1. The manifest is valid JSON with the expected application and supported
+   version.
+2. Every payload path belongs to the fixed allowlist and remains inside the
+   backup directory.
+3. Every declared payload is a regular file, and no declared file is missing.
+4. Every byte size and SHA-256 digest matches the manifest.
+5. The SQLite database passes `integrity_check`.
+6. Its actual revision matches the manifest and is supported by the installed
+   migration chain.
+7. `backend.env`, when present, is readable UTF-8 and structurally valid.
+8. The encrypted token, when present, is decryptable for the current operating
+   system account.
+
+Validation is all-or-nothing. On failure, the backend remains running; the
+active database, WAL, SHM, configuration, and token remain unchanged; and the
+UI identifies the selected path and failed validation rule.
+
+After successful validation, the backend is stopped. A restored database
+replaces the active database as a set, stale active WAL and SHM files are
+removed, optional configuration and token files are replaced only when they
+are included, and restart uses the established migration-readiness gate.
+Transactional rollback for a failure after validated replacement begins is
+defined separately by Phase 3.7.
+
+Automated coverage must include valid new and reused migration backups;
+corrupt, truncated, non-SQLite, unreadable, unknown, future, and mismatched
+backups; recognized legacy schemas; validation before publication and before
+migration; manual-validator output and exit status; valid version-2 creation
+and restore; manifest-last publication; malformed manifests and versions;
+missing, changed, escaping, or linked payloads; database, configuration, and
+token validation; preflight before backend shutdown; stale WAL/SHM removal;
+explicit user-facing errors; and existing migration, startup, desktop, and
+backend regressions.
+
+This validation contract changes operational backup safety only. It does not
+change metrics, signals, thresholds, API meaning, or output meaning, so the
+runtime `ruleset_version` remains `2`.
+
+## Transactional Desktop Storage Operations and Recovery Tests
+
+Status: **Approved — Phase 3.7**
+
+Settings Restore, Clear Data, and Factory Reset must execute as transactional
+desktop storage operations. Validation alone is not sufficient: a failure
+after active-file mutation begins must restore the previous usable state.
+
+### Operation lifecycle
+
+Each operation must:
+
+1. acquire the single desktop-storage operation lock;
+2. validate every operation input;
+3. stop the backend and confirm process exit within a bounded timeout;
+4. create and validate a recovery snapshot before the first active-file
+   mutation;
+5. atomically publish an operation journal;
+6. apply the requested changes;
+7. start the backend through the established migration-readiness gate;
+8. verify operation-specific postconditions; and
+9. mark the operation committed and remove its recovery data.
+
+A fixed delay is not proof that the backend released SQLite. If shutdown cannot
+be confirmed, the operation must abort without modifying active files.
+Concurrent desktop-storage operations must be rejected explicitly.
+
+### Recovery journal and interrupted-operation recovery
+
+Every destructive operation must use a unique directory under
+`%APPDATA%\LighthousePM\recovery\<operation-id>\`. Its atomically published
+manifest records the journal format version, operation type and identifier,
+current state, original presence or absence of each affected path, recovery
+payload sizes and SHA-256 digests, creation time, and last state transition.
+
+Recovery journals are internal rollback artifacts, not Settings backups. They
+must never be selectable by Settings Restore. At most one unfinished journal
+may exist; multiple, malformed, incomplete, or checksum-invalid journals fail
+closed.
+
+Electron must inspect recovery state before starting the backend. When one
+valid unfinished journal exists, Electron restores the previous active state,
+removes files that were originally absent, verifies restored files, and starts
+the backend only after rollback completes. The journal may be removed only
+after readiness confirms that the previous state works.
+
+If rollback fails, the backend and workspace remain closed, recovery files and
+diagnostics are preserved, and the error identifies the journal path and failed
+rule. This automatic recovery applies only to explicitly journaled desktop
+operations. Schema migration failure must not trigger automatic restoration of
+an automatic migration backup.
+
+### Operation-specific outcomes
+
+Settings Backup remains non-destructive and does not create a recovery journal.
+A failed backup must leave no selectable manifest and must not alter the active
+files or running backend.
+
+After Settings Restore preflight succeeds, every active path that will be
+replaced must be recoverable. Optional files absent from the selected backup
+remain unchanged. A restored database removes stale active WAL and SHM files,
+and success requires backend readiness plus restored data through the public
+APIs. Replacement or restart failure must restore and restart the previous
+state. The UI reports that restore failed and the previous state was restored;
+it must not report restore success.
+
+Clear Data succeeds only when the active database, WAL, and SHM have been
+removed, a fresh empty database reaches the current head, and public APIs return
+structured empty results. Configuration, encrypted token, logs, and automatic
+migration backups remain. Deletion or restart failure restores and verifies the
+original database set.
+
+Factory Reset succeeds only when the active database set, configuration,
+encrypted token, and previous logs are removed; automatic migration backups
+remain; a fresh current-head database is created; and the application returns
+to first-run configuration. New startup logging may begin after the previous
+logs are removed. Reset or restart failure restores the original database,
+configuration, token, and prior logs, preserves failure diagnostics separately,
+and verifies the previous backend state.
+
+When operation rollback succeeds, the requested operation still reports
+failure with an explicit `previous state restored` explanation. When rollback
+or rollback restart fails, recovery artifacts remain and the workspace stays
+closed.
+
+### Automated and packaged acceptance coverage
+
+Automated tests must cover representative older-version startup; valid backup
+and restore round trips; database-only and optional-file combinations; backup
+failure before manifest publication; preflight failure while the backend stays
+running; failure at every replacement boundary; restart failure; successful
+rollback and previous-state readiness; rollback-copy and rollback-restart
+failure; interruption at every journal state and next-start recovery; invalid,
+missing, duplicate, and corrupt journals; Clear Data and Factory Reset success
+and rollback; automatic-backup retention; stale WAL/SHM removal; concurrent
+operation rejection; exact user messages; and isolation from real application
+data.
+
+The exhaustive Alembic source matrix remains Phase 3.3's responsibility.
+Phase 3.7 uses representative source revisions and verifies complete lifecycle
+outcomes instead of duplicating the matrix.
+
+Both clean-install and upgrade packaged-Windows reports must additionally
+verify Settings backup creation after synchronized data is visible, local-data
+change or clearing, restore with visible data and usable configuration/token,
+Clear Data with empty APIs and retained settings, Factory Reset with first-run
+state, and retention of automatic migration backups after both reset actions.
+
+This contract changes desktop operational safety only. It does not change
+metrics, signals, thresholds, API meaning, or output meaning, so the runtime
+`ruleset_version` remains `2`.
+
+## Supported Deployment-Mode Security Contract
+
+Status: **Approved — Phase 4.1**
+
+LighthousePM supports exactly three deployment modes. Each mode has an
+explicit security boundary; security behavior must not be inferred only from
+`APP_ENV`.
+
+### Desktop-only mode
+
+The packaged Electron application owns the complete local runtime:
+
+- Electron starts and stops the FastAPI backend.
+- The backend uses managed SQLite storage.
+- The backend listens only on a loopback address and an Electron-selected
+  port.
+- Electron generates a new high-entropy API token for every backend process.
+- All non-exempt API requests require that token.
+- The token is passed directly to the backend process and is never persisted.
+- Jira credentials are encrypted using operating-system-backed Electron
+  storage.
+- The renderer receives neither the local API token nor the decrypted Jira
+  token.
+- CORS is disabled because Electron proxies authenticated requests.
+- The backend and workspace fail closed when authentication or security
+  configuration is invalid.
+
+The desktop backend is not a general network server and must never bind to a
+LAN or public interface.
+
+### Local-browser mode
+
+The backend and browser frontend are started directly by a developer or local
+operator:
+
+- Backend and frontend bind to loopback by default.
+- PostgreSQL or SQLite may be used.
+- Anonymous API access is permitted only when `APP_ENV` is `dev` or `test`,
+  the backend is bound exclusively to loopback, and the deployment is not
+  treated as production.
+- Production mode always requires an API token, including on loopback.
+- Any non-loopback binding requires an API token regardless of `APP_ENV`.
+- CORS contains only explicitly configured origins; wildcard origins are
+  unsupported.
+- This mode is not intended for direct public-internet exposure.
+- Jira and API credentials must not be embedded in the frontend build.
+
+Secure non-Electron credential persistence is defined separately by a later
+Phase 4 point.
+
+### Docker mode
+
+The repository Compose deployment is a local Docker deployment by default:
+
+- The backend may listen on the container interface, but its host port is
+  published to `127.0.0.1` by default.
+- PostgreSQL is private to the Compose network by default. If a host port is
+  needed for administration, it is published to `127.0.0.1`, never all
+  interfaces.
+- Database credentials, Jira credentials, and API tokens are supplied at
+  runtime and are not built into images.
+- The browser frontend must not contain a reusable API secret.
+- Production or externally reachable Docker deployments require API
+  authentication.
+- CORS must list the exact browser origins.
+- Direct public-internet exposure without an authenticated TLS reverse proxy
+  is unsupported.
+- PostgreSQL must never be exposed to a public or untrusted network by the
+  default project configuration.
+
+### Shared expectations
+
+Across all three modes:
+
+- `/health` may remain unauthenticated only as a minimal liveness/readiness
+  response containing no sensitive configuration.
+- CORS is not authentication.
+- API tokens are sent through the `Authorization: Bearer` header, never query
+  parameters.
+- Invalid production or network-exposure security configuration prevents
+  startup.
+- Mutating, configuration, synchronization, recomputation, and administrative
+  operations receive explicit protection in later Phase 4 points.
+- Secrets must not appear in logs, persisted error details, API responses,
+  reports, URLs, or frontend bundles.
+- Direct public deployment of FastAPI or PostgreSQL without an explicitly
+  documented protective boundary is unsupported.
+
+This contract defines supported security boundaries only. It does not change
+metrics, signals, thresholds, availability, or output meaning, so the runtime
+`ruleset_version` remains `2`.
+
+## API-Token Requirements by Deployment Mode
+
+Status: **Approved — Phase 4.2**
+
+LighthousePM determines its authentication requirement explicitly from the
+deployment mode, application environment, and effective backend bind address.
+Supported backend launch paths provide the deployment mode (`desktop`,
+`local-browser`, or `docker`), effective bind host, `APP_ENV`, and the local API
+token when required. Security behavior must not depend on guessing how the
+process was launched.
+
+### Token-required rule
+
+A non-empty API token is mandatory when any of these conditions is true:
+
+- `APP_ENV=prod`;
+- the effective bind host is not loopback;
+- deployment mode is `desktop`; or
+- deployment mode is `docker`, because the backend listens on the container
+  network interface.
+
+The resulting mode contract is:
+
+| Mode | Environment and binding | Token requirement |
+|---|---|---|
+| Desktop | Production, loopback only | Required |
+| Local browser | `dev` or `test`, loopback only | Optional |
+| Local browser | Production or non-loopback | Required |
+| Docker | Every supported configuration | Required |
+
+Only `127.0.0.1`, `::1`, and `localhost` count as loopback bind values.
+Values including `0.0.0.0`, `::`, LAN addresses, other hostnames, empty
+values, and unknown values are non-loopback or invalid and cannot weaken the
+authentication requirement.
+
+### Startup enforcement
+
+When a token is required but missing, configuration validation fails before
+migration, scheduled work does not start, API readiness is not reached, and
+the desktop workspace does not open. The error identifies the missing security
+setting without printing secret values. A production or non-loopback server
+must never start temporarily without authentication.
+
+### Request enforcement
+
+When authentication is required:
+
+- every API endpoint except the minimal `/health` endpoint requires
+  `Authorization: Bearer <token>`;
+- comparison is constant-time;
+- missing, malformed, or incorrect credentials return `401`;
+- authentication failures return a generic structured error with
+  `Cache-Control: no-store`;
+- query parameters, cookies, and request bodies do not authenticate a
+  request; and
+- CORS does not bypass authentication.
+
+In loopback-only `dev` or `test` local-browser mode, authentication may be
+omitted. If a token is configured in that optional case, all protected
+endpoints still require it.
+
+Tokens are trimmed only for presence validation and are otherwise opaque.
+Operational documentation recommends at least 32 cryptographically random
+bytes rather than a human-readable password. Tokens must not be logged,
+returned through APIs, persisted in application data, or embedded in frontend
+bundles. Desktop tokens remain per-process and memory-only. Browser handling
+and non-Electron persistence are defined by a later Phase 4 point.
+
+This authentication contract does not change metrics, signals, thresholds,
+availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+
+## Secure Docker Network Defaults
+
+Status: **Approved — Phase 4.3**
+
+The repository's base Compose configuration represents a local Docker
+deployment and must not expose services to the LAN automatically.
+
+### Backend exposure
+
+The backend container listens on `0.0.0.0:8000` inside its private container
+network so Docker can forward traffic to it. The default host mapping is
+loopback-only:
+
+```yaml
+ports:
+  - "127.0.0.1:${LIGHTHOUSE_BACKEND_PORT:-8000}:8000"
+```
+
+This default permits browser access from the same host but not from other LAN
+devices. Binding the host side to `0.0.0.0`, `::`, a LAN address, or another
+non-loopback interface is an explicit operator action and remains subject to
+the Phase 4.2 authentication requirements. Docker mode always requires an API
+token because the backend process binds to the container network interface.
+
+### PostgreSQL exposure
+
+The base Compose configuration does not publish PostgreSQL to the host.
+PostgreSQL is accessible only to the backend through the private Compose
+network and through explicit administration commands such as
+`docker compose exec postgres psql`.
+
+When a host PostgreSQL connection is genuinely required, a separate opt-in
+local override may publish:
+
+```yaml
+ports:
+  - "127.0.0.1:${LIGHTHOUSE_POSTGRES_PORT:-5432}:5432"
+```
+
+The project must not provide a default `5432:5432` mapping.
+
+### Docker security identity and network scope
+
+The backend container receives explicit settings identifying deployment mode
+as `docker`, the effective container bind host as `0.0.0.0`, its application
+environment, and its required API token. Compose interpolation or backend
+startup fails when the required token is absent; Docker must not silently start
+an anonymous API.
+
+Compose uses a project-private network. PostgreSQL is not attached to an
+external network by default, and neither service is published on an IPv6
+wildcard address. CORS contains only exact local frontend origins. The base
+configuration is not suitable for direct public-internet deployment. External
+deployment requires an explicit override, API authentication, restrictive
+CORS, and an authenticated TLS reverse proxy.
+
+Operational documentation explains how to generate and supply the API token,
+the loopback-only default API URL, PostgreSQL administration without a host
+port, the optional loopback-only PostgreSQL override, and the security-boundary
+change caused by non-loopback publishing. Database and API secrets must not be
+committed.
+
+Automated checks verify the explicit backend loopback host mapping, absence of
+a PostgreSQL host port in the base file, loopback-only binding in the optional
+PostgreSQL override, declared Docker mode and bind host, required Docker API
+token, successful `docker compose config` with isolated test credentials, and
+documentation that does not describe the defaults as LAN- or publicly
+accessible.
+
+This infrastructure contract does not change metrics, signals, thresholds,
+availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+
+## Mutating and Administrative Endpoint Protection
+
+Status: **Approved — Phase 4.4**
+
+Every application route belongs to one explicit security class. A route must
+not acquire security behavior implicitly from its HTTP method or module
+location.
+
+### Route classes
+
+`GET /health` is the only public-health route. It remains unauthenticated and
+returns no configuration, credentials, database details, internal paths, or
+operational history.
+
+Protected-read routes comprise ordinary dashboard and reporting reads,
+including releases, sprints, issues, metrics, signals, charts, comparisons,
+history, generated reports, and documentation. When Phase 4.2 requires
+authentication, these routes require the API token.
+
+Privileged-operation routes include:
+
+- `GET /config/jira`;
+- `PUT /config/jira`;
+- `POST /config/jira/test`;
+- `GET /admin/status`;
+- `POST /sync/jira`;
+- release recomputation endpoints;
+- sprint recomputation endpoints; and
+- any future route that writes configuration, starts external work, changes
+  stored state, exposes operational details, or performs administrative work.
+
+Privileged routes require authentication whenever the deployment requires
+authentication or a token has been configured.
+
+Loopback-only `dev` or `test` local-browser mode may remain fully anonymous
+when no token is configured, as approved in Phase 4.2. This mode trusts the
+local operating-system user and is not a read-only security boundary.
+Configuring a token immediately protects both read and privileged routes.
+
+### Centralized enforcement and privileged safeguards
+
+Route classification and authentication are enforced centrally; business
+logic does not move into API routes. A new route declares or inherits exactly
+one class. Tests compare the complete FastAPI route inventory with the security
+classification inventory, and an unclassified route fails instead of silently
+becoming public. Authentication occurs before bodies containing credentials
+are processed.
+
+Configuration writes accept only the documented structured JSON contract.
+Configuration and connection-test responses never return the Jira API token.
+Authentication values in bodies or query parameters do not authenticate a
+request. Configuration, administrative, and mutating responses use
+`Cache-Control: no-store`. Valid protected reads do not change stored state.
+Unsupported methods continue to return `405`, and privileged-operation errors
+are sanitized without credentials or authorization values.
+
+### Authorization scope
+
+LighthousePM does not introduce accounts, roles, or a second administrator
+token in this phase. The configured bearer token represents one trusted
+LighthousePM operator and authorizes protected reads and privileged operations.
+Deployments requiring separate users, read-only users, or role-based
+administration must use an external authentication and authorization proxy;
+native multi-user authorization is not supported.
+
+Automated tests verify the single public route, complete and exclusive route
+classification, token rejection and acceptance across both protected classes,
+no authentication through bodies or query strings, `Cache-Control: no-store`
+on sensitive responses, absence of token values from configuration responses,
+read-only behavior for protected GET operations, and failure when a new route
+is not deliberately classified.
+
+This API-security contract does not change metrics, signals, thresholds,
+availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+
+## Secure Non-Electron Credential Persistence
+
+Status: **Approved — Phase 4.5**
+
+Non-Electron deployments must not imitate Electron `safeStorage` without an
+equivalent secure key store. Encrypting a secret while storing its encryption
+key beside it is not secure persistence. This contract covers the LighthousePM
+API bearer token, Jira API token, and Docker/PostgreSQL credentials. Non-secret
+Jira settings may continue using the configured environment file.
+
+### Server-side secret sources
+
+Local-browser and Docker deployments obtain secrets, in order of supported
+source type, from an explicitly configured mounted secret file, a process
+environment variable, or a development-only `.env` file in loopback-only
+`dev` or `test`. File-backed settings use explicit names such as:
+
+```text
+LIGHTHOUSE_API_TOKEN_FILE=/run/secrets/lighthouse_api_token
+JIRA_API_TOKEN_FILE=/run/secrets/jira_api_token
+POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+```
+
+A direct value and its corresponding `*_FILE` setting must not both be
+configured. Ambiguous sources fail startup.
+
+A configured secret file resolves to an existing readable regular file, has a
+bounded size, and contains a non-empty value after removal of one trailing line
+ending. Invalid files fail startup with the setting name but not the secret.
+The effective value is retained only in process memory and is not copied into
+`.env`, SQLite, reports, or logs.
+
+### Local-browser and Docker persistence
+
+Production local-browser deployments provision API and Jira tokens through
+the process environment or protected secret files. The Settings API persists
+only non-secret configuration. `PUT /config/jira` rejects attempts to persist
+a Jira token and directs the operator to the deployment secret provider.
+`POST /config/jira/test` may accept a candidate Jira token for that request
+only and does not persist it. A durable token change requires updating the
+external source and restarting the backend.
+
+Loopback-only `dev` or `test` may use a gitignored `.env` file as a documented
+development convenience, not as production secret storage. Responses never
+return secret values in any environment.
+
+Docker uses mounted Compose secrets or equivalent read-only files for the
+LighthousePM API token, Jira API token when Jira sync is enabled, and
+PostgreSQL password. Secrets are not written into Compose configuration,
+committed environment files, image layers, frontend build variables, or
+container health checks. Operational documentation provides commands for
+creating local secret files outside version control.
+
+### Browser bearer-token handling
+
+The browser receives the LighthousePM API token from the operator, never from
+the frontend bundle or a public backend endpoint. The frontend retains it only
+for the active browser session: in memory by default, optionally in
+`sessionStorage` for same-tab reloads, and never in `localStorage`, IndexedDB,
+service-worker caches, URLs, analytics, or logs. Closing the tab or browser
+session removes the client-side token. Long-lived browser-token persistence is
+delegated to an external authenticated reverse proxy or credential manager.
+
+### Desktop and configuration-write behavior
+
+Desktop behavior remains Electron-managed: Electron generates the local API
+token per backend process, persists the Jira token through `safeStorage`, and
+does not expose either decrypted secret to the renderer. The backend does not
+persist desktop secrets itself.
+
+The backend knows its deployment mode before processing configuration writes.
+Desktop mode permits the Electron-managed Jira-token flow. Non-Electron modes
+reject durable Jira-token writes but may use a transient candidate for a
+connection test. Non-secret updates remain deterministic and atomic, and
+responses expose only configured/not-configured booleans.
+
+Automated tests cover direct environment values; valid, missing, empty,
+oversized, unreadable, and conflicting secret files; absence of secret values
+from errors, responses, logs, and configuration; rejected non-Electron token
+persistence; transient connection testing; unchanged Electron `safeStorage`
+behavior; Docker secret declarations without committed values; and frontend
+bearer-token storage restrictions.
+
+This credential contract does not change metrics, signals, thresholds,
+availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+
+## Deployment-Mode Authentication and Configuration-Write Tests
+
+Status: **Approved — Phase 4.6**
+
+The complete approved security contract must be verified for every supported
+deployment mode. Security acceptance combines deterministic configuration and
+API tests with deployment-specific frontend, desktop, and Docker checks.
+
+### Required acceptance matrix
+
+| Deployment mode | Scenario | Authentication expectation | Configuration-write expectation |
+|---|---|---|---|
+| Desktop | Production, loopback | Token always required except `/health` | Non-secret settings persist; Electron manages Jira credentials using `safeStorage` |
+| Local browser | `dev` or `test`, loopback, no configured token | Anonymous access allowed | Non-secret settings persist; durable Jira-token writes are rejected |
+| Local browser | `dev` or `test`, loopback, configured token | Token required | Non-Electron write restrictions apply |
+| Local browser | Production, loopback | Token required | Non-Electron write restrictions apply |
+| Local browser | Any non-loopback binding | Token required | Non-Electron write restrictions apply |
+| Docker | Every supported configuration | Token required | Secrets come from mounted files or the environment; durable token writes are rejected |
+
+### Authentication and startup coverage
+
+Automated tests must verify that:
+
+- `/health` is the only unauthenticated route and contains no sensitive
+  information;
+- missing, malformed, and incorrect tokens return `401`;
+- a correct token authorizes protected reads and privileged operations;
+- authentication happens before request-body validation or business logic;
+- query parameters, cookies, and request bodies cannot authenticate requests;
+- token comparison uses the approved constant-time validation;
+- authentication failures use a generic structured response with
+  `Cache-Control: no-store`;
+- configuring a token in optional local development mode protects every
+  non-health endpoint;
+- empty, unknown, wildcard, and non-loopback bind values cannot bypass
+  authentication;
+- every FastAPI route belongs to exactly one security class; and
+- a newly added unclassified route fails the route-inventory test.
+
+When a required token is missing, startup tests must prove failure before
+database migration, scheduler startup, API readiness, and desktop workspace
+loading. The error identifies the invalid setting without including any token
+or credential value.
+
+### Configuration-write coverage
+
+For every applicable deployment mode, automated tests must verify that:
+
+- non-secret Jira settings are validated and written atomically;
+- configuration responses return only configured/not-configured indicators;
+- Jira and LighthousePM API tokens never appear in responses, errors, logs, or
+  persisted application configuration;
+- a non-Electron `PUT /config/jira` request that attempts durable Jira-token
+  persistence returns `400` with an actionable, non-sensitive explanation;
+- `POST /config/jira/test` may use a candidate token for that request but does
+  not persist it;
+- an invalid or failed connection test leaves existing configuration
+  unchanged;
+- desktop Jira-token changes continue through Electron `safeStorage`;
+- desktop restart retains the encrypted Jira credential without exposing it
+  to the renderer; and
+- browser bearer tokens use only the approved session-lifetime storage and
+  never `localStorage`, IndexedDB, URLs, service-worker caches, or frontend
+  build variables.
+
+### Secret-source coverage
+
+Tests must cover direct environment values; valid `*_FILE` sources; missing,
+empty, oversized, unreadable, and non-regular secret files; conflicting direct
+and file settings; removal of one trailing line ending without otherwise
+changing the secret; errors that name the setting without revealing its value;
+and Docker secret declarations that contain no committed secret values.
+
+### Docker acceptance
+
+Always-run checks verify the loopback-only backend host port, absence of a
+PostgreSQL host port in the base Compose file, the loopback-only optional
+PostgreSQL override, explicit Docker mode and container bind address, and
+successful `docker compose config` with isolated test secret files.
+
+A container-based authentication smoke test is required in CI and release
+verification when Docker is available. It starts an isolated Compose project,
+verifies health and authenticated access, verifies rejection of persistent
+configuration secrets, and removes its disposable containers, volumes, and
+test credentials.
+
+### Regression and isolation requirements
+
+Phase 4 verification requires backend unit and API integration tests, the full
+backend regression suite, frontend authentication and storage tests plus a
+production build, desktop authentication/proxy/`safeStorage` tests, Docker
+configuration and runtime acceptance, and the documentation-contract
+safeguards.
+
+Tests use temporary SQLite files, disposable PostgreSQL data, mock Jira access,
+and synthetic credentials. They must never access developer or production
+data. The acceptance matrix is the authoritative set of supported mode,
+environment, and binding combinations; changing that set requires updating the
+matrix and its tests together.
+
+This testing contract changes security assurance only. It does not change
+metric formulas, signals, thresholds, availability, or output meaning, so the
+runtime `ruleset_version` remains `2`.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -1170,3 +2113,32 @@ formulas or public meaning are changed under a new ruleset version.
 | 2.4 | Define valid cycle-time pairs and an eligible reopen-event-rate denominator | Approved |
 | 2.5 | Clarify sprint scope and unfinished-work semantics without breaking the API | Approved |
 | 2.5.4 | Make workload distribution authoritative, coverage-aware, and reproducible | Approved |
+
+## Phase 3 Decision Register
+
+Phase 3 establishes safe schema and desktop upgrades before security and
+architectural restructuring work begins.
+
+| Point | Decision | Status |
+|---|---|---|
+| 3.1 | Use Alembic as the only runtime schema authority for PostgreSQL and SQLite | Approved |
+| 3.2 | Gate desktop backend readiness and workspace loading on successful migration | Approved |
+| 3.3 | Test upgrades from every supported versioned and unversioned schema source | Approved |
+| 3.4 | Verify clean-install and existing-database behavior through application and desktop startup | Approved |
+| 3.5 | Atomically publish consistent SQLite migration backups before migration begins | Approved |
+| 3.6 | Validate backup format, integrity, and schema compatibility before reuse or restore | Approved |
+| 3.7 | Make desktop storage operations recoverable and test upgrade, backup, restore, reset, and rollback lifecycles | Approved |
+
+## Phase 4 Decision Register
+
+Phase 4 secures every supported deployment mode before architectural
+restructuring work begins.
+
+| Point | Decision | Status |
+|---|---|---|
+| 4.1 | Define explicit security boundaries for desktop-only, local-browser, and Docker deployments | Approved |
+| 4.2 | Require API authentication in production, on non-loopback bindings, and in desktop and Docker modes | Approved |
+| 4.3 | Bind Docker API access to host loopback and keep PostgreSQL private by default | Approved |
+| 4.4 | Classify every route and explicitly protect configuration, administration, sync, and recomputation operations | Approved |
+| 4.5 | Keep non-Electron secrets in operator-controlled providers and reject application-managed durable token writes | Approved |
+| 4.6 | Verify authentication and configuration-write behavior across every supported deployment mode | Approved |

@@ -101,7 +101,7 @@ class JiraService:
                 base_url=self._settings.jira_base_url,
                 auth=httpx.BasicAuth(
                     self._settings.jira_user_email,
-                    self._settings.jira_api_token,
+                    self._settings.effective_jira_api_token,
                 ),
                 headers={"Accept": "application/json"},
                 timeout=self._settings.jira_timeout_seconds,

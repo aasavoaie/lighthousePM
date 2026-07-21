@@ -1,15 +1,15 @@
 import os
 from pathlib import Path
+import re
+import tempfile
 from typing import Any
 
-from dotenv import set_key
-
-from app.config import BACKEND_DIR, Settings, get_settings
+from app.config import BACKEND_DIR, CONFIG_FILE_ENV_VAR, Settings, get_settings
 from app.schemas.configuration import JiraConfigurationResponse, JiraConfigurationUpdate, JiraConnectionTestResponse
 from app.services.jira_errors import JiraServiceError
 from app.services.jira_service import JiraService
 
-CONFIG_FILE_ENV_VAR = "LIGHTHOUSE_CONFIG_FILE"
+_ENV_ASSIGNMENT = re.compile(r"^(?P<prefix>\s*(?:export\s+)?)(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=")
 
 JIRA_FIELD_TO_ENV = {
     "jira_base_url": "JIRA_BASE_URL",
@@ -52,6 +52,7 @@ def get_jira_configuration() -> JiraConfigurationResponse:
 def update_jira_configuration(update: JiraConfigurationUpdate) -> JiraConfigurationResponse:
     current_settings = get_settings()
     update_values = update.model_dump(exclude_unset=True)
+    _validate_update_allowed(settings=current_settings, values=update_values)
     normalized_values = _normalize_update_values(update_values)
     candidate_settings = _build_candidate_settings(current_settings, normalized_values)
     candidate_settings.validate_startup_settings()
@@ -81,27 +82,94 @@ def _normalize_update_values(values: dict[str, Any]) -> dict[str, Any]:
 
 def _build_candidate_settings(settings: Settings, values: dict[str, Any]) -> Settings:
     candidate_data = settings.model_dump()
+    if "jira_api_token" in values:
+        candidate_data["jira_api_token_file"] = ""
     candidate_data.update(values)
     return Settings(_env_file=None, **candidate_data)
 
 
+def _validate_update_allowed(*, settings: Settings, values: dict[str, Any]) -> None:
+    if "jira_api_token" in values and settings.deployment_mode != "desktop":
+        raise ValueError(
+            "Jira API token persistence is unavailable in this deployment mode; configure "
+            "JIRA_API_TOKEN or JIRA_API_TOKEN_FILE externally and restart the backend"
+        )
+    if settings.deployment_mode == "docker" and not os.environ.get(CONFIG_FILE_ENV_VAR, "").strip():
+        raise ValueError(
+            "Docker configuration writes require a writable file mounted through "
+            "LIGHTHOUSE_CONFIG_FILE"
+        )
+
+
 def _write_configuration(*, config_path: Path, values: dict[str, Any]) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.touch(exist_ok=True)
-    for field_name, value in values.items():
-        if field_name == "jira_api_token":
+    original = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+    replacements = {
+        JIRA_FIELD_TO_ENV[field_name]: _to_env_value(value)
+        for field_name, value in values.items()
+        if field_name != "jira_api_token"
+    }
+    updated = _update_env_text(original, replacements)
+    _replace_file_atomically(config_path, updated)
+
+
+def _update_env_text(original: str, replacements: dict[str, str]) -> str:
+    if not replacements:
+        return original
+
+    remaining = dict(replacements)
+    updated_keys: set[str] = set()
+    output: list[str] = []
+    for line in original.splitlines(keepends=True):
+        match = _ENV_ASSIGNMENT.match(line)
+        key = match.group("key") if match else None
+        if key in updated_keys:
             continue
-        env_name = JIRA_FIELD_TO_ENV[field_name]
-        set_key(
-            dotenv_path=config_path,
-            key_to_set=env_name,
-            value_to_set=_to_env_value(value),
-            quote_mode="auto",
-        )
+        if key not in remaining:
+            output.append(line)
+            continue
+        newline = "\r\n" if line.endswith("\r\n") else "\n"
+        output.append(f"{match.group('prefix')}{key}={_quote_env_value(remaining.pop(key))}{newline}")
+        updated_keys.add(key)
+
+    if output and not output[-1].endswith(("\n", "\r")):
+        output[-1] += "\n"
+    output.extend(f"{key}={_quote_env_value(value)}\n" for key, value in remaining.items())
+    return "".join(output)
+
+
+def _quote_env_value(value: str) -> str:
+    if value.replace("_", "").isalnum():
+        return value
+    return f"'{value.replace(chr(39), chr(92) + chr(39))}'"
+
+
+def _replace_file_atomically(config_path: Path, contents: str) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=config_path.parent,
+        prefix=f".{config_path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        if config_path.exists():
+            os.chmod(temporary_path, config_path.stat().st_mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as temporary_file:
+            descriptor = -1
+            temporary_file.write(contents)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, config_path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary_path.unlink(missing_ok=True)
 
 
 def _apply_runtime_environment(*, values: dict[str, Any]) -> None:
     for field_name, value in values.items():
+        if field_name == "jira_api_token" and get_settings().deployment_mode != "desktop":
+            continue
         os.environ[JIRA_FIELD_TO_ENV[field_name]] = _to_env_value(value)
 
 
@@ -116,7 +184,7 @@ def _build_response(*, settings: Settings, config_path: Path) -> JiraConfigurati
         config_path=str(config_path),
         jira_base_url=settings.jira_base_url,
         jira_user_email=settings.jira_user_email,
-        jira_api_token_configured=bool(settings.jira_api_token.strip()),
+        jira_api_token_configured=bool(settings.effective_jira_api_token.strip()),
         jira_project_key=settings.jira_project_key,
         jira_sync_enabled=settings.jira_sync_enabled,
         jira_sync_page_size=settings.jira_sync_page_size,
@@ -179,7 +247,7 @@ def _is_complete(settings: Settings) -> bool:
         [
             settings.jira_base_url.strip(),
             settings.jira_user_email.strip(),
-            settings.jira_api_token.strip(),
+            settings.effective_jira_api_token.strip(),
             settings.jira_project_key.strip(),
             settings.jira_field_severity.strip(),
             settings.jira_field_release.strip(),

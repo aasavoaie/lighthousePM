@@ -42,7 +42,8 @@ def _get_engine_kwargs(database_settings: Settings) -> dict[str, Any]:
         "pool_pre_ping": True,
         "echo": database_settings.database_echo,
     }
-    backend_name = make_url(database_settings.database_url).get_backend_name()
+    effective_database_url = database_settings.effective_database_url
+    backend_name = make_url(effective_database_url).get_backend_name()
     if backend_name == "postgresql":
         engine_kwargs["pool_size"] = database_settings.database_pool_size
         engine_kwargs["max_overflow"] = database_settings.database_max_overflow
@@ -51,16 +52,17 @@ def _get_engine_kwargs(database_settings: Settings) -> dict[str, Any]:
             "check_same_thread": False,
             "timeout": 30.0,
         }
-        if make_url(database_settings.database_url).database == ":memory:":
+        if make_url(effective_database_url).database == ":memory:":
             engine_kwargs["poolclass"] = StaticPool
     return engine_kwargs
 
 
 def create_database_engine(database_settings: Settings) -> Engine:
     """Create a configured PostgreSQL or SQLite SQLAlchemy engine."""
-    _ensure_sqlite_parent_directory(database_settings.database_url)
+    effective_database_url = database_settings.effective_database_url
+    _ensure_sqlite_parent_directory(effective_database_url)
     database_engine = create_engine(
-        database_settings.database_url,
+        effective_database_url,
         **_get_engine_kwargs(database_settings),
     )
     if database_engine.dialect.name == "sqlite":

@@ -1,35 +1,14 @@
 import { useEffect, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { JiraConfigurationResponse, JiraConfigurationUpdate } from "../api/types";
+import type { JiraConfigurationResponse } from "../api/types";
+import {
+  buildJiraConfigurationUpdate,
+  type JiraSettingsForm,
+} from "./jiraConfiguration";
 
 interface SettingsPanelProps {
   onConfigurationSaved?: (config: JiraConfigurationResponse) => void;
-}
-
-interface JiraSettingsForm {
-  jira_base_url: string;
-  jira_user_email: string;
-  jira_api_token: string;
-  jira_project_key: string;
-  jira_sync_enabled: boolean;
-  jira_sync_page_size: string;
-  jira_sync_changelog_page_size: string;
-  jira_sync_interval_minutes: string;
-  jira_field_story_points: string;
-  jira_field_severity: string;
-  jira_field_release: string;
-  jira_field_sprint: string;
-  jira_field_blocker: string;
-  jira_changelog_fix_version_fields: string;
-  jira_changelog_sprint_fields: string;
-  jira_done_statuses: string;
-  jira_in_progress_statuses: string;
-  jira_high_severity_values: string;
-  jira_bug_issue_types: string;
-  jira_blocker_issue_types: string;
-  jira_blocker_severity_values: string;
-  jira_blocked_statuses: string;
 }
 
 function toForm(config: JiraConfigurationResponse): JiraSettingsForm {
@@ -57,36 +36,6 @@ function toForm(config: JiraConfigurationResponse): JiraSettingsForm {
     jira_blocker_severity_values: config.jira_blocker_severity_values,
     jira_blocked_statuses: config.jira_blocked_statuses,
   };
-}
-
-function toUpdate(form: JiraSettingsForm): JiraConfigurationUpdate {
-  const update: JiraConfigurationUpdate = {
-    jira_base_url: form.jira_base_url,
-    jira_user_email: form.jira_user_email,
-    jira_project_key: form.jira_project_key,
-    jira_sync_enabled: form.jira_sync_enabled,
-    jira_sync_page_size: Number(form.jira_sync_page_size),
-    jira_sync_changelog_page_size: Number(form.jira_sync_changelog_page_size),
-    jira_sync_interval_seconds: Number(form.jira_sync_interval_minutes) * 60,
-    jira_field_story_points: form.jira_field_story_points,
-    jira_field_severity: form.jira_field_severity,
-    jira_field_release: form.jira_field_release,
-    jira_field_sprint: form.jira_field_sprint,
-    jira_field_blocker: form.jira_field_blocker,
-    jira_changelog_fix_version_fields: form.jira_changelog_fix_version_fields,
-    jira_changelog_sprint_fields: form.jira_changelog_sprint_fields,
-    jira_done_statuses: form.jira_done_statuses,
-    jira_in_progress_statuses: form.jira_in_progress_statuses,
-    jira_high_severity_values: form.jira_high_severity_values,
-    jira_bug_issue_types: form.jira_bug_issue_types,
-    jira_blocker_issue_types: form.jira_blocker_issue_types,
-    jira_blocker_severity_values: form.jira_blocker_severity_values,
-    jira_blocked_statuses: form.jira_blocked_statuses,
-  };
-  if (form.jira_api_token.trim()) {
-    update.jira_api_token = form.jira_api_token;
-  }
-  return update;
 }
 
 function setupItems(config: JiraConfigurationResponse | null) {
@@ -149,6 +98,7 @@ function jiraTestSuccessMessage(response: { display_name: string | null; project
 }
 
 export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
+  const isElectronDeployment = window.lighthouseDesktop?.isElectron === true;
   const [config, setConfig] = useState<JiraConfigurationResponse | null>(null);
   const [form, setForm] = useState<JiraSettingsForm | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -214,12 +164,18 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
       if (token && window.lighthouseDesktop?.storeJiraToken) {
         await window.lighthouseDesktop.storeJiraToken(token);
       }
-      const response = await apiClient.updateJiraConfiguration(toUpdate(form));
+      const response = await apiClient.updateJiraConfiguration(
+        buildJiraConfigurationUpdate(form, isElectronDeployment),
+      );
       setConfig(response);
       setForm(toForm(response));
       onConfigurationSaved?.(response);
       await loadDesktopStorage();
-      setStatusMessage("Settings saved.");
+      setStatusMessage(
+        isElectronDeployment
+          ? "Settings saved."
+          : "Nonsecret settings saved. Jira credentials remain externally managed.",
+      );
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to save settings.");
     } finally {
@@ -238,7 +194,9 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
     setTestSucceeded(null);
     setErrorMessage(null);
     try {
-      const response = await apiClient.testJiraConfiguration(toUpdate(form));
+      const response = await apiClient.testJiraConfiguration(
+        buildJiraConfigurationUpdate(form, true),
+      );
       setTestMessage(response.ok ? jiraTestSuccessMessage(response) : response.message || "Jira connection test failed.");
       setTestSucceeded(response.ok);
     } catch (error) {
@@ -314,7 +272,10 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
               <input value={form.jira_user_email} onChange={(event) => updateField("jira_user_email", event.target.value)} />
             </label>
             <label className="settings-field">
-              <span>API token {config?.jira_api_token_configured ? "(configured)" : ""}</span>
+              <span>
+                API token {config?.jira_api_token_configured ? "(configured)" : ""}
+                {!isElectronDeployment ? " — connection test only" : ""}
+              </span>
               <input
                 type="password"
                 value={form.jira_api_token}
@@ -322,6 +283,12 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
                 autoComplete="new-password"
               />
             </label>
+            {!isElectronDeployment ? (
+              <p className="settings-help settings-field-wide">
+                The token is used only by Test Jira Connection. Configure JIRA_API_TOKEN or
+                JIRA_API_TOKEN_FILE on the backend and restart it for a durable credential change.
+              </p>
+            ) : null}
             <label className="settings-field">
               <span>Project key</span>
               <input value={form.jira_project_key} onChange={(event) => updateField("jira_project_key", event.target.value)} />

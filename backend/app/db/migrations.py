@@ -1,208 +1,92 @@
 """Deterministic database migration orchestration for application startup."""
 
-from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import sqlite3
+import tempfile
 
 from alembic import command
-from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import inspect
-from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.engine import Engine
 
-
-@dataclass(frozen=True)
-class LegacyRevisionShape:
-    revision: str
-    tables: frozenset[str] = field(default_factory=frozenset)
-    columns: dict[str, frozenset[str]] = field(default_factory=dict)
-
-
-LEGACY_REVISION_SHAPES = (
-    LegacyRevisionShape(
-        revision="20260407_0001",
-        tables=frozenset({"releases", "issues", "issue_history", "metric_snapshots", "release_signals"}),
-    ),
-    LegacyRevisionShape(
-        revision="20260424_0002",
-        tables=frozenset({"sprints", "issue_sprints", "sprint_metric_snapshots"}),
-    ),
-    LegacyRevisionShape(
-        revision="20260425_0003",
-        columns={
-            "metric_snapshots": frozenset({"open_blocker_issue_keys", "open_high_severity_bug_issue_keys"}),
-            "sprint_metric_snapshots": frozenset(
-                {"open_blocker_issue_keys", "open_high_severity_bug_issue_keys"}
-            ),
-        },
-    ),
-    LegacyRevisionShape(
-        revision="20260427_0004",
-        columns={
-            "issues": frozenset({"story_points"}),
-            "sprint_metric_snapshots": frozenset(
-                {"delivery_confidence_score", "delivery_confidence_components", "delivery_confidence_inputs"}
-            ),
-        },
-    ),
-    LegacyRevisionShape(
-        revision="20260428_0005",
-        columns={
-            "sprint_metric_snapshots": frozenset(
-                {"bugs_created_during_sprint", "bugs_created_during_sprint_issue_keys"}
-            )
-        },
-    ),
-    LegacyRevisionShape(
-        revision="20260429_0006",
-        columns={"metric_snapshots": frozenset({"completed_tickets"})},
-    ),
-    LegacyRevisionShape(
-        revision="20260430_0007",
-        columns={"metric_snapshots": frozenset({"scope_added_7d_count", "scope_removed_7d_count"})},
-    ),
-    LegacyRevisionShape(
-        revision="20260716_0008",
-        columns={
-            "sprint_metric_snapshots": frozenset(
-                {
-                    "story_point_total_count",
-                    "story_point_pointed_count",
-                    "story_point_unpointed_count",
-                    "story_point_coverage_pct",
-                    "story_point_unpointed_issue_keys",
-                    "delivery_confidence_status",
-                    "delivery_confidence_explanations",
-                }
-            )
-        },
-    ),
-    LegacyRevisionShape(
-        revision="20260716_0009",
-        columns={
-            "issues": frozenset(
-                {"jira_created_at", "jira_updated_at", "jira_blocker_flag", "jira_changelog_complete"}
-            ),
-            "sprint_metric_snapshots": frozenset(
-                {"bugs_created_during_sprint_status", "bugs_created_during_sprint_missing_created_at_issue_keys"}
-            ),
-        },
-    ),
-    LegacyRevisionShape(
-        revision="20260716_0010",
-        columns={
-            "metric_snapshots": frozenset(
-                {"ruleset_version", "confidence_score", "confidence_status", "calculation_provenance"}
-            ),
-            "sprint_metric_snapshots": frozenset({"ruleset_version", "calculation_provenance"}),
-            "release_signals": frozenset(
-                {
-                    "metric_snapshot_id",
-                    "ruleset_version",
-                    "confidence_score",
-                    "reason_details",
-                    "release_gates",
-                    "readiness_evidence",
-                    "risk_aging_evidence",
-                    "calculated_at",
-                }
-            ),
-        },
-    ),
-)
+from app.db.backup_validation import validate_sqlite_backup
+from app.db.migration_graph import build_alembic_config
+from app.db.schema_revision import LEGACY_REVISION_SHAPES as LEGACY_REVISION_SHAPES
+from app.db.schema_revision import SchemaRevisionIdentity, infer_legacy_revision
 
 
 def migrate_database(database_engine: Engine) -> None:
     """Upgrade a fresh, versioned, or recognized legacy database to Alembic head."""
-    alembic_config = _build_alembic_config()
+    alembic_config = build_alembic_config()
     script = ScriptDirectory.from_config(alembic_config)
     heads = script.get_heads()
     if len(heads) != 1:
         raise RuntimeError(f"Expected one Alembic head, found {len(heads)}")
     target_revision = heads[0]
+    revision_chain = tuple(
+        revision.revision for revision in reversed(list(script.walk_revisions()))
+    )
 
     with database_engine.begin() as connection:
-        current_revision = MigrationContext.configure(connection).get_current_revision()
+        current_revisions = MigrationContext.configure(connection).get_current_heads()
         table_names = set(inspect(connection).get_table_names())
         has_application_schema = bool(table_names - {"alembic_version"})
+
+        if len(current_revisions) > 1:
+            raise RuntimeError(
+                "Database records multiple Alembic revisions; automatic migration was stopped"
+            )
+        current_revision = current_revisions[0] if current_revisions else None
+
+        if "alembic_version" in table_names and current_revision is None:
+            raise RuntimeError(
+                "Alembic version table exists without a recorded revision; automatic migration was stopped"
+            )
+
+        known_revisions = {revision.revision for revision in script.walk_revisions()}
+        if current_revision is not None and current_revision not in known_revisions:
+            raise RuntimeError(
+                f"Database records unknown Alembic revision {current_revision!r}; "
+                "automatic migration was stopped"
+            )
 
         if current_revision == target_revision:
             return
 
+        source_identity: SchemaRevisionIdentity | None = None
+        if current_revision is not None:
+            source_identity = SchemaRevisionIdentity(current_revision, "alembic")
+        elif has_application_schema:
+            source_identity = SchemaRevisionIdentity(
+                infer_legacy_revision(connection),
+                "recognized_legacy",
+            )
+
         if has_application_schema and database_engine.dialect.name == "sqlite":
-            _create_sqlite_backup(database_engine, target_revision)
+            if source_identity is None:
+                raise RuntimeError("Existing SQLite schema revision could not be identified")
+            _create_sqlite_backup(
+                database_engine,
+                target_revision,
+                revision_chain,
+                source_identity,
+            )
 
         alembic_config.attributes["connection"] = connection
-        if current_revision is None and has_application_schema:
-            legacy_revision = _infer_legacy_revision(connection)
-            command.stamp(alembic_config, legacy_revision)
+        if current_revision is None and source_identity is not None:
+            command.stamp(alembic_config, source_identity.revision)
 
         command.upgrade(alembic_config, "head")
 
 
-def _build_alembic_config() -> Config:
-    backend_directory = Path(__file__).resolve().parents[2]
-    script_location = backend_directory / "alembic"
-    if not script_location.is_dir():
-        raise RuntimeError(f"Alembic migration scripts are unavailable at {script_location}")
-
-    config = Config()
-    config.set_main_option("script_location", str(script_location))
-    return config
-
-
-def _infer_legacy_revision(connection: Connection) -> str:
-    schema = inspect(connection)
-    table_names = set(schema.get_table_names())
-    columns_by_table = {
-        table_name: {column["name"] for column in schema.get_columns(table_name)}
-        for table_name in table_names
-    }
-    inferred_revision: str | None = None
-
-    for index, shape in enumerate(LEGACY_REVISION_SHAPES):
-        if _shape_is_complete(shape, table_names, columns_by_table):
-            inferred_revision = shape.revision
-            continue
-
-        later_shapes = LEGACY_REVISION_SHAPES[index:]
-        if any(_shape_is_partially_present(candidate, table_names, columns_by_table) for candidate in later_shapes):
-            raise RuntimeError(
-                "Existing unversioned database schema is incomplete or inconsistent; "
-                "automatic revision detection was stopped"
-            )
-        break
-
-    if inferred_revision is None:
-        raise RuntimeError(
-            "Existing unversioned database schema is not a recognized LighthousePM revision; "
-            "automatic migration was stopped"
-        )
-    return inferred_revision
-
-
-def _shape_is_complete(
-    shape: LegacyRevisionShape,
-    table_names: set[str],
-    columns_by_table: dict[str, set[str]],
-) -> bool:
-    if not shape.tables.issubset(table_names):
-        return False
-    return all(required.issubset(columns_by_table.get(table_name, set())) for table_name, required in shape.columns.items())
-
-
-def _shape_is_partially_present(
-    shape: LegacyRevisionShape,
-    table_names: set[str],
-    columns_by_table: dict[str, set[str]],
-) -> bool:
-    if shape.tables.intersection(table_names):
-        return True
-    return any(required.intersection(columns_by_table.get(table_name, set())) for table_name, required in shape.columns.items())
-
-
-def _create_sqlite_backup(database_engine: Engine, target_revision: str) -> Path | None:
+def _create_sqlite_backup(
+    database_engine: Engine,
+    target_revision: str,
+    revision_chain: tuple[str, ...],
+    source_identity: SchemaRevisionIdentity,
+) -> Path | None:
     database_name = database_engine.url.database
     if not database_name or database_name == ":memory:" or database_name.startswith("file:"):
         return None
@@ -210,16 +94,76 @@ def _create_sqlite_backup(database_engine: Engine, target_revision: str) -> Path
     database_path = Path(database_name).expanduser().resolve()
     backup_path = database_path.with_name(f"{database_path.name}.pre-{target_revision}.bak")
     if backup_path.exists():
+        validate_sqlite_backup(
+            backup_path,
+            revision_chain,
+            expected_source=source_identity,
+            target_revision=target_revision,
+            require_target_in_filename=True,
+        )
         return backup_path
 
+    temporary_descriptor, temporary_name = tempfile.mkstemp(
+        dir=backup_path.parent,
+        prefix=f".{backup_path.name}.",
+        suffix=".tmp",
+    )
+    temporary_path = Path(temporary_name)
+
+    try:
+        os.close(temporary_descriptor)
+        _copy_sqlite_database(database_engine, temporary_path)
+        _flush_file(temporary_path)
+        validate_sqlite_backup(
+            temporary_path,
+            revision_chain,
+            expected_source=source_identity,
+            target_revision=target_revision,
+        )
+        try:
+            os.link(temporary_path, backup_path)
+        except FileExistsError:
+            validate_sqlite_backup(
+                backup_path,
+                revision_chain,
+                expected_source=source_identity,
+                target_revision=target_revision,
+                require_target_in_filename=True,
+            )
+    finally:
+        _remove_temporary_backup(temporary_path)
+    return backup_path
+
+
+def _copy_sqlite_database(database_engine: Engine, target_path: Path) -> None:
     raw_connection = database_engine.raw_connection()
-    target_connection = sqlite3.connect(backup_path)
+    target_connection: sqlite3.Connection | None = None
     try:
         source_connection = raw_connection.driver_connection
         if not isinstance(source_connection, sqlite3.Connection):
             raise RuntimeError("SQLite backup requires a sqlite3 driver connection")
+        target_connection = sqlite3.connect(target_path)
         source_connection.backup(target_connection)
     finally:
-        target_connection.close()
-        raw_connection.close()
-    return backup_path
+        try:
+            if target_connection is not None:
+                target_connection.close()
+        finally:
+            raw_connection.close()
+
+
+def _flush_file(path: Path) -> None:
+    with path.open("r+b") as backup_file:
+        backup_file.flush()
+        os.fsync(backup_file.fileno())
+
+
+def _remove_temporary_backup(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        # A stale temporary file is non-authoritative and cannot be mistaken
+        # for the canonical .bak path. A later startup creates a unique file.
+        pass

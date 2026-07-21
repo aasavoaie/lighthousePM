@@ -110,7 +110,11 @@ class SyncService:
         if value is None:
             return None
         sanitized = sanitize_error_detail(value, max_length=max(len(value) + 64, 280))
-        for secret in {self._settings.jira_api_token.strip(), self._settings.lighthouse_api_token.strip()}:
+        for secret in {
+            self._settings.effective_jira_api_token.strip(),
+            self._settings.effective_lighthouse_api_token.strip(),
+            self._settings.effective_postgres_password.strip(),
+        }:
             if secret:
                 sanitized = sanitized.replace(secret, "[REDACTED]")
         return sanitized

@@ -25,6 +25,11 @@ import type {
   SnapshotComparisonResponse,
   SyncJiraResponse,
 } from "./types";
+import {
+  ApiAuthenticationError,
+  reportApiAuthenticationFailure,
+  withBrowserApiToken,
+} from "./auth";
 
 function getApiBaseUrl() {
   if (import.meta.env.VITE_API_BASE_URL) {
@@ -43,13 +48,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let response: Response;
 
   try {
-    response = await fetch(url, options);
+    response = await fetch(url, withBrowserApiToken(options));
   } catch (error) {
     const method = options?.method ?? "GET";
     const reason = error instanceof Error ? error.message : "Network request failed";
     throw new Error(`Could not reach API (${method} ${url}). Check that the backend is running and CORS allows this UI origin. ${reason}`);
   }
 
+  if (response.status === 401) {
+    reportApiAuthenticationFailure();
+    throw new ApiAuthenticationError();
+  }
   if (!response.ok) {
     const fallback = `Request failed with status ${response.status}`;
     let detail = fallback;
@@ -70,13 +79,17 @@ async function requestBlob(path: string, options?: RequestInit): Promise<Blob> {
   let response: Response;
 
   try {
-    response = await fetch(url, options);
+    response = await fetch(url, withBrowserApiToken(options));
   } catch (error) {
     const method = options?.method ?? "GET";
     const reason = error instanceof Error ? error.message : "Network request failed";
     throw new Error(`Could not reach API (${method} ${url}). Check that the backend is running and CORS allows this UI origin. ${reason}`);
   }
 
+  if (response.status === 401) {
+    reportApiAuthenticationFailure();
+    throw new ApiAuthenticationError();
+  }
   if (!response.ok) {
     const fallback = `Request failed with status ${response.status}`;
     let detail = fallback;

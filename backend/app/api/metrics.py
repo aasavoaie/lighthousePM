@@ -48,6 +48,7 @@ from app.utils.constants import (
     SCOPE_CHURN_RED_THRESHOLD,
     SCOPE_CHURN_YELLOW_THRESHOLD,
 )
+from app.utils.error_sanitizer import sanitize_error_detail
 
 router = APIRouter(prefix="/releases", tags=["metrics"])
 logger = logging.getLogger(__name__)
@@ -726,7 +727,12 @@ def recompute_all_release_metrics(
             recomputed_count += 1
         except Exception as exc:  # noqa: BLE001 - collect per-release errors and continue best-effort
             session.rollback()
-            errors.append(RecomputeAllError(release_id=release_id, reason=str(exc)))
+            errors.append(
+                RecomputeAllError(
+                    release_id=release_id,
+                    reason=sanitize_error_detail(str(exc)),
+                )
+            )
             logger.warning("release_recompute_all_item_failed release_id=%s error=%s", release_id, exc)
 
     elapsed = perf_counter() - started_at
