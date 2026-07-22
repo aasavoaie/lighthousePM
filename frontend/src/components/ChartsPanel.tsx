@@ -12,6 +12,8 @@ import type {
   SnapshotChangeHistoryResponse,
   SnapshotComparisonResponse,
 } from "../api/types";
+import { useMetricCatalog } from "../MetricCatalogContext";
+import { metricDefinition, type MetricCatalogView } from "../metricCatalog";
 import {
   MetricBarChart,
   MetricColors,
@@ -59,21 +61,6 @@ type BlockerAgingRow = {
   count: number;
 };
 
-const chartMetricLabels: Record<ChartMetricName, string> = {
-  open_blockers: "Open blockers",
-  open_high_severity_bugs: "High-severity bugs",
-  scope_completed_pct: "Scope completed",
-  completed_tickets: "Completed tickets",
-  scope_churn_7d_pct: "Scope churn",
-  scope_added_7d_count: "Scope added",
-  scope_removed_7d_count: "Scope removed",
-  median_cycle_time_days: "Median cycle time",
-  reopen_rate_pct: "Reopen events per 100 eligible tickets",
-  confidence_score: "Confidence",
-  gates_passed_count: "Gates passed",
-  readiness_pct: "Readiness",
-};
-
 const riskMetricColors: Record<string, string> = {
   open_blockers: MetricColors.blockers,
   open_high_severity_bugs: MetricColors.bugs,
@@ -103,11 +90,14 @@ function isUnreleasedRelease(release: Release) {
   return (release.status ?? "").trim().toLowerCase() !== "released";
 }
 
-function riskLabel(metricName: string) {
-  return chartMetricLabels[metricName as ChartMetricName] ?? metricName;
+function riskLabel(catalog: MetricCatalogView, metricName: string) {
+  return catalog.byKey[`release.${metricName}`]?.label ?? metricName;
 }
 
-function buildRiskContributionRows(signal: ReleaseSignalResponse | null): RiskContributionRow[] {
+function buildRiskContributionRows(
+  signal: ReleaseSignalResponse | null,
+  catalog: MetricCatalogView,
+): RiskContributionRow[] {
   if (!signal) {
     return [];
   }
@@ -117,7 +107,7 @@ function buildRiskContributionRows(signal: ReleaseSignalResponse | null): RiskCo
     const existing = rowsByMetric.get(item.metric_name);
     if (!existing || item.contribution_pct > existing.contribution_pct) {
       rowsByMetric.set(item.metric_name, {
-        name: riskLabel(item.metric_name),
+        name: riskLabel(catalog, item.metric_name),
         metric_name: item.metric_name,
         level: item.level,
         contribution_pct: item.contribution_pct,
@@ -234,6 +224,7 @@ export function ChartsPanel({
   refreshNonce,
   isLoading,
 }: ChartsPanelProps) {
+  const catalog = useMetricCatalog();
   const confidenceRows = useMemo(() => buildSingleMetricRows(charts, "confidence_score"), [charts]);
   const gateRows = useMemo(() => buildSingleMetricRows(charts, "gates_passed_count"), [charts]);
   const readinessRows = useMemo(() => buildSingleMetricRows(charts, "readiness_pct"), [charts]);
@@ -249,7 +240,7 @@ export function ChartsPanel({
     "readiness_pct",
     "No readiness history available yet."
   );
-  const riskContributionRows = useMemo(() => buildRiskContributionRows(signal), [signal]);
+  const riskContributionRows = useMemo(() => buildRiskContributionRows(signal, catalog), [catalog, signal]);
   const blockerAgingRows = useMemo(() => buildBlockerAgingRows(signal?.risk_aging.blockers), [signal]);
   const recentReleases = useMemo(
     () => getRecentProjectReleases(releases, selectedProjectKey, 5),
@@ -390,7 +381,7 @@ export function ChartsPanel({
             lines={[
               {
                 key: "value",
-                label: chartMetricLabels.confidence_score,
+                label: metricDefinition(catalog, "release", "confidence_score").label,
                 color: MetricColors.sprintConfidence,
               },
             ]}
@@ -435,7 +426,7 @@ export function ChartsPanel({
             lines={[
               {
                 key: "value",
-                label: chartMetricLabels.gates_passed_count,
+                label: metricDefinition(catalog, "release", "gates_passed_count").label,
                 color: MetricColors.gatesPassed,
               },
             ]}
@@ -460,7 +451,7 @@ export function ChartsPanel({
             lines={[
               {
                 key: "value",
-                label: chartMetricLabels.readiness_pct,
+                label: metricDefinition(catalog, "release", "readiness_pct").label,
                 color: MetricColors.readiness,
               },
             ]}

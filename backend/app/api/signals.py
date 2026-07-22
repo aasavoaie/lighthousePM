@@ -2,25 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
+from app.metric_catalog import RELEASE_THRESHOLD_METADATA
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
+from app.schemas.errors import ApiErrorResponse
 from app.schemas.signals import ReleaseSignalResponse, SignalReasonDetail, SignalThresholds
 from app.services.signal_service import SignalService
-from app.utils.constants import (
-    CONFIDENCE_SCORE_GREEN_MIN,
-    CONFIDENCE_SCORE_RED_MAX,
-    CONFIDENCE_SCORE_YELLOW_MAX,
-    CONFIDENCE_SCORE_YELLOW_MIN,
-    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-    HIGH_SEVERITY_BUGS_RED_THRESHOLD,
-    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-    OPEN_BLOCKERS_RED_THRESHOLD,
-    REOPEN_RATE_RED_THRESHOLD,
-    REOPEN_RATE_YELLOW_THRESHOLD,
-    SCOPE_CHURN_RED_THRESHOLD,
-    SCOPE_CHURN_YELLOW_THRESHOLD,
-)
 
 router = APIRouter(prefix="/releases", tags=["signals"])
 
@@ -42,20 +30,7 @@ def _empty_last_24_hours() -> dict[str, object]:
 
 
 def _build_thresholds() -> SignalThresholds:
-    return SignalThresholds(
-        open_blockers_red=OPEN_BLOCKERS_RED_THRESHOLD,
-        open_high_severity_bugs_red=HIGH_SEVERITY_BUGS_RED_THRESHOLD,
-        open_high_severity_bugs_yellow=HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-        scope_churn_7d_pct_red=SCOPE_CHURN_RED_THRESHOLD * 100,
-        scope_churn_7d_pct_yellow=SCOPE_CHURN_YELLOW_THRESHOLD * 100,
-        reopen_rate_pct_red=REOPEN_RATE_RED_THRESHOLD * 100,
-        reopen_rate_pct_yellow=REOPEN_RATE_YELLOW_THRESHOLD * 100,
-        median_cycle_time_days_yellow=CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-        confidence_score_red_max=CONFIDENCE_SCORE_RED_MAX,
-        confidence_score_yellow_min=CONFIDENCE_SCORE_YELLOW_MIN,
-        confidence_score_yellow_max=CONFIDENCE_SCORE_YELLOW_MAX,
-        confidence_score_green_min=CONFIDENCE_SCORE_GREEN_MIN,
-    )
+    return SignalThresholds(**RELEASE_THRESHOLD_METADATA)
 
 
 def _not_computed_signal_response(
@@ -104,7 +79,18 @@ def _not_computed_signal_response(
     )
 
 
-@router.get("/{release_id}/signal", response_model=ReleaseSignalResponse)
+@router.get(
+    "/{release_id}/signal",
+    response_model=ReleaseSignalResponse,
+    operation_id="get_release_signal",
+    summary="Get release signal",
+    responses={
+        404: {
+            "model": ApiErrorResponse,
+            "description": "The release was not found.",
+        }
+    },
+)
 def get_release_signal(
     release_id: str,
     session: Session = Depends(get_db_session),

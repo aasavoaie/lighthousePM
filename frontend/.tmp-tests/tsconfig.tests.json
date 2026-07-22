@@ -9,6 +9,7 @@
   "include": [],
   "files": [
     "C:\\Projects\\lighthousePM\\frontend\\src\\api\\auth.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\appNavigation.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\components\\confidenceBreakdown.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\components\\deliveryConfidence.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\components\\jiraConfiguration.test.ts",
@@ -16,6 +17,8 @@
     "C:\\Projects\\lighthousePM\\frontend\\src\\components\\releaseAvailability.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\components\\sprintCharts.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\components\\sprintMetrics.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\hooks\\useReleaseWorkspace.test.ts",
+    "C:\\Projects\\lighthousePM\\frontend\\src\\metricCatalog.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\releaseScope.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\releaseSelection.test.ts",
     "C:\\Projects\\lighthousePM\\frontend\\src\\workspaceContext.test.ts"

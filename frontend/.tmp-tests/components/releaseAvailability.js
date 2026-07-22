@@ -16,7 +16,6 @@ function getReleaseScoreDisplay(metrics) {
     if (metrics?.computation_status === "NOT_COMPUTED") {
         return {
             value: "Not enough data",
-            label: "Confidence",
             reason: metrics.unavailable_reason ?? exports.NO_TICKETS_REASON,
             isAvailable: false,
         };
@@ -24,14 +23,12 @@ function getReleaseScoreDisplay(metrics) {
     if (metrics?.computation_status === "PARTIAL" && metrics.confidence_score === null) {
         return {
             value: "Inconclusive",
-            label: "Confidence",
             reason: metrics.unavailable_reason ?? "Classification inputs are incomplete.",
             isAvailable: false,
         };
     }
     return {
         value: null,
-        label: "Confidence",
         reason: null,
         isAvailable: true,
     };

@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiClient } from "../api/client";
-import type { Issue, MetricValues, ReleaseChartsResponse, ReleaseMetricsResponse } from "../api/types";
+import type {
+  Issue,
+  MetricCategory,
+  MetricValues,
+  ReleaseChartsResponse,
+  ReleaseMetricsResponse,
+} from "../api/types";
+import { useMetricCatalog } from "../MetricCatalogContext";
+import {
+  catalogMetricStatus,
+  formatCatalogMetricValue,
+  metricDefinition,
+  type MetricPresentationDefinition,
+} from "../metricCatalog";
 import { MetricSparkline, MetricColors } from "./ChartComponents";
 import {
   MetricCategorySection,
@@ -21,18 +34,6 @@ interface MetricsPanelProps {
   focusedMetricName?: keyof MetricValues | null;
 }
 
-const metricLabels: Record<keyof MetricValues, string> = {
-  open_blockers: "Open blockers",
-  open_high_severity_bugs: "Open high-severity bugs",
-  scope_completed_pct: "Scope completed",
-  completed_tickets: "Completed tickets",
-  scope_churn_7d_pct: "Scope creep",
-  scope_added_7d_count: "Scope added",
-  scope_removed_7d_count: "Scope removed",
-  median_cycle_time_days: "Median cycle time (days)",
-  reopen_rate_pct: "Reopen events per 100 eligible tickets",
-};
-
 const metricDirections: Record<keyof MetricValues, "higher-is-better" | "lower-is-better" | "neutral"> = {
   open_blockers: "lower-is-better",
   open_high_severity_bugs: "lower-is-better",
@@ -44,27 +45,6 @@ const metricDirections: Record<keyof MetricValues, "higher-is-better" | "lower-i
   median_cycle_time_days: "lower-is-better",
   reopen_rate_pct: "lower-is-better",
 };
-
-function formatMetricValue(metricName: keyof MetricValues, value: number | null) {
-  if (value === null) {
-    return "N/A";
-  }
-  if (
-    metricName === "open_blockers" ||
-    metricName === "open_high_severity_bugs" ||
-    metricName === "scope_added_7d_count" ||
-    metricName === "scope_removed_7d_count"
-  ) {
-    return String(value);
-  }
-  if (metricName === "completed_tickets") {
-    return String(value);
-  }
-  if (metricName === "scope_completed_pct" || metricName === "scope_churn_7d_pct" || metricName === "reopen_rate_pct") {
-    return `${value.toFixed(2)}%`;
-  }
-  return value.toFixed(2);
-}
 
 const sparklineColorMap: Record<keyof MetricValues, string> = {
   open_blockers: MetricColors.blockers,
@@ -103,13 +83,17 @@ function getLatestDelta(charts: ReleaseChartsResponse | null, metricName: keyof 
   return Number((current - previous).toFixed(2));
 }
 
-function buildComparison(charts: ReleaseChartsResponse | null, metricName: keyof MetricValues) {
+function buildComparison(
+  charts: ReleaseChartsResponse | null,
+  metricName: keyof MetricValues,
+  definition: MetricPresentationDefinition,
+) {
   const delta = getLatestDelta(charts, metricName);
   if (delta === null) {
     return { text: "Trend baseline unavailable", impact: "unknown" as MetricImpact };
   }
   return {
-    text: formatSignedDelta(delta, (value) => formatMetricValue(metricName, value)),
+    text: formatSignedDelta(delta, (value) => formatCatalogMetricValue(definition, value)),
     impact: getDeltaImpact(delta, metricDirections[metricName]),
   };
 }
@@ -117,45 +101,45 @@ function buildComparison(charts: ReleaseChartsResponse | null, metricName: keyof
 function getReleaseMetricStatus(
   metricName: keyof MetricValues,
   value: number | null,
-  metrics: ReleaseMetricsResponse
+  definition: MetricPresentationDefinition,
+  metrics: ReleaseMetricsResponse,
+  catalogRulesetVersion: number,
 ): MetricStatus {
   if (value === null) {
     return "neutral";
   }
 
-  const thresholds = metrics.metric_thresholds;
-  if (metricName === "open_blockers") {
-    return thresholds && value > thresholds.open_blockers_red ? "critical" : "good";
-  }
-  if (metricName === "open_high_severity_bugs") {
-    if (!thresholds) {
-      return "neutral";
+  if (metrics.ruleset_version === catalogRulesetVersion) {
+    const catalogStatus = catalogMetricStatus(definition, value);
+    if (catalogStatus !== "neutral") {
+      return catalogStatus;
     }
-    if (value > thresholds.open_high_severity_bugs_red) {
-      return "critical";
+  } else {
+    const thresholds = metrics.metric_thresholds;
+    if (metricName === "open_blockers") {
+      return thresholds && value > thresholds.open_blockers_red ? "critical" : "good";
     }
-    return value > thresholds.open_high_severity_bugs_yellow ? "warning" : "good";
-  }
-  if (metricName === "scope_churn_7d_pct") {
-    if (!thresholds) {
-      return "neutral";
+    if (metricName === "open_high_severity_bugs" && thresholds) {
+      if (value > thresholds.open_high_severity_bugs_red) {
+        return "critical";
+      }
+      return value > thresholds.open_high_severity_bugs_yellow ? "warning" : "good";
     }
-    if (value > thresholds.scope_churn_7d_pct_red) {
-      return "critical";
+    if (metricName === "scope_churn_7d_pct" && thresholds) {
+      if (value > thresholds.scope_churn_7d_pct_red) {
+        return "critical";
+      }
+      return value > thresholds.scope_churn_7d_pct_yellow ? "warning" : "good";
     }
-    return value > thresholds.scope_churn_7d_pct_yellow ? "warning" : "good";
-  }
-  if (metricName === "reopen_rate_pct") {
-    if (!thresholds) {
-      return "neutral";
+    if (metricName === "reopen_rate_pct" && thresholds) {
+      if (value > thresholds.reopen_rate_pct_red) {
+        return "critical";
+      }
+      return value > thresholds.reopen_rate_pct_yellow ? "warning" : "good";
     }
-    if (value > thresholds.reopen_rate_pct_red) {
-      return "critical";
+    if (metricName === "median_cycle_time_days") {
+      return thresholds && value > thresholds.median_cycle_time_days_yellow ? "warning" : "good";
     }
-    return value > thresholds.reopen_rate_pct_yellow ? "warning" : "good";
-  }
-  if (metricName === "median_cycle_time_days") {
-    return thresholds && value > thresholds.median_cycle_time_days_yellow ? "warning" : "good";
   }
   if (metricName === "scope_completed_pct") {
     if (value >= 80) {
@@ -185,7 +169,8 @@ function renderMetricIssueKeys(
   value: number | null,
   metrics: ReleaseMetricsResponse,
   issuesByKey: Record<string, Issue>,
-  onSelectIssue: (issueKey: string) => void
+  onSelectIssue: (issueKey: string) => void,
+  label: string,
 ) {
   if (metricName !== "open_blockers" && metricName !== "open_high_severity_bugs") {
     return null;
@@ -197,7 +182,7 @@ function renderMetricIssueKeys(
   }
 
   return (
-    <ul className="metric-ticket-list" aria-label={`${metricLabels[metricName]} tickets`}>
+    <ul className="metric-ticket-list" aria-label={`${label} tickets`}>
       {issueKeys.map((issueKey) => (
         <li key={issueKey}>
           <button
@@ -214,6 +199,7 @@ function renderMetricIssueKeys(
 }
 
 export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focusedMetricName = null }: MetricsPanelProps) {
+  const catalog = useMetricCatalog();
   const metricIssueKeys = useMemo(() => {
     if (!metrics) {
       return [];
@@ -231,9 +217,10 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
     }
 
     const value = metrics.metrics[metricName];
+    const definition = metricDefinition(catalog, "release", metricName);
     const availabilityDisplay = getReleaseMetricDisplay(metrics, metricName);
     const sparklineData = buildSparklineData(charts, metricName);
-    const comparison = buildComparison(charts, metricName);
+    const comparison = buildComparison(charts, metricName, definition);
     const availabilityExplanations = availabilityDisplay.explanations.filter(
       (explanation) => explanation !== availabilityDisplay.reason
     );
@@ -246,14 +233,16 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
       <MetricStatusCard
         id={`release-metric-${metricName}`}
         key={metricName}
-        title={metricLabels[metricName]}
-        value={availabilityDisplay.value ?? formatMetricValue(metricName, value)}
-        status={availabilityDisplay.isAvailable ? getReleaseMetricStatus(metricName, value, metrics) : "neutral"}
+        title={definition.label}
+        value={availabilityDisplay.value ?? formatCatalogMetricValue(definition, value)}
+        status={availabilityDisplay.isAvailable
+          ? getReleaseMetricStatus(metricName, value, definition, metrics, catalog.rulesetVersion)
+          : "neutral"}
         isHighlighted={focusedMetricName === metricName}
         comparison={comparison.text}
         comparisonImpact={comparison.impact}
         details={details}
-        infoText={availabilityDisplay.reason ?? undefined}
+        infoText={availabilityDisplay.reason ?? definition.description}
         badge={availabilityDisplay.badge}
         badgeTitle={availabilityDisplay.reason}
       >
@@ -263,9 +252,9 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
           lineColor={sparklineColorMap[metricName]}
           empty={sparklineData.length === 0}
           emptyMessage="Trend data unavailable"
-          formatter={(pointValue) => formatMetricValue(metricName, pointValue)}
+          formatter={(pointValue) => formatCatalogMetricValue(definition, pointValue)}
         />
-        {renderMetricIssueKeys(metricName, value, metrics, metricIssuesByKey, onSelectIssue)}
+        {renderMetricIssueKeys(metricName, value, metrics, metricIssuesByKey, onSelectIssue, definition.label)}
       </MetricStatusCard>
     );
   }
@@ -326,26 +315,36 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
           ) : null}
           {!isLoading && metrics && metrics.is_computed ? (
             <div className="metric-category-stack">
-              <MetricCategorySection title="Delivery">
-                {renderReleaseMetricCard("scope_completed_pct")}
-                {renderReleaseMetricCard("completed_tickets")}
-                {renderReleaseMetricCard("scope_churn_7d_pct", {
-                  details: [
-                    ...(metrics.metrics.scope_added_7d_count === null
-                      ? []
-                      : [`${metrics.metrics.scope_added_7d_count} issues added`]),
-                    ...(metrics.metrics.scope_removed_7d_count === null
-                      ? []
-                      : [`${metrics.metrics.scope_removed_7d_count} issues removed`]),
-                  ],
-                })}
-              </MetricCategorySection>
-              <MetricCategorySection title="Quality">
-                {renderReleaseMetricCard("open_high_severity_bugs")}
-                {renderReleaseMetricCard("reopen_rate_pct")}
-              </MetricCategorySection>
-              <MetricCategorySection title="Flow">{renderReleaseMetricCard("median_cycle_time_days")}</MetricCategorySection>
-              <MetricCategorySection title="Risk">{renderReleaseMetricCard("open_blockers")}</MetricCategorySection>
+              {(["delivery", "quality", "flow", "risk"] as MetricCategory[]).map((category) => {
+                const definitions = catalog.release.filter(
+                  (definition) => definition.category === category
+                    && definition.api_location === "metric_values"
+                    && definition.api_field !== "scope_added_7d_count"
+                    && definition.api_field !== "scope_removed_7d_count",
+                );
+                if (definitions.length === 0) {
+                  return null;
+                }
+                return (
+                  <MetricCategorySection key={category} title={`${category[0].toUpperCase()}${category.slice(1)}`}>
+                    {definitions.map((definition) => renderReleaseMetricCard(
+                      definition.api_field as keyof MetricValues,
+                      definition.api_field === "scope_churn_7d_pct"
+                        ? {
+                            details: [
+                              ...(metrics.metrics.scope_added_7d_count === null
+                                ? []
+                                : [`${metrics.metrics.scope_added_7d_count} issues added`]),
+                              ...(metrics.metrics.scope_removed_7d_count === null
+                                ? []
+                                : [`${metrics.metrics.scope_removed_7d_count} issues removed`]),
+                            ],
+                          }
+                        : undefined,
+                    ))}
+                  </MetricCategorySection>
+                );
+              })}
             </div>
           ) : null}
         </>

@@ -285,6 +285,8 @@ const partialCoverageInconclusiveResponse = {
     },
 };
 assertEqual((0, sprintMetrics_1.getSprintStoryPointCoverageStatus)(partialCoverageInconclusiveResponse), "PARTIAL", "50 percent coverage remains partial even when another prerequisite is inconclusive");
+assertEqual((0, sprintMetrics_1.getSprintStoryPointCoverageStatus)(partialCoverageInconclusiveResponse, 75), "INCONCLUSIVE", "catalog coverage threshold controls point-metric eligibility");
+assertEqual((0, sprintMetrics_1.getSprintMetricUnavailableBadge)("Delivery confidence requires at least 75% of sprint tickets to have valid story points."), "No story points", "catalog-derived coverage explanation retains the story-point badge");
 assertEqual((0, sprintMetrics_1.getSprintMetricAvailabilityReason)({
     ...sprintMetricsResponse(true),
     metric_availability: {

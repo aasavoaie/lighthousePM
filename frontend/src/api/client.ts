@@ -7,6 +7,7 @@ import type {
   JiraConnectionTestResponse,
   JiraConfigurationResponse,
   JiraConfigurationUpdate,
+  MetricCatalogResponse,
   RecomputeAllMetricsResponse,
   RecomputeMetricsResponse,
   ReportDepth,
@@ -106,6 +107,9 @@ async function requestBlob(path: string, options?: RequestInit): Promise<Blob> {
 }
 
 export const apiClient = {
+  getMetricCatalog(): Promise<MetricCatalogResponse> {
+    return request<MetricCatalogResponse>("/metadata/metrics");
+  },
   getReleases(projectKey?: string | null): Promise<ReleaseListResponse> {
     const params = new URLSearchParams();
     if (projectKey) {

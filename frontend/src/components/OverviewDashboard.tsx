@@ -22,6 +22,8 @@ import type {
   SprintMetricsResponse,
 } from "../api/types";
 import { apiClient } from "../api/client";
+import { useMetricCatalog } from "../MetricCatalogContext";
+import { metricDefinition } from "../metricCatalog";
 import { RecommendationsPanel } from "./RecommendationsPanel";
 import { getReleaseScoreDisplay } from "./releaseAvailability";
 
@@ -237,11 +239,13 @@ export function OverviewDashboard({
   isLoading,
   onOpenReports,
 }: OverviewDashboardProps) {
+  const catalog = useMetricCatalog();
   const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
   const [currentSprintMetrics, setCurrentSprintMetrics] = useState<SprintMetricsResponse | null>(null);
   const [isLoadingSprint, setIsLoadingSprint] = useState(false);
   const [sprintError, setSprintError] = useState<string | null>(null);
   const confidenceScore = getConfidenceScore(signal, charts);
+  const confidenceDefinition = metricDefinition(catalog, "release", "confidence_score");
   const scoreDisplay = getReleaseScoreDisplay(metrics);
   const tone = getSignalTone(signal);
   const riskDrivers = getRiskDrivers(signal);
@@ -318,7 +322,9 @@ export function OverviewDashboard({
         <strong className={`readiness-score readiness-${scoreDisplay.isAvailable ? tone : "neutral"} ${scoreDisplay.isAvailable ? "" : "readiness-score-unavailable"}`}>
           {scoreDisplay.value ?? formatPercentage(confidenceScore)}
         </strong>
-        <span className="readiness-label">{scoreDisplay.label}</span>
+        <span className="readiness-label">
+          {confidenceDefinition.label}
+        </span>
         <span className={`readiness-pill readiness-${tone}`}>{getStatusLabel(signal)}</span>
         <p className="overview-copy">{readinessSummary}</p>
       </section>
@@ -367,7 +373,7 @@ export function OverviewDashboard({
                   axisLine={false}
                   tick={{ fill: "#3f4d71", fontSize: 12 }}
                 />
-                <Tooltip formatter={(value) => [`${Math.round(Number(value))}%`, "Confidence"]} />
+                <Tooltip formatter={(value) => [`${Math.round(Number(value))}%`, confidenceDefinition.label]} />
                 <Line
                   type="monotone"
                   dataKey="value"

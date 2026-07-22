@@ -8,6 +8,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.metric_catalog import (
+    RELEASE_THRESHOLD_METADATA,
+    metric_minimum_coverage_pct,
+    metric_threshold_value,
+)
 from app.models import Issue, IssueHistory, IssueSprint, MetricSnapshot, Release, Sprint, SprintMetricSnapshot
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.services.jira_field_mapper import JiraFieldMapper
@@ -27,25 +32,20 @@ from app.utils.constants import (
     DELIVERY_CONFIDENCE_STATUS_INCONCLUSIVE,
     DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED,
     DELIVERY_CONFIDENCE_STATUS_PARTIAL,
-    MIN_STORY_POINT_COVERAGE_PCT,
     RULESET_VERSION,
-    WORKLOAD_CONCENTRATION_CRITICAL_MIN_EXCLUSIVE_PCT,
-    WORKLOAD_CONCENTRATION_WATCH_MIN_PCT,
-    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-    CONFIDENCE_SCORE_GREEN_MIN,
-    CONFIDENCE_SCORE_RED_MAX,
-    CONFIDENCE_SCORE_YELLOW_MAX,
-    CONFIDENCE_SCORE_YELLOW_MIN,
-    HIGH_SEVERITY_BUGS_RED_THRESHOLD,
-    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-    OPEN_BLOCKERS_RED_THRESHOLD,
-    REOPEN_RATE_RED_THRESHOLD,
-    REOPEN_RATE_YELLOW_THRESHOLD,
-    SCOPE_CHURN_RED_THRESHOLD,
-    SCOPE_CHURN_YELLOW_THRESHOLD,
 )
 
 logger = logging.getLogger(__name__)
+
+MIN_STORY_POINT_COVERAGE_PCT = metric_minimum_coverage_pct(
+    "sprint.delivery_confidence_score"
+)
+WORKLOAD_CONCENTRATION_CRITICAL_MIN_EXCLUSIVE_PCT = metric_threshold_value(
+    "sprint.workload_concentration_pct", "critical"
+)
+WORKLOAD_CONCENTRATION_WATCH_MIN_PCT = metric_threshold_value(
+    "sprint.workload_concentration_pct", "watch"
+)
 
 DELIVERY_CONFIDENCE_WEIGHTS = {
     "progress_alignment": 0.4,
@@ -62,7 +62,7 @@ class AnalyticsService:
     All methods are pure functions over stored Jira data — no Jira API calls.
     The caller owns the session transaction; recompute_release_metrics does not commit.
 
-    Assumptions are documented in app/utils/constants.py and inline below.
+    Assumptions are documented in PRODUCT_RULES.md, the metric catalog, and inline below.
     """
 
     def recompute_release_metrics(self, session: Session, release_id: str) -> MetricSnapshot:
@@ -396,20 +396,7 @@ class AnalyticsService:
         )
         return {
             "source_calculated_at": snapshot.snapshot_at.isoformat(),
-            "thresholds": {
-                "open_blockers_red": OPEN_BLOCKERS_RED_THRESHOLD,
-                "open_high_severity_bugs_red": HIGH_SEVERITY_BUGS_RED_THRESHOLD,
-                "open_high_severity_bugs_yellow": HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-                "scope_churn_7d_pct_red": SCOPE_CHURN_RED_THRESHOLD * 100,
-                "scope_churn_7d_pct_yellow": SCOPE_CHURN_YELLOW_THRESHOLD * 100,
-                "reopen_rate_pct_red": REOPEN_RATE_RED_THRESHOLD * 100,
-                "reopen_rate_pct_yellow": REOPEN_RATE_YELLOW_THRESHOLD * 100,
-                "median_cycle_time_days_yellow": CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-                "confidence_score_red_max": CONFIDENCE_SCORE_RED_MAX,
-                "confidence_score_yellow_min": CONFIDENCE_SCORE_YELLOW_MIN,
-                "confidence_score_yellow_max": CONFIDENCE_SCORE_YELLOW_MAX,
-                "confidence_score_green_min": CONFIDENCE_SCORE_GREEN_MIN,
-            },
+            "thresholds": dict(RELEASE_THRESHOLD_METADATA),
             "weights": dict(SignalService.RISK_WEIGHTS),
             "classification": AnalyticsService._classification_provenance(field_mapper),
             "availability": availability.model_dump(),

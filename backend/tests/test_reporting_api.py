@@ -15,6 +15,7 @@ from app.main import app
 from app.models import Issue, IssueHistory, IssueSprint, MetricSnapshot, Release, ReleaseSignal, Sprint, SprintMetricSnapshot
 from app.repositories.release_repository import ReleaseRepository
 from app.services.reporting_service import ChartExportService, ChartSpec, PDFThemeProvider, ReportTemplateEngine, ReportingService
+from app.services.report_data_preparation import ReportDataPreparationService
 from app.services.confidence_breakdown_service import ConfidenceBreakdownService
 from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.signal_service import SignalService
@@ -312,13 +313,73 @@ def _seed_sprint_snapshot(
     session.commit()
 
 
+def _build_release_document(
+    *,
+    session: Session,
+    release: Release,
+    depth: str,
+    generated_at: datetime,
+    theme=None,
+):
+    data = ReportDataPreparationService().prepare_release(
+        session=session,
+        release_id=release.release_id,
+    )
+    return ReportTemplateEngine(theme=theme).build_release_document(
+        data=data,
+        depth=depth,
+        generated_at=generated_at,
+    )
+
+
+def _build_sprint_document(
+    *,
+    session: Session,
+    sprint: Sprint,
+    depth: str,
+    generated_at: datetime,
+    theme=None,
+):
+    data = ReportDataPreparationService().prepare_sprint(
+        session=session,
+        sprint_id=sprint.sprint_id,
+    )
+    return ReportTemplateEngine(theme=theme).build_sprint_document(
+        data=data,
+        depth=depth,
+        generated_at=generated_at,
+    )
+
+
+def _build_overview_document(
+    *,
+    session: Session,
+    release: Release,
+    generated_at: datetime,
+    theme=None,
+):
+    data = ReportDataPreparationService().prepare_overview(
+        session=session,
+        release_id=release.release_id,
+    )
+    return ReportTemplateEngine(theme=theme).build_overview_document(
+        data=data,
+        generated_at=generated_at,
+    )
+
+
 def test_release_report_generation_includes_sections_footer_and_chart(client: TestClient) -> None:
     now = datetime.now(UTC)
     with app.state.testing_session_local() as session:
         _seed_release(session)
         _seed_release_snapshot(session, "REL-1", now - timedelta(hours=2), 2, 45.0)
         _seed_release_snapshot(session, "REL-1", now, 1, 55.0)
-        pdf = ReportingService().generate_release_report(session=session, release_id="REL-1", depth="full")
+        pdf = ReportingService().generate_release_report(
+            session=session,
+            release_id="REL-1",
+            depth="full",
+            generated_at=now,
+        )
 
     _assert_pdf(pdf)
     text = _pdf_text(pdf)
@@ -363,7 +424,12 @@ def test_pdf_renderer_aligns_header_and_separates_sections(client: TestClient) -
     with app.state.testing_session_local() as session:
         _seed_release(session)
         _seed_release_snapshot(session, "REL-1", now, 1, 55.0)
-        pdf = ReportingService().generate_release_report(session=session, release_id="REL-1", depth="summary")
+        pdf = ReportingService().generate_release_report(
+            session=session,
+            release_id="REL-1",
+            depth="summary",
+            generated_at=now,
+        )
 
     text = _pdf_text(pdf)
     assert "48.00 723.00 22.00 22.00 re B" in text
@@ -401,7 +467,8 @@ def test_report_template_engine_assigns_lighthousepm_chart_colors(client: TestCl
         assert release is not None
 
         theme = PDFThemeProvider().theme()
-        document = ReportTemplateEngine(theme=theme).build_release_document(
+        document = _build_release_document(
+            theme=theme,
             session=session,
             release=release,
             depth="full",
@@ -424,7 +491,7 @@ def test_full_release_template_includes_historical_trend_charts(client: TestClie
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
         assert release is not None
 
-        document = ReportTemplateEngine().build_release_document(
+        document = _build_release_document(
             session=session,
             release=release,
             depth="full",
@@ -452,7 +519,7 @@ def test_full_sprint_template_includes_historical_trend_charts(client: TestClien
         _seed_sprint_snapshot(session, "12", now, 72.0)
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
 
-        document = ReportTemplateEngine().build_sprint_document(
+        document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="full",
@@ -525,13 +592,13 @@ def test_reports_show_repeated_reopen_evidence_and_allow_values_above_100(client
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
         assert release is not None
-        release_document = ReportTemplateEngine().build_release_document(
+        release_document = _build_release_document(
             session=session,
             release=release,
             depth="full",
             generated_at=now,
         )
-        sprint_document = ReportTemplateEngine().build_sprint_document(
+        sprint_document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="full",
@@ -539,7 +606,7 @@ def test_reports_show_repeated_reopen_evidence_and_allow_values_above_100(client
         )
 
     release_metrics = next(section for section in release_document.sections if section.title == "Evidence Metrics")
-    assert ("Reopen events per 100 eligible tickets", "200.0%") in release_metrics.rows
+    assert ("Reopen events per 100 eligible tickets", "200.00%") in release_metrics.rows
     assert ("Reopen event evidence", release_explanation) in release_metrics.rows
     release_history = next(section for section in release_document.sections if section.title == "Historical Trends")
     release_reopen_chart = next(
@@ -548,7 +615,7 @@ def test_reports_show_repeated_reopen_evidence_and_allow_values_above_100(client
     assert release_reopen_chart.y_max is None
 
     sprint_quality = next(section for section in sprint_document.sections if section.title == "Quality Signals")
-    assert ("Reopen events per 100 eligible tickets", "300.0%") in sprint_quality.rows
+    assert ("Reopen events per 100 eligible tickets", "300.00%") in sprint_quality.rows
     assert ("Reopen event evidence", sprint_explanation) in sprint_quality.rows
     sprint_history = next(section for section in sprint_document.sections if section.title == "Historical Trends")
     sprint_reopen_chart = next(
@@ -565,7 +632,7 @@ def test_release_summary_template_uses_leadership_sections(client: TestClient) -
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
         assert release is not None
 
-        document = ReportTemplateEngine().build_release_document(
+        document = _build_release_document(
             session=session,
             release=release,
             depth="summary",
@@ -614,7 +681,7 @@ def test_release_summary_reports_inconclusive_classification_inputs(client: Test
     with app.state.testing_session_local() as session:
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
         assert release is not None
-        document = ReportTemplateEngine().build_release_document(
+        document = _build_release_document(
             session=session,
             release=release,
             depth="summary",
@@ -679,7 +746,7 @@ def test_release_report_explains_partial_scope_churn_and_keeps_confirmed_counts(
     with app.state.testing_session_local() as session:
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
         assert release is not None
-        document = ReportTemplateEngine().build_release_document(
+        document = _build_release_document(
             session=session,
             release=release,
             depth="full",
@@ -702,7 +769,7 @@ def test_sprint_summary_template_uses_leadership_sections(client: TestClient) ->
         _seed_sprint_snapshot(session, "12", now, 72.0)
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
 
-        document = ReportTemplateEngine().build_sprint_document(
+        document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="summary",
@@ -745,7 +812,7 @@ def test_sprint_report_uses_stored_workload_distribution_evidence(
         )
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
 
-        document = ReportTemplateEngine().build_sprint_document(
+        document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="summary",
@@ -756,7 +823,7 @@ def test_sprint_report_uses_stored_workload_distribution_evidence(
         section for section in document.sections if section.title == "Workload Distribution"
     )
     assert ("Status", "Partial") in workload.rows
-    assert ("Concentration", "60.0%") in workload.rows
+    assert ("Concentration", "60.00%") in workload.rows
     assert ("Risk band", "Critical") in workload.rows
     assert ("Top assignee", "Ava") in workload.rows
     assert ("Explanation", "Stored partial workload explanation.") in workload.rows
@@ -799,7 +866,7 @@ def test_sprint_report_marks_unfinished_scope_not_applicable_for_active_sprint(
             rollover_count=None,
         )
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
-        document = ReportTemplateEngine().build_sprint_document(
+        document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="full",
@@ -856,7 +923,7 @@ def test_sprint_report_exposes_partial_unfinished_scope_explanation(
             ruleset_version=RULESET_VERSION,
             rollover_count=1,
         )
-        document = ReportTemplateEngine().build_sprint_document(
+        document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="full",
@@ -874,7 +941,12 @@ def test_sprint_report_exposes_partial_unfinished_scope_explanation(
 def test_release_report_handles_empty_dataset(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-empty")
-        pdf = ReportingService().generate_release_report(session=session, release_id="REL-empty", depth="full")
+        pdf = ReportingService().generate_release_report(
+            session=session,
+            release_id="REL-empty",
+            depth="full",
+            generated_at=datetime.now(UTC),
+        )
 
     _assert_pdf(pdf)
     text = _pdf_text(pdf)
@@ -898,7 +970,7 @@ def test_release_report_suppresses_confidence_for_zero_ticket_release(client: Te
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-empty-snapshot")
         assert release is not None
 
-        document = ReportTemplateEngine().build_release_document(
+        document = _build_release_document(
             session=session,
             release=release,
             depth="full",
@@ -908,10 +980,12 @@ def test_release_report_suppresses_confidence_for_zero_ticket_release(client: Te
     summary = next(section for section in document.sections if section.title == "Executive Summary")
     assert ("Signal", "NOT COMPUTED") in summary.rows
     assert ("Confidence", "N/A") in summary.rows
-    assert summary.lines == ["Release signal is not computed because no tickets are available for this scope."]
+    assert summary.lines == (
+        "Release signal is not computed because no tickets are available for this scope.",
+    )
 
     confidence_breakdown = next(section for section in document.sections if section.title == "Confidence Breakdown")
-    assert confidence_breakdown.rows == [("Status", "No confidence breakdown available.")]
+    assert confidence_breakdown.rows == (("Status", "No confidence breakdown available."),)
 
     evidence = next(section for section in document.sections if section.title == "Evidence Metrics")
     assert ("Status", "No tickets are available for this scope.") in evidence.rows
@@ -937,7 +1011,7 @@ def test_release_report_marks_story_point_metrics_unavailable(client: TestClient
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-no-points")
         assert release is not None
 
-        document = ReportTemplateEngine().build_release_document(
+        document = _build_release_document(
             session=session,
             release=release,
             depth="full",
@@ -946,7 +1020,7 @@ def test_release_report_marks_story_point_metrics_unavailable(client: TestClient
 
     evidence = next(section for section in document.sections if section.title == "Evidence Metrics")
     assert ("Story-point metrics", "N/A | No tickets in this scope have story points.") in evidence.rows
-    assert ("Scope completed", "75.0%") in evidence.rows
+    assert ("Scope completed", "75.00%") in evidence.rows
 
 
 def test_release_report_export_endpoint_returns_pdf(client: TestClient) -> None:
@@ -1027,7 +1101,7 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
         session.commit()
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
 
-        document = ReportTemplateEngine().build_sprint_document(
+        document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="full",
@@ -1039,17 +1113,20 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
     assert ("Story-point coverage", "0.0%") in delivery.rows
     assert ("Score", "N/A") in delivery.rows
     assert ("Current sprint scope", "10") in delivery.rows
-    assert delivery.charts == []
+    assert delivery.charts == ()
 
     velocity = next(section for section in document.sections if section.title == "Velocity Health")
-    assert velocity.rows == [
-        ("Status", "Delivery confidence requires at least 50% of sprint tickets to have valid story points.")
-    ]
+    assert velocity.rows == (
+        (
+            "Status",
+            "Delivery confidence requires at least 50% of sprint tickets to have valid story points.",
+        ),
+    )
 
     snapshot_changes = next(section for section in document.sections if section.title == "Snapshot Changes")
-    assert snapshot_changes.lines == [
-        "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
-    ]
+    assert snapshot_changes.lines == (
+        "Delivery confidence requires at least 50% of sprint tickets to have valid story points.",
+    )
 
     historical = next(section for section in document.sections if section.title == "Historical Trends")
     chart_titles = {chart.title for chart in historical.charts}
@@ -1104,7 +1181,7 @@ def test_sprint_report_explains_unavailable_completed_scope(client: TestClient) 
             completed_scope_pct=None,
         )
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
-        document = ReportTemplateEngine().build_sprint_document(
+        document = _build_sprint_document(
             session=session,
             sprint=sprint,
             depth="full",
@@ -1150,7 +1227,7 @@ def test_overview_template_matches_dashboard_sections_and_charts(client: TestCli
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
         assert release is not None
 
-        document = ReportTemplateEngine().build_overview_document(
+        document = _build_overview_document(
             session=session,
             release=release,
             generated_at=now,
@@ -1221,7 +1298,11 @@ def test_overview_report_export_endpoint_embeds_dashboard_chart_images(client: T
 def test_overview_report_handles_empty_dashboard_dataset(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-empty")
-        pdf = ReportingService().generate_overview_report(session=session, release_id="REL-empty")
+        pdf = ReportingService().generate_overview_report(
+            session=session,
+            release_id="REL-empty",
+            generated_at=datetime.now(UTC),
+        )
 
     _assert_pdf(pdf)
     text = _pdf_text(pdf)
@@ -1243,7 +1324,7 @@ def test_overview_template_uses_active_sprint_from_release_project_only(client: 
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-LHPM")
         assert release is not None
 
-        document = ReportTemplateEngine().build_overview_document(
+        document = _build_overview_document(
             session=session,
             release=release,
             generated_at=now,
@@ -1266,7 +1347,11 @@ def test_overview_report_for_project_a_does_not_pull_project_b_active_sprint(cli
         _seed_sprint(session, sprint_id="B-99", project_key="PROJECTB")
         _seed_sprint_snapshot(session, "B-99", now, 72.0)
 
-        pdf = ReportingService().generate_overview_report(session=session, release_id="REL-A")
+        pdf = ReportingService().generate_overview_report(
+            session=session,
+            release_id="REL-A",
+            generated_at=now,
+        )
 
     _assert_pdf(pdf)
     text = _pdf_text(pdf)
@@ -1289,7 +1374,7 @@ def test_overview_template_portfolio_rows_are_scoped_for_same_release_names(clie
         release = ReleaseRepository.get_release_by_id(session=session, release_id="LHPM-REL-1")
         assert release is not None
 
-        document = ReportTemplateEngine().build_overview_document(
+        document = _build_overview_document(
             session=session,
             release=release,
             generated_at=now,
@@ -1310,7 +1395,7 @@ def test_overview_template_portfolio_rows_are_scoped_for_same_release_names(clie
 
     sprint_metrics = next(section for section in document.sections if section.title == "Sprint Metrics")
     assert ("Sprint", "Sprint 12") in sprint_metrics.rows
-    assert ("Delivery confidence", "81.0%") in sprint_metrics.rows
+    assert ("Delivery confidence", "81.00%") in sprint_metrics.rows
 
 
 def test_overview_template_reports_missing_active_sprint_snapshot(client: TestClient) -> None:
@@ -1321,7 +1406,7 @@ def test_overview_template_reports_missing_active_sprint_snapshot(client: TestCl
         release = ReleaseRepository.get_release_by_id(session=session, release_id="REL-1")
         assert release is not None
 
-        document = ReportTemplateEngine().build_overview_document(
+        document = _build_overview_document(
             session=session,
             release=release,
             generated_at=now,

@@ -1,35 +1,8 @@
 # Approved product-rules contract implemented by release and sprint services.
 RULESET_VERSION = 2
 
-# Deterministic signal threshold placeholders for later implementation.
-OPEN_BLOCKERS_RED_THRESHOLD = 0
-HIGH_SEVERITY_BUGS_RED_THRESHOLD = 1
-SCOPE_CHURN_RED_THRESHOLD = 0.20
-SCOPE_CHURN_YELLOW_THRESHOLD = 0.10
-REOPEN_RATE_RED_THRESHOLD = 0.15
-
-# Signal-layer thresholds (MVP assumptions)
-# Percent-based metrics are stored as 0-100 in metric_snapshots and converted to
-# normalized ratios (0-1) before comparing to ratio thresholds above.
-HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD = 0
-REOPEN_RATE_YELLOW_THRESHOLD = 0.10
-CYCLE_TIME_YELLOW_THRESHOLD_DAYS = 7.0
-
-# Confidence score bands. The release signal status is derived from the
-# computed confidence score using these inclusive ranges:
-# RED: 0-60, YELLOW: 61-90, GREEN: 91-100.
-CONFIDENCE_SCORE_RED_MAX = 60.0
-CONFIDENCE_SCORE_YELLOW_MIN = 61.0
-CONFIDENCE_SCORE_YELLOW_MAX = 90.0
-CONFIDENCE_SCORE_GREEN_MIN = 91.0
-
-# Sprint story-point coverage. Delivery confidence is inconclusive below this
-# threshold and partial until every current sprint ticket has valid points.
-MIN_STORY_POINT_COVERAGE_PCT = 50.0
-WORKLOAD_CONCENTRATION_WATCH_MIN_PCT = 35.0
-WORKLOAD_CONCENTRATION_CRITICAL_MIN_EXCLUSIVE_PCT = 50.0
+# Metric thresholds and availability cutoffs live in app.metric_catalog.
 DELIVERY_CONFIDENCE_STATUS_NOT_COMPUTED = "NOT_COMPUTED"
 DELIVERY_CONFIDENCE_STATUS_INCONCLUSIVE = "INCONCLUSIVE"
 DELIVERY_CONFIDENCE_STATUS_PARTIAL = "PARTIAL"
 DELIVERY_CONFIDENCE_STATUS_COMPUTED = "COMPUTED"
-

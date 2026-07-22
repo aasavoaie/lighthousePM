@@ -45,6 +45,63 @@ export interface CurrentSprintResponse {
 export type ReportDepth = "summary" | "full";
 export type ComputationStatus = "COMPUTED" | "PARTIAL" | "NOT_COMPUTED";
 
+export type MetricScope = "release" | "sprint";
+export type MetricCategory = "delivery" | "quality" | "flow" | "risk" | "snapshot";
+export type MetricUnit = "tickets" | "percent" | "days" | "score" | "gates";
+export type MetricFormat = "integer" | "decimal_1" | "decimal_2" | "decimal_4" | "percent_2";
+export type MetricSeverity = "watch" | "critical";
+export type MetricComparison = "gt" | "gte" | "lt" | "lte";
+export type MetricApiLocation = "metric_values" | "response_field" | "chart_only";
+export type MetricPartialValuePolicy =
+  | "confirmed_minimum"
+  | "calculated_from_available_data"
+  | "unavailable"
+  | "not_supported";
+
+export interface MetricThresholdMetadata {
+  severity: MetricSeverity;
+  comparison: MetricComparison;
+  value: number;
+  meaning: string;
+}
+
+export interface MetricAvailabilityMetadata {
+  dependencies: string[];
+  partial_value_policy: MetricPartialValuePolicy;
+  supports_not_applicable: boolean;
+  evidence_fields: string[];
+  minimum_coverage_pct: number | null;
+}
+
+export interface MetricDefinitionMetadata {
+  key: string;
+  scope: MetricScope;
+  api_field: string;
+  api_location: MetricApiLocation;
+  label: string;
+  description: string;
+  category: MetricCategory;
+  unit: MetricUnit;
+  formatting: MetricFormat;
+  display_order: number;
+  thresholds: MetricThresholdMetadata[];
+  severity_meaning: string;
+  availability: MetricAvailabilityMetadata;
+  historical_series: boolean;
+  signal_participation: boolean;
+  confidence_participation: boolean;
+  chart_participation: boolean;
+  report_participation: boolean;
+  ruleset_version: number;
+}
+
+export interface MetricCatalogResponse {
+  catalog_version: number;
+  ruleset_version: number;
+  release: MetricDefinitionMetadata[];
+  sprint: MetricDefinitionMetadata[];
+}
+
 export interface SprintMetricValues {
   committed_scope: number | null;
   completed_scope_pct: number | null;

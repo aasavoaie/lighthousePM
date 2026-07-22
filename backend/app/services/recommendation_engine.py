@@ -1,15 +1,26 @@
 from dataclasses import dataclass
 from typing import Any
 
+from app.metric_catalog import metric_threshold_value
 from app.schemas.availability import MetricAvailability
 from app.schemas.recommendations import RecommendationAction, RecommendationEffort
-from app.utils.constants import (
-    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-    OPEN_BLOCKERS_RED_THRESHOLD,
-    REOPEN_RATE_YELLOW_THRESHOLD,
-    SCOPE_CHURN_YELLOW_THRESHOLD,
-    WORKLOAD_CONCENTRATION_WATCH_MIN_PCT,
+OPEN_BLOCKERS_RED_THRESHOLD = metric_threshold_value(
+    "release.open_blockers", "critical"
+)
+HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD = metric_threshold_value(
+    "release.open_high_severity_bugs", "watch"
+)
+SCOPE_CHURN_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.scope_churn_7d_pct", "watch") / 100.0
+)
+REOPEN_RATE_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.reopen_rate_pct", "watch") / 100.0
+)
+CYCLE_TIME_YELLOW_THRESHOLD_DAYS = metric_threshold_value(
+    "release.median_cycle_time_days", "watch"
+)
+WORKLOAD_CONCENTRATION_WATCH_MIN_PCT = metric_threshold_value(
+    "sprint.workload_concentration_pct", "watch"
 )
 
 

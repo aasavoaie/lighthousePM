@@ -12,6 +12,7 @@ from app.api.router import api_router
 from app.config import Settings, get_settings
 from app.db.init import init_db
 from app.jobs.scheduler import start_scheduler, stop_scheduler
+from app.openapi import install_openapi_security
 from app.security import (
     RouteSecurityClass,
     enforce_local_api_auth,
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router)
     validate_route_security_inventory(app)
+    install_openapi_security(app)
     return app
 
 

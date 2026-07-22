@@ -5,28 +5,48 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.metric_catalog import metric_threshold_value
 from app.models import Issue, IssueHistory, MetricSnapshot
 from app.repositories.metric_repository import MetricRepository
 from app.repositories.operational_status_repository import OperationalStatusRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
 from app.services.jira_field_mapper import JiraFieldMapper
-from app.utils.constants import (
-    CONFIDENCE_SCORE_RED_MAX,
-    CONFIDENCE_SCORE_YELLOW_MAX,
-    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-    HIGH_SEVERITY_BUGS_RED_THRESHOLD,
-    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-    OPEN_BLOCKERS_RED_THRESHOLD,
-    REOPEN_RATE_RED_THRESHOLD,
-    REOPEN_RATE_YELLOW_THRESHOLD,
-    SCOPE_CHURN_RED_THRESHOLD,
-    SCOPE_CHURN_YELLOW_THRESHOLD,
-    RULESET_VERSION,
-)
+from app.utils.constants import RULESET_VERSION
 
 logger = logging.getLogger(__name__)
 RELEASE_OUTLOOK_DISCLAIMER = "This outlook reflects the latest stored snapshot and is not a forecast."
+
+OPEN_BLOCKERS_RED_THRESHOLD = metric_threshold_value(
+    "release.open_blockers", "critical"
+)
+HIGH_SEVERITY_BUGS_RED_THRESHOLD = metric_threshold_value(
+    "release.open_high_severity_bugs", "critical"
+)
+HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD = metric_threshold_value(
+    "release.open_high_severity_bugs", "watch"
+)
+SCOPE_CHURN_RED_THRESHOLD = (
+    metric_threshold_value("release.scope_churn_7d_pct", "critical") / 100.0
+)
+SCOPE_CHURN_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.scope_churn_7d_pct", "watch") / 100.0
+)
+REOPEN_RATE_RED_THRESHOLD = (
+    metric_threshold_value("release.reopen_rate_pct", "critical") / 100.0
+)
+REOPEN_RATE_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.reopen_rate_pct", "watch") / 100.0
+)
+CYCLE_TIME_YELLOW_THRESHOLD_DAYS = metric_threshold_value(
+    "release.median_cycle_time_days", "watch"
+)
+CONFIDENCE_SCORE_RED_MAX = metric_threshold_value(
+    "release.confidence_score", "critical"
+)
+CONFIDENCE_SCORE_YELLOW_MAX = metric_threshold_value(
+    "release.confidence_score", "watch"
+)
 
 
 def _coerce_utc(value: datetime) -> datetime:
@@ -49,7 +69,7 @@ class SignalService:
     - YELLOW: confidence score 61-90.
     - GREEN: confidence score 91-100.
 
-    Thresholds are defined in constants.py and include:
+    Thresholds are selected from the metric catalog and include:
     - RED triggers: open blockers, critical bugs, scope churn, quality concerns
     - YELLOW triggers: moderate bugs, scope churn, cycle time, reopen rates
     - GREEN: default when no risk indicators present

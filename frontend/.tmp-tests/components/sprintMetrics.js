@@ -29,25 +29,28 @@ exports.buildSprintWorkStateDisplayModel = buildSprintWorkStateDisplayModel;
 exports.sprintNoTicketsReason = "No tickets are available for this scope.";
 exports.sprintNoStoryPointsReason = "Delivery confidence requires at least 50% of sprint tickets to have valid story points.";
 exports.sprintNoChangelogReason = "No Jira changelog history is available for this scope.";
-function getSprintStoryPointCoverageStatus(metrics) {
+function storyPointCoverageReason(minimumCoveragePct) {
+    return `Delivery confidence requires at least ${minimumCoveragePct}% of sprint tickets to have valid story points.`;
+}
+function getSprintStoryPointCoverageStatus(metrics, minimumCoveragePct = 50) {
     const coverage = metrics?.story_point_coverage;
     if (!metrics?.is_computed || !coverage || coverage.total_ticket_count === 0) {
         return "NOT_COMPUTED";
     }
-    if (coverage.coverage_pct < 50) {
+    if (coverage.coverage_pct < minimumCoveragePct) {
         return "INCONCLUSIVE";
     }
     return coverage.coverage_pct < 100 ? "PARTIAL" : "COMPUTED";
 }
-function hasSprintStoryPoints(metrics) {
-    const coverageStatus = getSprintStoryPointCoverageStatus(metrics);
+function hasSprintStoryPoints(metrics, minimumCoveragePct = 50) {
+    const coverageStatus = getSprintStoryPointCoverageStatus(metrics, minimumCoveragePct);
     return coverageStatus === "PARTIAL" || coverageStatus === "COMPUTED";
 }
 function hasSprintDeliveryConfidence(metrics) {
     return Boolean(metrics?.delivery_confidence
         && (metrics.delivery_confidence_status === "PARTIAL" || metrics.delivery_confidence_status === "COMPUTED"));
 }
-function getSprintStoryPointUnavailableReason(metrics) {
+function getSprintStoryPointUnavailableReason(metrics, minimumCoveragePct = 50) {
     const deliveryConfidenceAvailability = metrics?.metric_availability?.metrics.delivery_confidence_score;
     if (deliveryConfidenceAvailability && !deliveryConfidenceAvailability.available && deliveryConfidenceAvailability.reason) {
         return deliveryConfidenceAvailability.reason;
@@ -55,7 +58,7 @@ function getSprintStoryPointUnavailableReason(metrics) {
     if (metrics?.unavailable_reason) {
         return metrics.unavailable_reason;
     }
-    return exports.sprintNoStoryPointsReason;
+    return storyPointCoverageReason(minimumCoveragePct);
 }
 function getSprintMetricAvailabilityReason(metrics, metricName) {
     const availability = metrics?.metric_availability?.metrics[metricName];
@@ -71,7 +74,7 @@ function getSprintMetricUnavailableBadge(reason) {
     if (reason === exports.sprintNoTicketsReason) {
         return "No tickets";
     }
-    if (reason === exports.sprintNoStoryPointsReason) {
+    if (reason === exports.sprintNoStoryPointsReason || reason.startsWith("Delivery confidence requires at least ")) {
         return "No story points";
     }
     if (reason === exports.sprintNoChangelogReason) {
@@ -116,8 +119,8 @@ function getSprintMetricDisplay(metrics, metricName) {
         isAvailable: true,
     };
 }
-function buildSprintStoryPointUiVisibility(metrics) {
-    const hasStoryPointMetrics = hasSprintStoryPoints(metrics);
+function buildSprintStoryPointUiVisibility(metrics, minimumCoveragePct = 50) {
+    const hasStoryPointMetrics = hasSprintStoryPoints(metrics, minimumCoveragePct);
     const hasDeliveryConfidence = hasSprintDeliveryConfidence(metrics);
     const hasComputedMetrics = metrics?.is_computed === true;
     const hasCoverageExplanation = (metrics?.delivery_confidence_explanations.length ?? 0) > 0;

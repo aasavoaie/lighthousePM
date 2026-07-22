@@ -28,6 +28,7 @@ ROUTES_BY_SECURITY_CLASS: dict[RouteSecurityClass, frozenset[RouteSecurityKey]] 
             ("HEAD", "/docs/oauth2-redirect"),
             ("GET", "/redoc"),
             ("HEAD", "/redoc"),
+            ("GET", "/metadata/metrics"),
             ("GET", "/releases"),
             ("GET", "/releases/{release_id}"),
             ("GET", "/releases/{release_id}/issues"),

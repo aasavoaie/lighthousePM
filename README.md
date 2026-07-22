@@ -14,12 +14,16 @@ be traced back to stored Jira evidence.
   thresholds, availability rules, evidence, and ruleset versioning.
 - [`AGENTS.md`](AGENTS.md) defines engineering constraints for AI agents
   working in this repository.
+- [`HELPER.md`](HELPER.md) is the practical authenticated API and operations
+  reference.
+- [`UNIT_TEST_DOCS.md`](UNIT_TEST_DOCS.md) documents test coverage, focused
+  commands, and environment-specific prerequisites.
 - [`ABOUT.md`](ABOUT.md) explains the product and its screens for users.
 - [`desktop/README.md`](desktop/README.md) documents desktop packaging,
   installation, migration, recovery, and acceptance procedures.
 
 If a summary in this README conflicts with `PRODUCT_RULES.md`, the product-rule
-catalog is authoritative.
+document is authoritative.
 
 ## Product scope
 
@@ -40,15 +44,21 @@ probabilities, statistical forecasting, microservices, and inferred Jira data.
 
 ## Architecture
 
-LighthousePM is a single service with a thin API layer:
+LighthousePM remains one backend service with a thin API layer. Focused
+application services separate computation, response assembly, and reporting
+without introducing microservices or a generic abstraction framework:
 
 ```text
-Jira -> jira_service -> sync_service -> database
-                                      |
-                                      +-> analytics_service -> metric snapshots
-                                      +-> signal_service    -> release signals
-                                                              |
-                                                              +-> REST API / PDF reports / dashboard
+Jira -> jira_service -> sync_service -> repositories -> database
+                                                    |
+                                                    +-> analytics_service -> metric snapshots
+                                                                            |
+                                                                            +-> signal_service
+
+FastAPI routes -> response/recompute/catalog services -> structured JSON
+               -> reporting_service -> prepared data -> templates -> charts/PDF
+
+React API client -> workspace hooks and page containers -> focused components
 ```
 
 Core responsibilities:
@@ -59,10 +69,16 @@ Core responsibilities:
 | `sync_service` | Ingestion orchestration and deterministic upserts |
 | `analytics_service` | Release and sprint metric computation |
 | `signal_service` | Release risk rules, readiness, and Release Outlook |
-| FastAPI routes | Request validation and structured response mapping |
+| Response services | Release and sprint response assembly from stored artifacts |
+| `metric_recompute_service` | Release and sprint recomputation orchestration |
+| Metric catalog | Shared labels, units, formatting, thresholds, availability metadata, ordering, and feature participation |
+| Reporting pipeline | Data preparation, document models, focused templates, chart rendering, and PDF rendering behind `reporting_service` |
+| FastAPI routes | Request validation, dependency injection, service delegation, and HTTP error mapping |
 | PostgreSQL | Default backend storage |
 | SQLite | Local and packaged desktop storage |
-| React + TypeScript | Read-only dashboard over the backend API |
+| React + TypeScript | Authenticated dashboard, reporting, Jira settings, sync, and recomputation workflows |
+| Frontend pages and hooks | Workspace data orchestration and page/container responsibility |
+| Frontend components | Focused rendering and user interaction without metric computation |
 
 Business rules belong in services and `PRODUCT_RULES.md`, not in API routes,
 React components, or PDF templates.
@@ -71,6 +87,26 @@ React components, or PDF templates.
 
 This section is a concise implementation summary. See `PRODUCT_RULES.md` for
 complete formulas, boundaries, missing-data behavior, and evidence rules.
+
+### Metric catalog
+
+`PRODUCT_RULES.md` remains the normative authority for product behavior.
+[`backend/app/metric_catalog.py`](backend/app/metric_catalog.py) is the
+machine-readable implementation authority for shared mechanical metadata; it
+does not replace the explicit formulas in `analytics_service` or signal logic
+in `signal_service`.
+
+The protected `GET /metadata/metrics` endpoint exposes the current catalog and
+ruleset versions plus deterministic release and sprint definitions. The
+frontend loads it once inside the authentication boundary and uses a generated
+backend-owned fallback if the request fails or the response is incompatible.
+Reports use the same catalog labels, units, ordering, and formatting rules.
+Contract tests prevent the API serialization, frontend fallback, threshold
+consumers, and report presentation from drifting apart.
+
+Catalog metadata never reinterprets immutable historical results. Stored
+values, provenance, availability, thresholds, and ruleset identity remain
+authoritative for historical responses and reports.
 
 ### Release metrics
 
@@ -255,10 +291,15 @@ Primary tables:
 ## REST API
 
 All controllers return structured JSON except PDF export endpoints.
+FastAPI routes validate inputs and delegate to focused application services;
+metric and sprint response assembly and report construction do not live in the
+route modules. OpenAPI provides the runtime mechanical endpoint schema, while
+[`HELPER.md`](HELPER.md) provides operational guidance.
 
 ### Health and configuration
 
 - `GET /health`
+- `GET /metadata/metrics`
 - `GET /admin/status`
 - `GET /config/jira`
 - `PUT /config/jira`
@@ -355,6 +396,14 @@ Chart points and history items include `ruleset_version` and
 `version_boundary`. Snapshot comparisons expose both ruleset versions. When
 the versions differ, comparison values are unavailable with an explicit
 reason.
+
+### Metric metadata responses
+
+`GET /metadata/metrics` returns release and sprint definitions in deterministic
+display order. Each definition includes its stable key, API field and location,
+label, description, category, unit, formatting rule, thresholds, availability
+dependencies and evidence paths, feature participation, and ruleset version.
+The response contains no credentials or deployment configuration.
 
 ## Configuration
 
@@ -763,6 +812,17 @@ npm test
 npm run build
 ```
 
+The offline frontend metric-catalog fallback is generated from the backend
+catalog. After an approved catalog change, regenerate it before verification:
+
+```bash
+cd backend
+python scripts/export_metric_catalog.py
+```
+
+Backend contract tests fail when the generated file differs from the public
+catalog serialization.
+
 By default, browser development uses `http://localhost:8000`. Set
 `VITE_API_BASE_URL` to override the backend URL.
 
@@ -790,13 +850,19 @@ backend/
   app/
     api/             Thin FastAPI controllers
     db/              Database engine, startup, and migration orchestration
+    metric_catalog.py  Canonical mechanical metric metadata
     models/          SQLAlchemy models
     repositories/    Persistence queries and writes
     schemas/         API contracts
-    services/        Jira, sync, analytics, signal, and reporting logic
+    services/        Jira, sync, analytics, signal, response, catalog, and reporting logic
+  scripts/           Deterministic maintenance and export tools
   tests/             Backend unit and integration tests
 frontend/
-  src/               React dashboard and assertion tests
+  src/
+    components/      Focused UI components and presentation helpers
+    generated/       Backend-generated metric-catalog fallback
+    hooks/           Workspace data and mutation orchestration
+    pages/           Top-level page containers
 desktop/
   src/               Electron main and preload processes
   scripts/           Packaging, assets, verification, and acceptance tools
@@ -810,10 +876,12 @@ output meaning must update together:
 
 1. `PRODUCT_RULES.md`;
 2. the centralized ruleset version when behavior changes;
-3. the implementing service;
-4. boundary, empty-data, partial-data, and historical-version tests;
-5. API schemas and examples;
-6. affected user and operational documentation.
+3. the backend metric catalog when shared mechanical metadata changes;
+4. the implementing service;
+5. the generated frontend catalog fallback;
+6. boundary, empty-data, partial-data, drift, and historical-version tests;
+7. API schemas and examples;
+8. affected user and operational documentation.
 
 The definition of done is deterministic logic, reproducible evidence, stable
 structured APIs, and passing focused plus regression tests.

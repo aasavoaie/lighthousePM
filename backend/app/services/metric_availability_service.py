@@ -6,8 +6,17 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.metric_catalog import (
+    RELEASE_METRICS,
+    SPRINT_METRICS,
+    metric_minimum_coverage_pct,
+)
 from app.models import Issue, IssueHistory, IssueSprint, Sprint
-from app.schemas.availability import MetricAvailability, MetricAvailabilityContext, MetricAvailabilityItem
+from app.schemas.availability import (
+    MetricAvailability,
+    MetricAvailabilityContext,
+    MetricAvailabilityItem,
+)
 from app.services.jira_field_mapper import JiraFieldMapper
 
 COMPUTATION_STATUS_COMPUTED = "COMPUTED"
@@ -15,13 +24,16 @@ COMPUTATION_STATUS_PARTIAL = "PARTIAL"
 COMPUTATION_STATUS_NOT_COMPUTED = "NOT_COMPUTED"
 COMPUTATION_STATUS_NOT_APPLICABLE = "NOT_APPLICABLE"
 UNAVAILABLE_REASON_NO_TICKETS = "No tickets are available for this scope."
-UNAVAILABLE_REASON_NO_STORY_POINTS = (
-    "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
+UNAVAILABLE_REASON_NO_STORY_POINTS = "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
+UNAVAILABLE_REASON_NO_CHANGELOG = (
+    "No Jira changelog history is available for this scope."
 )
-UNAVAILABLE_REASON_NO_CHANGELOG = "No Jira changelog history is available for this scope."
 UNAVAILABLE_REASON_RELEASE_EMPTY = UNAVAILABLE_REASON_NO_TICKETS
 UNAVAILABLE_REASON_SPRINT_EMPTY = UNAVAILABLE_REASON_NO_TICKETS
 UNAVAILABLE_REASON_NOT_COMPUTED = "Metrics have not been computed yet."
+MIN_STORY_POINT_COVERAGE_PCT = metric_minimum_coverage_pct(
+    "sprint.delivery_confidence_score"
+)
 
 DEPENDENCY_TICKET_COUNT = "ticket_count"
 DEPENDENCY_TICKET_STATUS = "ticket_status"
@@ -37,93 +49,13 @@ DEPENDENCY_SPRINT_DURATION = "sprint_duration"
 DEPENDENCY_ASSIGNEE_IDENTITY = "assignee_identity"
 
 RELEASE_METRIC_DEPENDENCIES: dict[str, list[str]] = {
-    "open_blockers": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_RELEASE_ASSIGNMENT],
-    "open_high_severity_bugs": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_RELEASE_ASSIGNMENT],
-    "scope_completed_pct": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_RELEASE_ASSIGNMENT],
-    "completed_tickets": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_RELEASE_ASSIGNMENT],
-    "scope_churn_7d_pct": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_HISTORY_CHANGELOG,
-        DEPENDENCY_RELEASE_ASSIGNMENT,
-    ],
-    "scope_added_7d_count": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_HISTORY_CHANGELOG,
-        DEPENDENCY_RELEASE_ASSIGNMENT,
-    ],
-    "scope_removed_7d_count": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_HISTORY_CHANGELOG,
-        DEPENDENCY_RELEASE_ASSIGNMENT,
-    ],
-    "median_cycle_time_days": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_COMPLETED_TICKETS,
-        DEPENDENCY_HISTORY_CHANGELOG,
-        DEPENDENCY_RELEASE_ASSIGNMENT,
-    ],
-    "reopen_rate_pct": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_HISTORY_CHANGELOG,
-        DEPENDENCY_RELEASE_ASSIGNMENT,
-    ],
-    "confidence_score": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_RELEASE_ASSIGNMENT],
-    "gates_passed_count": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_RELEASE_ASSIGNMENT],
-    "readiness_pct": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_RELEASE_ASSIGNMENT],
+    metric.api_field: list(metric.availability.dependencies)
+    for metric in RELEASE_METRICS
 }
 
 SPRINT_METRIC_DEPENDENCIES: dict[str, list[str]] = {
-    "committed_scope": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_SPRINT_ASSIGNMENT],
-    "completed_scope_pct": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_TICKET_STATUS,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
-    "open_blockers": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_SPRINT_ASSIGNMENT],
-    "open_high_severity_bugs": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_SPRINT_ASSIGNMENT],
-    "bugs_created_during_sprint": [DEPENDENCY_TICKET_COUNT, DEPENDENCY_SPRINT_ASSIGNMENT],
-    "in_progress_count": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_TICKET_STATUS,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
-    "not_started_count": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_TICKET_STATUS,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
-    "rollover_count": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_TICKET_STATUS,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
-    "median_cycle_time_days": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_COMPLETED_TICKETS,
-        DEPENDENCY_HISTORY_CHANGELOG,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
-    "reopen_rate_pct": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_HISTORY_CHANGELOG,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
-    "workload_concentration_pct": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_TICKET_STATUS,
-        DEPENDENCY_STORY_POINTS,
-        DEPENDENCY_ASSIGNEE_IDENTITY,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
-    "delivery_confidence_score": [
-        DEPENDENCY_TICKET_COUNT,
-        DEPENDENCY_STORY_POINTS,
-        DEPENDENCY_TICKET_STATUS,
-        DEPENDENCY_BLOCKER_CLASSIFICATION,
-        DEPENDENCY_SPRINT_DURATION,
-        DEPENDENCY_PROJECT_CHANGELOG_COMPLETENESS,
-        DEPENDENCY_SPRINT_ASSIGNMENT,
-    ],
+    metric.api_field: list(metric.availability.dependencies)
+    for metric in SPRINT_METRICS
 }
 
 
@@ -140,13 +72,19 @@ class MetricAvailabilityService:
     ) -> MetricAvailability:
         release_issues = list(
             session.scalars(
-                select(Issue).where(Issue.release_id == release_id).order_by(Issue.issue_key)
+                select(Issue)
+                .where(Issue.release_id == release_id)
+                .order_by(Issue.issue_key)
             ).all()
         )
-        release_issue_keys = select(Issue.issue_key).where(Issue.release_id == release_id)
+        release_issue_keys = select(Issue.issue_key).where(
+            Issue.release_id == release_id
+        )
         total_tickets = _scalar_count(
             session,
-            select(func.count()).select_from(Issue).where(Issue.release_id == release_id),
+            select(func.count())
+            .select_from(Issue)
+            .where(Issue.release_id == release_id),
         )
         story_point_tickets = _scalar_count(
             session,
@@ -181,7 +119,9 @@ class MetricAvailabilityService:
             has_sprint_scope=False,
             has_changelog=changelog_entries > 0,
         )
-        classification_results = _evaluate_classification_metrics(release_issues, field_mapper)
+        classification_results = _evaluate_classification_metrics(
+            release_issues, field_mapper
+        )
         metrics = _build_metric_availability_items(
             context,
             RELEASE_METRIC_DEPENDENCIES,
@@ -194,13 +134,17 @@ class MetricAvailabilityService:
         unavailable_confidence_metrics = [
             metric_name
             for metric_name in ("open_blockers", "open_high_severity_bugs")
-            if classification_results[metric_name]["status"] == COMPUTATION_STATUS_PARTIAL
+            if classification_results[metric_name]["status"]
+            == COMPUTATION_STATUS_PARTIAL
         ]
         result_by_metric: dict[str, dict[str, object]] = {
             metric_name: classification_results[metric_name]
             for metric_name in unavailable_confidence_metrics
         }
-        if scope_churn_result is not None and scope_churn_result["status"] == COMPUTATION_STATUS_PARTIAL:
+        if (
+            scope_churn_result is not None
+            and scope_churn_result["status"] == COMPUTATION_STATUS_PARTIAL
+        ):
             unavailable_confidence_metrics.append("scope_churn_7d_pct")
             result_by_metric["scope_churn_7d_pct"] = scope_churn_result
         for metric_name, result in (flow_metric_results or {}).items():
@@ -213,7 +157,9 @@ class MetricAvailabilityService:
                 {
                     issue_key
                     for metric_name in unavailable_confidence_metrics
-                    for issue_key in result_by_metric[metric_name].get("missing_issue_keys", [])
+                    for issue_key in result_by_metric[metric_name].get(
+                        "missing_issue_keys", []
+                    )
                 }
             )
             explanation = (
@@ -223,7 +169,8 @@ class MetricAvailabilityService:
             status = (
                 COMPUTATION_STATUS_PARTIAL
                 if any(
-                    result_by_metric[metric_name]["status"] == COMPUTATION_STATUS_PARTIAL
+                    result_by_metric[metric_name]["status"]
+                    == COMPUTATION_STATUS_PARTIAL
                     for metric_name in unavailable_confidence_metrics
                 )
                 else COMPUTATION_STATUS_NOT_COMPUTED
@@ -288,7 +235,9 @@ class MetricAvailabilityService:
         delivery_confidence_result: dict[str, object] | None = None,
         workload_distribution_result: dict[str, object] | None = None,
     ) -> MetricAvailability:
-        sprint_issue_keys = select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint_id)
+        sprint_issue_keys = select(IssueSprint.issue_key).where(
+            IssueSprint.sprint_id == sprint_id
+        )
         sprint_issues = list(
             session.scalars(
                 select(Issue)
@@ -298,7 +247,9 @@ class MetricAvailabilityService:
         )
         total_tickets = _scalar_count(
             session,
-            select(func.count()).select_from(IssueSprint).where(IssueSprint.sprint_id == sprint_id),
+            select(func.count())
+            .select_from(IssueSprint)
+            .where(IssueSprint.sprint_id == sprint_id),
         )
         story_point_tickets = _scalar_count(
             session,
@@ -328,14 +279,18 @@ class MetricAvailabilityService:
         context = MetricAvailabilityContext(
             has_tickets=total_tickets > 0,
             has_story_points=(
-                total_tickets > 0 and 100.0 * story_point_tickets / total_tickets >= 50.0
+                total_tickets > 0
+                and 100.0 * story_point_tickets / total_tickets
+                >= MIN_STORY_POINT_COVERAGE_PCT
             ),
             has_completed_tickets=completed_tickets > 0,
             has_release_scope=False,
             has_sprint_scope=total_tickets > 0,
             has_changelog=changelog_entries > 0,
         )
-        classification_results = _evaluate_classification_metrics(sprint_issues, field_mapper)
+        classification_results = _evaluate_classification_metrics(
+            sprint_issues, field_mapper
+        )
         metrics = _build_metric_availability_items(
             context,
             SPRINT_METRIC_DEPENDENCIES,
@@ -391,7 +346,9 @@ class MetricAvailabilityService:
     ) -> dict[str, dict[str, Any]]:
         issues = list(
             session.scalars(
-                select(Issue).where(Issue.release_id == release_id).order_by(Issue.issue_key)
+                select(Issue)
+                .where(Issue.release_id == release_id)
+                .order_by(Issue.issue_key)
             ).all()
         )
         return _evaluate_classification_metrics(issues, field_mapper)
@@ -402,10 +359,14 @@ class MetricAvailabilityService:
         sprint_id: str,
         field_mapper: JiraFieldMapper,
     ) -> dict[str, dict[str, Any]]:
-        issue_keys = select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint_id)
+        issue_keys = select(IssueSprint.issue_key).where(
+            IssueSprint.sprint_id == sprint_id
+        )
         issues = list(
             session.scalars(
-                select(Issue).where(Issue.issue_key.in_(issue_keys)).order_by(Issue.issue_key)
+                select(Issue)
+                .where(Issue.issue_key.in_(issue_keys))
+                .order_by(Issue.issue_key)
             ).all()
         )
         results = _evaluate_classification_metrics(issues, field_mapper)
@@ -426,7 +387,9 @@ class MetricAvailabilityService:
         if sprint is None:
             raise ValueError(f"Sprint not found: {sprint_id!r}")
 
-        sprint_issue_keys = select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint_id)
+        sprint_issue_keys = select(IssueSprint.issue_key).where(
+            IssueSprint.sprint_id == sprint_id
+        )
         sprint_issues = list(
             session.scalars(
                 select(Issue)
@@ -437,21 +400,29 @@ class MetricAvailabilityService:
         pointed_missing_status_issue_keys = sorted(
             issue.issue_key
             for issue in sprint_issues
-            if _has_valid_story_points(issue.story_points) and not _has_text(issue.status)
+            if _has_valid_story_points(issue.story_points)
+            and not _has_text(issue.status)
         )
 
-        evaluated_classification = classification_results or _evaluate_classification_metrics(
-            sprint_issues,
-            field_mapper,
+        evaluated_classification = (
+            classification_results
+            or _evaluate_classification_metrics(
+                sprint_issues,
+                field_mapper,
+            )
         )
         blocker_missing_issue_keys = sorted(
             str(key)
-            for key in evaluated_classification["open_blockers"].get("missing_issue_keys", [])
+            for key in evaluated_classification["open_blockers"].get(
+                "missing_issue_keys", []
+            )
         )
 
         start_at = _coerce_utc(sprint.start_date)
         end_at = _coerce_utc(sprint.end_date)
-        duration_valid = start_at is not None and end_at is not None and end_at > start_at
+        duration_valid = (
+            start_at is not None and end_at is not None and end_at > start_at
+        )
         duration_reason: str | None = None
         if start_at is None and end_at is None:
             duration_reason = (
@@ -459,13 +430,9 @@ class MetricAvailabilityService:
                 "a start time and an end time."
             )
         elif start_at is None:
-            duration_reason = (
-                "Delivery confidence is inconclusive because sprint duration is missing its start time."
-            )
+            duration_reason = "Delivery confidence is inconclusive because sprint duration is missing its start time."
         elif end_at is None:
-            duration_reason = (
-                "Delivery confidence is inconclusive because sprint duration is missing its end time."
-            )
+            duration_reason = "Delivery confidence is inconclusive because sprint duration is missing its end time."
         elif end_at <= start_at:
             duration_reason = (
                 "Delivery confidence is inconclusive because sprint duration is invalid: "
@@ -473,7 +440,9 @@ class MetricAvailabilityService:
             )
 
         project_prefix = f"{sprint.project_key.strip().casefold()}-"
-        project_issues = list(session.scalars(select(Issue).order_by(Issue.issue_key)).all())
+        project_issues = list(
+            session.scalars(select(Issue).order_by(Issue.issue_key)).all()
+        )
         project_issue_keys = sorted(
             issue.issue_key
             for issue in project_issues
@@ -490,12 +459,16 @@ class MetricAvailabilityService:
         if pointed_missing_status_issue_keys:
             explanations.append(
                 "Delivery confidence is inconclusive because pointed current-sprint tickets "
-                "are missing status: " + ", ".join(pointed_missing_status_issue_keys) + "."
+                "are missing status: "
+                + ", ".join(pointed_missing_status_issue_keys)
+                + "."
             )
         if blocker_missing_issue_keys:
             explanations.append(
                 "Delivery confidence is inconclusive because blocker classification is incomplete "
-                "for current-sprint tickets: " + ", ".join(blocker_missing_issue_keys) + "."
+                "for current-sprint tickets: "
+                + ", ".join(blocker_missing_issue_keys)
+                + "."
             )
         if duration_reason is not None:
             explanations.append(duration_reason)
@@ -524,7 +497,9 @@ class MetricAvailabilityService:
             "evidence": {
                 "pointed_missing_status_issue_keys": pointed_missing_status_issue_keys,
                 "incomplete_blocker_classification_issue_keys": blocker_missing_issue_keys,
-                "sprint_start_at": start_at.isoformat() if start_at is not None else None,
+                "sprint_start_at": start_at.isoformat()
+                if start_at is not None
+                else None,
                 "sprint_end_at": end_at.isoformat() if end_at is not None else None,
                 "sprint_duration_valid": duration_valid,
                 "project_issue_keys": project_issue_keys,
@@ -543,7 +518,9 @@ class MetricAvailabilityService:
         current_scope_issue_keys = sorted(
             set(
                 session.scalars(
-                    select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint_id)
+                    select(IssueSprint.issue_key).where(
+                        IssueSprint.sprint_id == sprint_id
+                    )
                 ).all()
             )
         )
@@ -605,7 +582,9 @@ class MetricAvailabilityService:
         current_scope_issue_keys = sorted(
             set(
                 session.scalars(
-                    select(IssueSprint.issue_key).where(IssueSprint.sprint_id == sprint_id)
+                    select(IssueSprint.issue_key).where(
+                        IssueSprint.sprint_id == sprint_id
+                    )
                 ).all()
             )
         )
@@ -622,7 +601,8 @@ class MetricAvailabilityService:
         in_progress_issue_keys = sorted(
             issue.issue_key
             for issue in issues
-            if _has_text(issue.status) and field_mapper.is_in_progress_status(issue.status)
+            if _has_text(issue.status)
+            and field_mapper.is_in_progress_status(issue.status)
         )
         not_started_issue_keys = sorted(
             issue.issue_key
@@ -840,7 +820,9 @@ def _evaluate_classification_metrics(
                 blocker_flag=None,
             )
             missing_type = bool(field_mapper.blocker_issue_types) and not has_issue_type
-            missing_severity = bool(field_mapper.blocker_severity_values) and not has_severity
+            missing_severity = (
+                bool(field_mapper.blocker_severity_values) and not has_severity
+            )
             if known_fallback_match:
                 blocker_evaluated.append(key)
                 blocker_matching.append(key)
@@ -912,7 +894,9 @@ def _evaluate_classification_metrics(
     return {
         "open_blockers": {
             "value": len(blocker_matching),
-            "status": COMPUTATION_STATUS_PARTIAL if blocker_partial else COMPUTATION_STATUS_COMPUTED,
+            "status": COMPUTATION_STATUS_PARTIAL
+            if blocker_partial
+            else COMPUTATION_STATUS_COMPUTED,
             "available": True,
             "explanations": blocker_explanations,
             "missing_issue_keys": blocker_missing,
@@ -927,7 +911,9 @@ def _evaluate_classification_metrics(
         },
         "open_high_severity_bugs": {
             "value": len(high_bug_matching),
-            "status": COMPUTATION_STATUS_PARTIAL if high_bug_partial else COMPUTATION_STATUS_COMPUTED,
+            "status": COMPUTATION_STATUS_PARTIAL
+            if high_bug_partial
+            else COMPUTATION_STATUS_COMPUTED,
             "available": True,
             "explanations": high_bug_explanations,
             "missing_issue_keys": high_bug_missing,
@@ -945,7 +931,9 @@ def _evaluate_classification_metrics(
                 if status_partial
                 else round(100.0 * len(completed_matching) / len(issue_keys), 2)
             ),
-            "status": COMPUTATION_STATUS_PARTIAL if status_partial else COMPUTATION_STATUS_COMPUTED,
+            "status": COMPUTATION_STATUS_PARTIAL
+            if status_partial
+            else COMPUTATION_STATUS_COMPUTED,
             "available": not status_partial,
             "explanations": scope_explanations,
             "missing_issue_keys": list(missing_status),
@@ -957,7 +945,9 @@ def _evaluate_classification_metrics(
         },
         "completed_tickets": {
             "value": len(completed_matching),
-            "status": COMPUTATION_STATUS_PARTIAL if status_partial else COMPUTATION_STATUS_COMPUTED,
+            "status": COMPUTATION_STATUS_PARTIAL
+            if status_partial
+            else COMPUTATION_STATUS_COMPUTED,
             "available": True,
             "explanations": completed_explanations,
             "missing_issue_keys": list(missing_status),
@@ -1034,7 +1024,9 @@ def _apply_scope_churn_availability(
 ) -> None:
     status = str(result["status"])
     explanations = [str(item) for item in result.get("explanations", [])]
-    missing_issue_keys = sorted(str(key) for key in result.get("missing_issue_keys", []))
+    missing_issue_keys = sorted(
+        str(key) for key in result.get("missing_issue_keys", [])
+    )
     for metric_name in (
         "scope_churn_7d_pct",
         "scope_added_7d_count",
@@ -1146,7 +1138,10 @@ def _apply_workload_distribution_availability(
         if result_status == "INCONCLUSIVE"
         else result_status
     )
-    available = result_status in {COMPUTATION_STATUS_COMPUTED, COMPUTATION_STATUS_PARTIAL}
+    available = result_status in {
+        COMPUTATION_STATUS_COMPUTED,
+        COMPUTATION_STATUS_PARTIAL,
+    }
     explanations = [str(item) for item in result.get("explanations", [])]
     items["workload_concentration_pct"] = MetricAvailabilityItem(
         status=status,
@@ -1160,11 +1155,17 @@ def _apply_workload_distribution_availability(
     )
 
 
-def _dependencies_available(context: MetricAvailabilityContext, dependencies: Iterable[str]) -> bool:
-    return all(_dependency_available(context, dependency) for dependency in dependencies)
+def _dependencies_available(
+    context: MetricAvailabilityContext, dependencies: Iterable[str]
+) -> bool:
+    return all(
+        _dependency_available(context, dependency) for dependency in dependencies
+    )
 
 
-def _first_unavailable_reason(context: MetricAvailabilityContext, dependencies: Iterable[str]) -> str | None:
+def _first_unavailable_reason(
+    context: MetricAvailabilityContext, dependencies: Iterable[str]
+) -> str | None:
     for dependency in dependencies:
         if not _dependency_available(context, dependency):
             return _unavailable_reason(dependency)

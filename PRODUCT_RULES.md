@@ -2037,6 +2037,191 @@ This testing contract changes security assurance only. It does not change
 metric formulas, signals, thresholds, availability, or output meaning, so the
 runtime `ruleset_version` remains `2`.
 
+## Application Response-Assembly Boundaries
+
+Status: **Approved — Phase 5.1**
+
+Release-metric and sprint response assembly belongs to focused application
+services, not FastAPI route modules. These services coordinate repositories and
+the existing analytics, availability, comparison, recommendation, confidence,
+and driver services and return the established Pydantic response models.
+
+API routes retain only HTTP concerns: FastAPI parameter and dependency
+declarations, one application-service call, and explicit translation of
+defined service outcomes into HTTP responses. Metric calculation remains in
+`analytics_service`; availability decisions remain in
+`metric_availability_service`; comparison logic remains in
+`snapshot_comparison_service`. Response-assembly services must not duplicate
+those rules.
+
+Time-dependent assembly receives an explicit current time so snapshot age and
+sprint-scope interpretation are reproducible in focused tests. The extraction
+must preserve endpoint paths, schemas, status codes, error messages, field
+values, ordering, empty and partial behavior, and historical ruleset handling.
+No generic response-builder framework or base-service hierarchy is required.
+
+Focused service tests cover empty, current, partial, legacy, and cross-ruleset
+snapshots. API contract tests remain responsible for proving that moving the
+assembly boundary does not alter public behavior.
+
+## Reporting Pipeline Boundaries
+
+Status: **Approved — Phase 5.2**
+
+Reporting is one deterministic pipeline with six explicit responsibilities:
+
+1. Immutable document models describe report documents, sections, charts,
+   images, and visual themes without database access or rendering behavior.
+2. Data preparation loads releases, sprints, snapshots, signals,
+   recommendations, comparisons, and stored availability and produces prepared
+   report data without layout or PDF operations.
+3. Release, sprint, overview, and documentation templates transform prepared
+   data into document models and do not query repositories.
+4. Chart rendering owns chart scaling, raster drawing, and RGB image
+   generation.
+5. PDF rendering owns pagination, fonts, tables, image embedding, escaping, and
+   deterministic PDF serialization.
+6. A small reporting facade coordinates data preparation, template selection,
+   and PDF rendering for the existing API routes.
+
+The current chart and PDF implementations remain unless a separate approved
+decision replaces them. This phase is a responsibility split, not a rendering
+library migration or a generic document framework. `generated_at` is passed
+explicitly through the pipeline. Stored availability remains authoritative for
+historical reports.
+
+The split preserves report endpoints, filenames, content types, report depths,
+required sections, explanations, and error behavior. Each extracted boundary
+has focused tests, and release, sprint, overview, and documentation PDF API
+tests run after every extraction step.
+
+## Frontend Page and Container Boundaries
+
+Status: **Approved — Phase 5.3**
+
+`App.tsx` is the application shell. It owns authentication, top-level
+navigation, active project and release context, and page selection. About
+content, release workspace loading, tab configuration, navigation rendering,
+and page-specific overview, metrics, charts, issues, sprint, report, and
+settings behavior belong in focused modules or containers.
+
+Sprint functionality separates one data container from presentational sprint
+selection, summary, health, ticket-situation, delivery-confidence, metric,
+evidence, chart, comparison, history, and reporting components. Intelligence
+and report pages share sprint data ownership and must not issue duplicate API
+requests. API access remains in page or container hooks, not presentational
+components. Pure metric evaluation and formatting helpers remain separately
+testable.
+
+The extraction preserves project scoping, selection, refresh and recomputation
+behavior, request cancellation, stale-response protection, loading and error
+states, expansion defaults, and issue focus. It does not add React Router, a
+global state library, or a generic component framework. Metric metadata is not
+re-centralized during this extraction; Phase 5.4 owns that decision.
+
+Frontend assertions and the production build run after each extraction stage.
+Desktop navigation and rendering are verified after both large containers are
+decomposed.
+
+## Authoritative Metric Catalog
+
+Status: **Approved — Phase 5.4**
+
+`PRODUCT_RULES.md` remains the normative authority for product behavior. One
+machine-readable backend metric catalog is the implementation authority for
+mechanical release and sprint metric metadata. It must not introduce a formula,
+threshold, availability meaning, or historical interpretation absent from the
+approved product rules.
+
+Each catalog entry contains its stable key and scope, label, concise
+description, category, unit, formatting rule, display order, thresholds and
+severity meaning, availability and evidence metadata, API field name,
+historical-series support, signal/confidence/chart/report participation, and
+applicable ruleset version.
+
+The backend uses catalog selections instead of separate metric-name lists and
+uses catalog thresholds, labels, ordering, units, and evidence mappings in API,
+signal, report, and chart metadata. Metric formulas remain explicit in
+`analytics_service`; signal evaluation remains explicit in `signal_service`;
+dynamic availability remains explicit in `metric_availability_service`. The
+catalog is not a generic metric or rules engine.
+
+`GET /metadata/metrics` is the protected-read API for the current catalog. It
+returns deterministic release and sprint definitions plus catalog and ruleset
+versions and contains no credentials or deployment configuration. It follows
+the existing bearer-token rules and belongs to the Phase 4 route-security
+inventory. The frontend obtains shared labels, descriptions, units, ordering,
+thresholds, and availability presentation metadata from this API instead of
+maintaining competing maps.
+
+Current catalog metadata must never reinterpret immutable historical results.
+Historical responses and reports continue to use stored values, provenance,
+thresholds, availability, and ruleset identity. A behavior change first updates
+the approved product rules, then the catalog and implementation in the same
+change, and increments `ruleset_version` when output meaning changes.
+
+Contract tests require exactly one catalog entry for every API metric, reject
+stale and duplicate entries, verify all threshold consumers and public metadata
+against the catalog, and keep frontend and report presentation synchronized.
+
+## Phase 5 Documentation Responsibilities
+
+Status: **Approved — Phase 5.5**
+
+Phase 5 retains the document ownership and precedence rules approved in Phase
+1.1 and updates each maintained document only within its responsibility:
+
+- `README.md` describes the implemented service, reporting, frontend, metric
+  catalog, metadata API, development, and verification architecture.
+- `HELPER.md` remains the practical authenticated API reference and removes
+  stale limitations or operations.
+- `UNIT_TEST_DOCS.md` documents durable coverage areas, focused and full
+  commands, and PostgreSQL, Docker, Electron, and packaged-test prerequisites;
+  it does not preserve brittle hardcoded test counts.
+- `ABOUT.md` retains user-facing interpretation and approved Release Outlook
+  language while shared labels, thresholds, units, and availability summaries
+  remain synchronized with the catalog.
+- `AGENTS.md` retains deterministic, single-service, thin-route, and simplicity
+  constraints and adds the approved response-assembly, reporting, catalog, and
+  frontend boundaries.
+
+Documents link to, generate, or contract-check mechanical metadata instead of
+copying competing definitions. Documentation is updated with the implementation
+point that changes it. Final safeguards identify stale endpoints, metric keys,
+thresholds, terminology, migration heads, and verification commands. A
+documentation-only change cannot silently change product behavior or
+`ruleset_version`.
+
+## OpenAPI and Endpoint-Documentation Contract
+
+Status: **Approved — Phase 5.6**
+
+FastAPI OpenAPI is authoritative for the mechanical application endpoint
+contract. Each application operation has a stable unique operation ID, an
+explicit tag and concise summary, declared parameters and response model, and
+documented success and relevant error responses. Protected operations declare
+bearer authentication in OpenAPI; `GET /health` is the only public application
+operation. Runtime authentication remains centrally enforced by the Phase 4
+middleware rather than duplicated as a second dependency path.
+
+Contract tests compare OpenAPI, the centralized FastAPI route inventory,
+`README.md`, and `HELPER.md`. Every supported method and path appears exactly
+once in each maintained endpoint inventory, path parameter names agree with
+OpenAPI, and missing, stale, duplicate, or malformed entries fail with an exact
+diagnostic. Built-in `/docs`, `/redoc`, and `/openapi.json` routes remain
+protected but are excluded from the application-operation inventory. Automatic
+`HEAD` and `OPTIONS` operations are excluded unless deliberately documented.
+
+`HELPER.md` retains human-authored purpose, authentication, parameter,
+empty/partial/error, and operational-use guidance. OpenAPI and the metric
+catalog supply mechanical endpoint and metric metadata; contract tests do not
+attempt subjective prose generation.
+
+An explicit command may export current OpenAPI JSON for external tooling, but a
+generated `openapi.json` file is not committed. This assurance contract does
+not change endpoint behavior, authentication enforcement, metric meaning, or
+the runtime `ruleset_version`, which remains `2`.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -2142,3 +2327,18 @@ restructuring work begins.
 | 4.4 | Classify every route and explicitly protect configuration, administration, sync, and recomputation operations | Approved |
 | 4.5 | Keep non-Electron secrets in operator-controlled providers and reject application-managed durable token writes | Approved |
 | 4.6 | Verify authentication and configuration-write behavior across every supported deployment mode | Approved |
+
+## Phase 5 Decision Register
+
+Phase 5 restores architecture and documentation clarity without changing the
+approved single-service product model or introducing a generic abstraction
+framework.
+
+| Point | Decision | Status |
+|---|---|---|
+| 5.1 | Move release-metric and sprint response assembly into focused application services | Approved |
+| 5.2 | Split reporting into document models, data preparation, templates, chart rendering, PDF rendering, and a small facade | Approved |
+| 5.3 | Split `App.tsx` and `SprintsPanel.tsx` by page and container responsibility | Approved |
+| 5.4 | Use one metric catalog for shared metadata while retaining `PRODUCT_RULES.md` as the normative product authority | Approved |
+| 5.5 | Reconcile maintained technical, API, test, user, and agent documentation with the implemented architecture | Approved |
+| 5.6 | Make OpenAPI authoritative for endpoint mechanics and enforce documentation synchronization with contract tests | Approved |
