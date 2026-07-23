@@ -287,7 +287,10 @@ Use `make migration-check` to run only the focused SQLite migration gate.
 Use `make hygiene-check` to verify that generated test output, logs, TypeScript
 build metadata, generated Vite configuration duplicates, and accidental
 filenames are not tracked; required ignore and line-ending policies are
-present; and malformed command-fragment filenames remain visible.
+present; the tracked Git index contains no CRLF or mixed-line-ending content;
+and malformed command-fragment filenames remain visible. Platform-specific
+working-tree endings do not fail this check because the normalized index is the
+committed authority.
 
 The equivalent commands are:
 
@@ -311,7 +314,9 @@ python scripts/check_repository_hygiene.py --verification-clean
 This mode fails when verification unexpectedly changes the committed API
 contract snapshots or generated frontend metric-catalog fallback. It is
 intended for clean-checkout acceptance, not for rejecting an intentional,
-reviewable generated-file update during development.
+reviewable generated-file update during development. All five stable CI jobs
+run this command in an `always()` final step, so an earlier test or build
+failure cannot hide generated-content or indexed line-ending drift.
 
 Run frontend assertions and the production build:
 
@@ -419,13 +424,19 @@ Prerequisites:
 - permission and resources to build and run the backend and PostgreSQL images;
 - no real LighthousePM or Jira credentials.
 
-Require the test instead of allowing a skip:
+Run the required static and runtime suite:
 
 ```bash
 cd backend
-LIGHTHOUSE_REQUIRE_DOCKER_SECURITY=1 \
-  python -m pytest tests/test_docker_runtime_security.py -m docker -q
+make docker-test
 ```
+
+The Make target passes `--required` to
+`python scripts/run_docker_security.py`. Required mode fails when the Docker
+CLI or daemon is unavailable, when no Docker-marked runtime test is collected,
+when a required runtime test is skipped, or when any static or runtime security
+test fails. Direct `pytest` remains available for optional local iteration but
+is not the required acceptance gate.
 
 ## Security acceptance gate
 

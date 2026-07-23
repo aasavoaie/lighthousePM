@@ -86,6 +86,7 @@ GENERATED_VITE_CONFIG_PATHS = frozenset(
         "frontend/vite.config.js",
     }
 )
+ALLOWED_INDEX_LINE_ENDINGS = frozenset({"i/lf", "i/none", "i/-text"})
 
 
 class RepositoryHygieneError(RuntimeError):
@@ -177,6 +178,35 @@ def _generated_content_is_dirty(repository_root: Path) -> bool:
     return bool(result.stdout)
 
 
+def _indexed_line_ending_violations(repository_root: Path) -> list[str]:
+    result = _run_git(repository_root, "ls-files", "--eol", "-z")
+    if result.returncode:
+        message = result.stderr.decode(errors="replace").strip()
+        raise RepositoryHygieneError(message or "Git line-ending inventory failed.")
+
+    records = [record for record in result.stdout.split(b"\0") if record]
+    if not records:
+        raise RepositoryHygieneError("Git line-ending inventory was empty.")
+
+    violations: list[str] = []
+    for record in records:
+        metadata, separator, raw_path = record.partition(b"\t")
+        fields = metadata.split()
+        if not separator or not raw_path or not fields:
+            raise RepositoryHygieneError("Git returned a malformed line-ending record.")
+
+        index_eol = os.fsdecode(fields[0])
+        path = os.fsdecode(raw_path)
+        if index_eol in {"i/crlf", "i/mixed"}:
+            violations.append(f"{path} ({index_eol})")
+        elif index_eol not in ALLOWED_INDEX_LINE_ENDINGS:
+            raise RepositoryHygieneError(
+                f"Git returned an unsupported index line-ending state: {index_eol}"
+            )
+
+    return sorted(violations)
+
+
 def repository_hygiene_errors(
     repository_root: Path = REPOSITORY_ROOT,
     *,
@@ -192,6 +222,13 @@ def repository_hygiene_errors(
         "--exclude-standard",
     )
     errors: list[str] = []
+
+    line_ending_violations = _indexed_line_ending_violations(root)
+    if line_ending_violations:
+        errors.append(
+            "tracked index line endings are not normalized: "
+            + ", ".join(line_ending_violations)
+        )
 
     forbidden_paths = forbidden_tracked_paths(tracked_paths)
     if forbidden_paths:

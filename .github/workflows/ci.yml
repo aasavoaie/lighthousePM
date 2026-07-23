@@ -47,9 +47,12 @@ jobs:
 
       - name: Run backend quality gates and API contracts read-only
         working-directory: backend
-        run: |
-          make quality
-          python scripts/check_repository_hygiene.py --verification-clean
+        run: make quality
+
+      - name: Verify repository hygiene after backend quality
+        if: always()
+        working-directory: backend
+        run: python scripts/check_repository_hygiene.py --verification-clean
 
   desktop:
     name: desktop
@@ -115,6 +118,7 @@ jobs:
         run: npm run smoke:backend
 
       - name: Verify verification left generated content unchanged
+        if: always()
         run: python backend/scripts/check_repository_hygiene.py --verification-clean
 
   frontend:
@@ -156,6 +160,7 @@ jobs:
         run: npm run build
 
       - name: Verify verification left generated content unchanged
+        if: always()
         run: python backend/scripts/check_repository_hygiene.py --verification-clean
 
   postgres-integration:
@@ -201,9 +206,12 @@ jobs:
 
       - name: Run required PostgreSQL integration gate
         working-directory: backend
-        run: |
-          python scripts/run_postgres_integration.py
-          python scripts/check_repository_hygiene.py --verification-clean
+        run: python scripts/run_postgres_integration.py
+
+      - name: Verify repository hygiene after PostgreSQL acceptance
+        if: always()
+        working-directory: backend
+        run: python scripts/check_repository_hygiene.py --verification-clean
 
   docker-security:
     name: docker-security
@@ -233,11 +241,7 @@ jobs:
 
       - name: Run required Docker security acceptance
         working-directory: backend
-        run: |
-          python -m pytest \
-            tests/test_docker_security.py \
-            tests/test_docker_runtime_security.py \
-            -q
+        run: python scripts/run_docker_security.py
 
       - name: Verify repository hygiene after Docker acceptance
         if: always()

@@ -749,7 +749,15 @@ branch protection; LighthousePM does not modify repository-external branch
 protection settings automatically.
 
 Use `make migration-check` when only the SQLite migration and startup-upgrade
-matrix needs to be verified.
+matrix needs to be verified. Use `make docker-test` from `backend` to run the
+required static and runtime Docker security suite. The required runner rejects
+missing Docker-marked runtime coverage and any skipped runtime test.
+
+Repository hygiene validates the committed Git index, not platform-specific
+working-tree checkout endings: tracked text must be normalized to LF, while
+binary and no-line-ending content remain supported. Every stable CI job runs
+the verification-clean hygiene check as an `always()` final step so an earlier
+failure cannot hide generated-content or line-ending drift.
 
 Run the complete Phase 4 security acceptance gate from the desktop directory:
 

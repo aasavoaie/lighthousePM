@@ -1,7 +1,7 @@
 PYTHON ?= python
 APP_MODULE ?= app.main:app
 
-.PHONY: help install install-dev locks locks-upgrade run test api-contracts-update postgres-test lint format typecheck dependency-check migration-check hygiene-check quality db-upgrade seed
+.PHONY: help install install-dev locks locks-upgrade run test api-contracts-update postgres-test docker-test lint format typecheck dependency-check migration-check hygiene-check quality db-upgrade seed
 
 help:
 	@echo "Available targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  test         Run normal backend tests (excluding PostgreSQL and Docker)"
 	@echo "  api-contracts-update  Regenerate deterministic API contract snapshots"
 	@echo "  postgres-test  Run required PostgreSQL integration acceptance"
+	@echo "  docker-test  Run required Docker security acceptance"
 	@echo "  lint         Run whole-backend Ruff checks"
 	@echo "  format       Format code with Ruff"
 	@echo "  typecheck    Run MyPy type checking"
@@ -46,6 +47,9 @@ api-contracts-update:
 
 postgres-test:
 	$(PYTHON) scripts/run_postgres_integration.py --required
+
+docker-test:
+	$(PYTHON) scripts/run_docker_security.py --required
 
 lint:
 	$(PYTHON) -m ruff check app tests alembic scripts desktop_entry.py seed.py

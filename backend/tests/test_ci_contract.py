@@ -51,6 +51,7 @@ def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
     assert "working-directory: backend" in backend_job
     assert "name: Run backend quality gates and API contracts read-only" in backend_job
     assert "make quality" in backend_job
+    assert "if: always()" in backend_job
     assert (
         "python scripts/check_repository_hygiene.py --verification-clean" in backend_job
     )
@@ -62,6 +63,10 @@ def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
     )
     assert backend_job.index("python scripts/compile_python_locks.py") < (
         backend_job.index("make quality")
+    )
+    assert backend_job.index("make quality") < backend_job.index("if: always()")
+    assert backend_job.index("if: always()") < backend_job.index(
+        "python scripts/check_repository_hygiene.py --verification-clean"
     )
 
 
@@ -84,9 +89,16 @@ def test_postgres_integration_job_is_required_and_ephemeral() -> None:
     assert "pip install --no-deps --no-build-isolation -e ." in workflow
     assert "python -m pip check" in workflow
     assert "python scripts/run_postgres_integration.py" in postgres_job
+    assert "if: always()" in postgres_job
     assert (
         "python scripts/check_repository_hygiene.py --verification-clean"
         in postgres_job
+    )
+    assert postgres_job.index("python scripts/run_postgres_integration.py") < (
+        postgres_job.index("if: always()")
+    )
+    assert postgres_job.index("if: always()") < postgres_job.index(
+        "python scripts/check_repository_hygiene.py --verification-clean"
     )
 
 
@@ -105,13 +117,19 @@ def test_docker_security_job_is_required_isolated_and_secret_free() -> None:
     assert "pip install --require-hashes -r requirements/linux-dev.lock" in docker_job
     assert "pip install --no-deps --no-build-isolation -e ." in docker_job
     assert "python -m pip check" in docker_job
-    assert "tests/test_docker_security.py" in docker_job
-    assert "tests/test_docker_runtime_security.py" in docker_job
+    assert "python scripts/run_docker_security.py" in docker_job
+    assert "python -m pytest" not in docker_job
     assert "if: always()" in docker_job
     assert (
         "python scripts/check_repository_hygiene.py --verification-clean" in docker_job
     )
     assert "${{ secrets." not in docker_job
+    assert docker_job.index("python scripts/run_docker_security.py") < docker_job.index(
+        "if: always()"
+    )
+    assert docker_job.index("if: always()") < docker_job.index(
+        "python scripts/check_repository_hygiene.py --verification-clean"
+    )
 
 
 def test_frontend_job_uses_locked_isolated_test_and_build_gates() -> None:
@@ -135,6 +153,7 @@ def test_frontend_job_uses_locked_isolated_test_and_build_gates() -> None:
     assert "name: Run frontend logic and component tests" in frontend_job
     assert "run: npm test" in frontend_job
     assert "run: npm run build" in frontend_job
+    assert "if: always()" in frontend_job
     assert (
         "python backend/scripts/check_repository_hygiene.py --verification-clean"
         in frontend_job
@@ -146,6 +165,10 @@ def test_frontend_job_uses_locked_isolated_test_and_build_gates() -> None:
     assert frontend_job.index("run: npm ci") < frontend_job.index("run: npm test")
     assert frontend_job.index("run: npm test") < frontend_job.index(
         "run: npm run build"
+    )
+    assert frontend_job.index("run: npm run build") < frontend_job.index("if: always()")
+    assert frontend_job.index("if: always()") < frontend_job.index(
+        "python backend/scripts/check_repository_hygiene.py --verification-clean"
     )
 
 
@@ -184,6 +207,7 @@ def test_desktop_job_builds_and_smokes_the_real_windows_backend() -> None:
     assert "run: npm run build:backend" in desktop_job
     assert "name: Smoke-test packaged Windows backend" in desktop_job
     assert "run: npm run smoke:backend" in desktop_job
+    assert "if: always()" in desktop_job
     assert (
         "python backend/scripts/check_repository_hygiene.py --verification-clean"
         in desktop_job
@@ -209,4 +233,10 @@ def test_desktop_job_builds_and_smokes_the_real_windows_backend() -> None:
     )
     assert desktop_job.index("python scripts/compile_python_locks.py") < (
         desktop_job.index("run: npm ci")
+    )
+    assert desktop_job.index("run: npm run smoke:backend") < desktop_job.index(
+        "if: always()"
+    )
+    assert desktop_job.index("if: always()") < desktop_job.index(
+        "python backend/scripts/check_repository_hygiene.py --verification-clean"
     )
