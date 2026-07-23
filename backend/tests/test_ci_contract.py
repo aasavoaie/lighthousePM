@@ -16,15 +16,23 @@ def test_ci_workflow_has_approved_global_controls() -> None:
     assert "uses: actions/checkout@v7" in workflow
     assert "persist-credentials: false" in workflow
     assert "${{ secrets." not in workflow
+    for job_name in (
+        "backend-quality",
+        "postgres-integration",
+        "frontend",
+        "desktop",
+        "docker-security",
+    ):
+        assert f"  {job_name}:\n    name: {job_name}" in workflow
 
 
 def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    backend_job = workflow.split("  backend:\n", maxsplit=1)[1].split(
+    backend_job = workflow.split("  backend-quality:\n", maxsplit=1)[1].split(
         "  desktop:\n", maxsplit=1
     )[0]
 
-    assert "    name: backend" in backend_job
+    assert "    name: backend-quality" in backend_job
     assert "runs-on: ubuntu-latest" in backend_job
     assert "uses: actions/checkout@v7" in backend_job
     assert "persist-credentials: false" in backend_job
@@ -59,7 +67,9 @@ def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
 
 def test_postgres_integration_job_is_required_and_ephemeral() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    postgres_job = workflow.split("  postgres-integration:\n", maxsplit=1)[1]
+    postgres_job = workflow.split("  postgres-integration:\n", maxsplit=1)[1].split(
+        "  docker-security:\n", maxsplit=1
+    )[0]
 
     assert "  postgres-integration:\n    name: postgres-integration" in workflow
     assert "image: postgres:14" in workflow
@@ -78,6 +88,30 @@ def test_postgres_integration_job_is_required_and_ephemeral() -> None:
         "python scripts/check_repository_hygiene.py --verification-clean"
         in postgres_job
     )
+
+
+def test_docker_security_job_is_required_isolated_and_secret_free() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    docker_job = workflow.split("  docker-security:\n", maxsplit=1)[1]
+
+    assert "    name: docker-security" in docker_job
+    assert "runs-on: ubuntu-latest" in docker_job
+    assert 'LIGHTHOUSE_REQUIRE_DOCKER_SECURITY: "1"' in docker_job
+    assert "uses: actions/checkout@v7" in docker_job
+    assert "persist-credentials: false" in docker_job
+    assert "uses: actions/setup-python@v6" in docker_job
+    assert 'python-version: "3.11"' in docker_job
+    assert "cache-dependency-path: backend/requirements/linux-dev.lock" in docker_job
+    assert "pip install --require-hashes -r requirements/linux-dev.lock" in docker_job
+    assert "pip install --no-deps --no-build-isolation -e ." in docker_job
+    assert "python -m pip check" in docker_job
+    assert "tests/test_docker_security.py" in docker_job
+    assert "tests/test_docker_runtime_security.py" in docker_job
+    assert "if: always()" in docker_job
+    assert (
+        "python scripts/check_repository_hygiene.py --verification-clean" in docker_job
+    )
+    assert "${{ secrets." not in docker_job
 
 
 def test_frontend_job_uses_locked_isolated_test_and_build_gates() -> None:

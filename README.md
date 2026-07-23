@@ -742,6 +742,12 @@ check the application boundary, verify direct and installed dependencies, and
 exercise deterministic SQLite migration and startup upgrades. The
 environment-backed PostgreSQL and Docker gates are run separately.
 
+The stable CI merge-readiness jobs are `backend-quality`,
+`postgres-integration`, `frontend`, `desktop`, and `docker-security`. Repository
+CI defines these independently so an owner can require their exact names in
+branch protection; LighthousePM does not modify repository-external branch
+protection settings automatically.
+
 Use `make migration-check` when only the SQLite migration and startup-upgrade
 matrix needs to be verified.
 

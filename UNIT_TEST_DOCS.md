@@ -407,6 +407,11 @@ API and PostgreSQL secrets, chooses a free loopback backend port, verifies
 authentication and configuration-write behavior, and removes its containers,
 volumes, and local images afterward.
 
+The corresponding required CI job is named `docker-security`. The complete
+stable merge-readiness job set is `backend-quality`, `postgres-integration`,
+`frontend`, `desktop`, and `docker-security`. Branch-protection configuration
+remains an owner-managed repository setting.
+
 Prerequisites:
 
 - Docker CLI with Compose;
