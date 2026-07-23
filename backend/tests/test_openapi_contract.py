@@ -3,10 +3,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.security.base import SecurityBase
 
 from app.main import app
+from app.openapi import _apply_route_security, _iter_route_contexts
 from app.security import RouteSecurityClass, route_security_class
 
 
@@ -72,14 +74,37 @@ CONTROLLED_ERROR_STATUSES = {
 }
 
 
-def _application_operations() -> list[tuple[str, APIRoute]]:
-    operations: list[tuple[str, APIRoute]] = []
-    for route in app.routes:
+def _application_operations() -> list[tuple[str, str, APIRoute]]:
+    operations: list[tuple[str, str, APIRoute]] = []
+    for route_context in _iter_route_contexts(app.routes):
+        route = route_context.route
         if not isinstance(route, APIRoute) or not route.include_in_schema:
             continue
-        for method in sorted(route.methods & APPLICATION_METHODS):
-            operations.append((method, route))
+        methods = route_context.methods
+        if not methods:
+            continue
+        path = route_context.path
+        if not path:
+            continue
+        for method in sorted(methods & APPLICATION_METHODS):
+            operations.append((method, path, route))
     return operations
+
+
+def test_openapi_security_ignores_schema_route_without_methods() -> None:
+    methodless_route = APIRoute(
+        "/methodless",
+        endpoint=lambda: None,
+        methods=["GET"],
+    )
+    methodless_route.methods = None  # type: ignore[assignment]
+    test_app = FastAPI()
+    test_app.routes.append(methodless_route)
+    schema: dict[str, Any] = {"paths": {}}
+
+    _apply_route_security(schema, test_app)
+
+    assert schema["components"]["securitySchemes"]
 
 
 def _runtime_security_dependencies(route: APIRoute) -> list[str]:
@@ -171,9 +196,7 @@ def _path_parameter_mismatches(
         documented_path = documented_by_shape[route_shape]
         if expected_path == documented_path:
             continue
-        mismatches.append(
-            f"expected {expected_path}, found {documented_path}"
-        )
+        mismatches.append(f"expected {expected_path}, found {documented_path}")
     return mismatches
 
 
@@ -184,8 +207,8 @@ def test_application_operations_have_stable_identity_and_presentation() -> None:
     violations: list[str] = []
     operation_locations: dict[str, list[str]] = defaultdict(list)
     observed_tags: set[str] = set()
-    for method, route in operations:
-        location = f"{method} {route.path}"
+    for method, path, route in operations:
+        location = f"{method} {path}"
         if route.operation_id != route.endpoint.__name__:
             violations.append(
                 f"{location}: operation_id must be explicit and match handler "
@@ -224,9 +247,9 @@ def test_application_operations_have_stable_identity_and_presentation() -> None:
 def test_openapi_exposes_explicit_operation_identity_and_presentation() -> None:
     openapi = app.openapi()
     violations: list[str] = []
-    for method, route in _application_operations():
-        location = f"{method} {route.path}"
-        operation = openapi["paths"][route.path][method.lower()]
+    for method, path, route in _application_operations():
+        location = f"{method} {path}"
+        operation = openapi["paths"][path][method.lower()]
         expected = {
             "operationId": route.operation_id,
             "summary": route.summary,
@@ -234,9 +257,7 @@ def test_openapi_exposes_explicit_operation_identity_and_presentation() -> None:
         }
         actual = {key: operation.get(key) for key in expected}
         if actual != expected:
-            violations.append(
-                f"{location}: expected {expected!r}; found {actual!r}"
-            )
+            violations.append(f"{location}: expected {expected!r}; found {actual!r}")
 
     assert not violations, "Generated OpenAPI operation metadata drift: " + "; ".join(
         violations
@@ -246,12 +267,10 @@ def test_openapi_exposes_explicit_operation_identity_and_presentation() -> None:
 def test_openapi_success_content_matches_operation_type() -> None:
     openapi = app.openapi()
     violations: list[str] = []
-    for method, route in _application_operations():
-        route_key = (method, route.path)
-        location = f"{method} {route.path}"
-        success_response = openapi["paths"][route.path][method.lower()]["responses"][
-            "200"
-        ]
+    for method, path, route in _application_operations():
+        route_key = (method, path)
+        location = f"{method} {path}"
+        success_response = openapi["paths"][path][method.lower()]["responses"]["200"]
         success_content = success_response.get("content", {})
         if route_key in PDF_OPERATIONS:
             if route.response_model is not None:
@@ -278,9 +297,9 @@ def test_controlled_error_response_inventory_matches_routes() -> None:
     openapi = app.openapi()
     violations: list[str] = []
     observed_error_routes: set[tuple[str, str]] = set()
-    for method, route in _application_operations():
-        route_key = (method, route.path)
-        location = f"{method} {route.path}"
+    for method, path, route in _application_operations():
+        route_key = (method, path)
+        location = f"{method} {path}"
         explicit_statuses = {
             int(status_code)
             for status_code in route.responses
@@ -295,11 +314,13 @@ def test_controlled_error_response_inventory_matches_routes() -> None:
         if expected_statuses:
             observed_error_routes.add(route_key)
 
-        openapi_responses = openapi["paths"][route.path][method.lower()]["responses"]
+        openapi_responses = openapi["paths"][path][method.lower()]["responses"]
         for status_code in sorted(expected_statuses):
             response = openapi_responses.get(str(status_code), {})
-            schema = response.get("content", {}).get("application/json", {}).get(
-                "schema", {}
+            schema = (
+                response.get("content", {})
+                .get("application/json", {})
+                .get("schema", {})
             )
             if schema.get("$ref") != "#/components/schemas/ApiErrorResponse":
                 violations.append(
@@ -323,23 +344,21 @@ def test_controlled_error_response_inventory_matches_routes() -> None:
 def test_validation_capable_operations_document_422() -> None:
     openapi = app.openapi()
     violations: list[str] = []
-    for method, route in _application_operations():
+    for method, path, route in _application_operations():
         has_request_values = bool(
             route.dependant.path_params
             or route.dependant.query_params
             or route.dependant.body_params
         )
-        responses = openapi["paths"][route.path][method.lower()]["responses"]
+        responses = openapi["paths"][path][method.lower()]["responses"]
         has_validation_response = "422" in responses
         if has_validation_response != has_request_values:
             violations.append(
-                f"{method} {route.path}: expected 422={has_request_values}; "
+                f"{method} {path}: expected 422={has_request_values}; "
                 f"found {has_validation_response}"
             )
 
-    assert not violations, "OpenAPI validation-response drift: " + "; ".join(
-        violations
-    )
+    assert not violations, "OpenAPI validation-response drift: " + "; ".join(violations)
 
 
 def test_openapi_security_matches_central_route_classification() -> None:
@@ -352,16 +371,14 @@ def test_openapi_security_matches_central_route_classification() -> None:
             "for the active deployment mode."
         ),
     }
-    assert openapi["components"]["securitySchemes"] == {
-        "BearerAuth": expected_scheme
-    }
+    assert openapi["components"]["securitySchemes"] == {"BearerAuth": expected_scheme}
 
     violations: list[str] = []
     public_operations: set[tuple[str, str]] = set()
-    for method, route in _application_operations():
-        route_key = (method, route.path)
-        location = f"{method} {route.path}"
-        operation = openapi["paths"][route.path][method.lower()]
+    for method, path, route in _application_operations():
+        route_key = (method, path)
+        location = f"{method} {path}"
+        operation = openapi["paths"][path][method.lower()]
         security_class = route_security_class(route_key)
         if security_class == RouteSecurityClass.PUBLIC_HEALTH:
             public_operations.add(route_key)
@@ -398,11 +415,11 @@ def test_openapi_security_matches_central_route_classification() -> None:
 
 def test_openapi_security_does_not_add_runtime_auth_dependencies() -> None:
     violations = []
-    for method, route in _application_operations():
+    for method, path, route in _application_operations():
         security_dependencies = _runtime_security_dependencies(route)
         if security_dependencies:
             violations.append(
-                f"{method} {route.path}: unexpected security dependencies "
+                f"{method} {path}: unexpected security dependencies "
                 f"{security_dependencies}"
             )
 
@@ -415,7 +432,7 @@ def test_openapi_security_does_not_add_runtime_auth_dependencies() -> None:
 def test_openapi_operation_inventory_matches_registered_application_routes() -> None:
     openapi = app.openapi()
     registered_operations = [
-        (method, route.path) for method, route in _application_operations()
+        (method, path) for method, path, _route in _application_operations()
     ]
     documented_operations = _openapi_operations(openapi)
     registered_counts = Counter(registered_operations)
@@ -441,22 +458,20 @@ def test_openapi_operation_inventory_matches_registered_application_routes() -> 
 def test_openapi_path_parameters_match_route_placeholders() -> None:
     openapi = app.openapi()
     violations: list[str] = []
-    for method, route in _application_operations():
-        location = f"{method} {route.path}"
-        path_item = openapi["paths"][route.path]
+    for method, path, _route in _application_operations():
+        location = f"{method} {path}"
+        path_item = openapi["paths"][path]
         operation = path_item[method.lower()]
         parameters = [
             *path_item.get("parameters", []),
             *operation.get("parameters", []),
         ]
-        expected_names = PATH_PARAMETER_PATTERN.findall(route.path)
+        expected_names = PATH_PARAMETER_PATTERN.findall(path)
         documented_path_parameters: list[dict[str, object]] = []
         documented_names: list[str] = []
         for index, parameter in enumerate(parameters):
             if not isinstance(parameter, dict):
-                violations.append(
-                    f"{location}: parameter {index} is not an object"
-                )
+                violations.append(f"{location}: parameter {index} is not an object")
                 continue
             if parameter.get("in") != "path":
                 continue
@@ -477,9 +492,7 @@ def test_openapi_path_parameters_match_route_placeholders() -> None:
                 (Counter(documented_names) - Counter(expected_names)).elements()
             )
             duplicates = sorted(
-                name
-                for name, count in Counter(documented_names).items()
-                if count > 1
+                name for name, count in Counter(documented_names).items() if count > 1
             )
             violations.append(
                 f"{location}: path parameters differ; missing={missing}, "
@@ -544,9 +557,7 @@ def test_readme_and_helper_endpoint_inventories_match_openapi() -> None:
         missing = sorted(expected_counts.keys() - documented_counts.keys())
         stale = sorted(documented_counts.keys() - expected_counts.keys())
         duplicates = sorted(
-            operation
-            for operation, count in documented_counts.items()
-            if count > 1
+            operation for operation, count in documented_counts.items() if count > 1
         )
         parameter_mismatches = _path_parameter_mismatches(
             expected=set(expected_counts),

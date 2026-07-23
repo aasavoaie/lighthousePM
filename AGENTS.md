@@ -142,6 +142,13 @@ Focus on metric correctness, signal logic, response contracts, provenance, secur
 
 Run focused tests after each approved implementation point, then run the relevant full backend, frontend, desktop, migration, or packaging checks before declaring the phase complete. Follow `UNIT_TEST_DOCS.md` for supported commands and prerequisites.
 
+### Phase 6 delivery completion
+
+- Treat `backend-quality`, `postgres-integration`, `frontend`, `desktop`, and `docker-security` as the stable required CI job set.
+- Use the Phase 6 completion matrix in `UNIT_TEST_DOCS.md`; do not replace it with an ad hoc aggregate command or a second gate inventory.
+- Final delivery reports separate locally passed, environment-dependent, CI-only or pending, and warning evidence.
+- Never report a gate as passed unless its command actually ran successfully. A local equivalent does not prove its GitHub Actions job passed.
+
 ## Do not
 
 - add guess-based metrics or undocumented thresholds;

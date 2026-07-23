@@ -438,6 +438,56 @@ when a required runtime test is skipped, or when any static or runtime security
 test fails. Direct `pytest` remains available for optional local iteration but
 is not the required acceptance gate.
 
+## Phase 6 completion matrix
+
+These five independently visible jobs are the complete automated
+merge-readiness contract:
+
+| Required job | CI environment | Required coverage | Canonical local entry points |
+| --- | --- | --- | --- |
+| `backend-quality` | Ubuntu, Python 3.11 | Linux lock reproducibility; non-external backend tests, including read-only API snapshots and documentation contracts; whole-backend Ruff; application MyPy; dependency inventory and `pip check`; SQLite migrations; repository hygiene and indexed line endings | From `backend`: `python scripts/compile_python_locks.py`, then `make quality` |
+| `postgres-integration` | Ubuntu, Python 3.11, PostgreSQL 14 | Required PostgreSQL migration and application-startup acceptance with synthetic credentials, nonempty collection, no skips, and disposable databases | From `backend`: `make postgres-test` with `MIGRATION_TEST_POSTGRES_ADMIN_URL` |
+| `frontend` | Ubuntu, Node.js 22 | Locked dependency inventory and `npm ls`; deterministic logic assertions; component and accessibility tests; TypeScript and the Vite production build | From `frontend`: `npm ci`, `npm run check:dependencies`, `npm test`, and `npm run build` |
+| `desktop` | Windows, Python 3.11, Node.js 22 | Windows lock reproducibility and `pip check`; desktop dependency inventory and `npm ls`; lint; nonempty Node tests; real packaged Windows backend build and bounded smoke test | Use the Windows command sequence in **Full repository verification**, ending with `npm run build:backend` and `npm run smoke:backend` |
+| `docker-security` | Ubuntu with Docker | Required static Compose/security checks and isolated runtime health, authentication, configuration-write, secret-rejection, network-isolation, and cleanup acceptance | From `backend`: `make docker-test` |
+
+Every job finishes with
+`python backend/scripts/check_repository_hygiene.py --verification-clean` or
+its backend-working-directory equivalent under `if: always()`. A complete
+Electron installer and interactive clean-machine acceptance remain separate
+release controls and are not ordinary CI gates.
+
+### Completion report template
+
+Use all four categories in a Phase 6 or release-control handoff.
+
+### Locally passed
+
+List only commands that actually ran and returned success, including the
+platform and relevant runtime versions.
+
+### Environment-dependent
+
+List required gates whose external prerequisite was unavailable, such as
+PostgreSQL or Docker. State the missing prerequisite and do not describe the
+gate as passed.
+
+### CI-only or pending
+
+List required jobs that must run on their native CI platform or have not yet
+reported a result. A successful local equivalent is supporting evidence, not a
+GitHub Actions result.
+
+### Warnings
+
+Preserve material warnings from successful commands. In particular, keep the
+existing frontend bundle-size warning visible without treating it as a new
+failure threshold.
+
+A gate must not be reported as passed unless its command actually ran and
+returned success. Do not infer GitHub results or owner-managed branch
+protection from local execution.
+
 ## Security acceptance gate
 
 The desktop package provides the combined automated gate:

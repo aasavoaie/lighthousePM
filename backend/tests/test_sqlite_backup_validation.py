@@ -9,7 +9,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL
 
 from app.config import Settings
-from app.db.backup_validation import BackupValidationError, validate_sqlite_backup
+from app.db.backup_validation import (
+    BackupValidationError,
+    create_standalone_sqlite_backup,
+    validate_sqlite_backup,
+)
 from app.db.schema_revision import SchemaRevisionIdentity
 from app.db.session import create_database_engine
 
@@ -25,7 +29,9 @@ def _alembic_config() -> Config:
 
 
 def _revision_chain() -> tuple[str, ...]:
-    revisions = reversed(list(ScriptDirectory.from_config(_alembic_config()).walk_revisions()))
+    revisions = reversed(
+        list(ScriptDirectory.from_config(_alembic_config()).walk_revisions())
+    )
     return tuple(revision.revision for revision in revisions)
 
 
@@ -67,7 +73,9 @@ def _canonical_backup_path(tmp_path: Path) -> Path:
     return tmp_path / f"lighthouse.db.pre-{_revision_chain()[-1]}.bak"
 
 
-def test_valid_versioned_backup_is_identified_without_modification(tmp_path: Path) -> None:
+def test_valid_versioned_backup_is_identified_without_modification(
+    tmp_path: Path,
+) -> None:
     backup_path = _canonical_backup_path(tmp_path)
     _create_backup_schema(backup_path)
     original_digest = sha256(backup_path.read_bytes()).digest()
@@ -147,8 +155,45 @@ def test_missing_and_symbolic_link_backups_are_rejected(tmp_path: Path) -> None:
     assert linked.value.rule == "file_type"
 
 
+def test_standalone_backup_rejects_symbolic_link_source(tmp_path: Path) -> None:
+    real_path = tmp_path / "real.db"
+    _create_backup_schema(real_path)
+    linked_path = tmp_path / "linked.db"
+    try:
+        linked_path.symlink_to(real_path)
+    except OSError as exc:
+        pytest.skip(f"Symbolic links are unavailable: {exc}")
+    target_path = tmp_path / "standalone.db"
+
+    with pytest.raises(BackupValidationError) as raised:
+        create_standalone_sqlite_backup(linked_path, target_path, _revision_chain())
+
+    assert raised.value.rule == "file_type"
+    assert not target_path.exists()
+
+
+def test_standalone_backup_rejects_symbolic_link_target(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.db"
+    _create_backup_schema(source_path)
+    linked_target = tmp_path / "linked-target.db"
+    linked_destination = tmp_path / "linked-destination.db"
+    try:
+        linked_target.symlink_to(linked_destination)
+    except OSError as exc:
+        pytest.skip(f"Symbolic links are unavailable: {exc}")
+
+    with pytest.raises(BackupValidationError) as raised:
+        create_standalone_sqlite_backup(source_path, linked_target, _revision_chain())
+
+    assert raised.value.rule == "file_type"
+    assert linked_target.is_symlink()
+    assert not linked_destination.exists()
+
+
 @pytest.mark.parametrize("state", ["empty", "multiple", "unknown"])
-def test_invalid_alembic_revision_states_are_rejected(tmp_path: Path, state: str) -> None:
+def test_invalid_alembic_revision_states_are_rejected(
+    tmp_path: Path, state: str
+) -> None:
     backup_path = _canonical_backup_path(tmp_path)
     _create_backup_schema(backup_path)
     database_engine = create_database_engine(
@@ -160,7 +205,9 @@ def test_invalid_alembic_revision_states_are_rejected(tmp_path: Path, state: str
                 connection.execute(text("DELETE FROM alembic_version"))
             elif state == "multiple":
                 connection.execute(
-                    text("INSERT INTO alembic_version (version_num) VALUES ('20260424_0002')")
+                    text(
+                        "INSERT INTO alembic_version (version_num) VALUES ('20260424_0002')"
+                    )
                 )
             else:
                 connection.execute(

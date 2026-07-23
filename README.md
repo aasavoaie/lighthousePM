@@ -759,6 +759,12 @@ binary and no-line-ending content remain supported. Every stable CI job runs
 the verification-clean hygiene check as an `always()` final step so an earlier
 failure cannot hide generated-content or line-ending drift.
 
+The authoritative Phase 6 completion matrix and evidence-report template are
+in [`UNIT_TEST_DOCS.md`](UNIT_TEST_DOCS.md#phase-6-completion-matrix). A local
+equivalent does not prove that its GitHub Actions job passed: completion
+reports must separate locally passed, environment-dependent, CI-only or
+pending, and warning evidence.
+
 Run the complete Phase 4 security acceptance gate from the desktop directory:
 
 ```bash

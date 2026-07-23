@@ -1,8 +1,16 @@
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Iterable, Iterator
+from typing import Any, NamedTuple
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+
+_fastapi_iter_route_contexts: Callable[[Iterable[Any]], Iterable[Any]] | None
+try:
+    from fastapi.routing import iter_route_contexts as _imported_iter_route_contexts
+except ImportError:  # pragma: no cover - exercised by older local FastAPI installs.
+    _fastapi_iter_route_contexts = None
+else:
+    _fastapi_iter_route_contexts = _imported_iter_route_contexts
 
 from app.security import RouteSecurityClass, route_security_class
 
@@ -27,17 +35,51 @@ AUTHENTICATION_ERROR_RESPONSE = {
 }
 
 
+class _RouteContext(NamedTuple):
+    route: APIRoute
+    methods: set[str]
+    path: str
+
+
+def _iter_route_contexts(routes: Iterable[Any]) -> Iterator[_RouteContext]:
+    if _fastapi_iter_route_contexts is not None:
+        for route_context in _fastapi_iter_route_contexts(routes):
+            route = route_context.route
+            if isinstance(route, APIRoute):
+                yield _RouteContext(
+                    route=route,
+                    methods=set(route_context.methods or ()),
+                    path=route_context.path or "",
+                )
+        return
+
+    for route in routes:
+        if isinstance(route, APIRoute):
+            yield _RouteContext(
+                route=route,
+                methods=set(route.methods or ()),
+                path=route.path,
+            )
+
+
 def _apply_route_security(openapi_schema: dict[str, Any], app: FastAPI) -> None:
     components = openapi_schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes[BEARER_SCHEME_NAME] = BEARER_SCHEME
 
-    for route in app.routes:
+    for route_context in _iter_route_contexts(app.routes):
+        route = route_context.route
         if not isinstance(route, APIRoute) or not route.include_in_schema:
             continue
-        for method in route.methods & APPLICATION_METHODS:
-            operation = openapi_schema["paths"][route.path][method.lower()]
-            security_class = route_security_class((method, route.path))
+        methods = route_context.methods
+        if not methods:
+            continue
+        path = route_context.path
+        if not path:
+            continue
+        for method in methods & APPLICATION_METHODS:
+            operation = openapi_schema["paths"][path][method.lower()]
+            security_class = route_security_class((method, path))
             if security_class == RouteSecurityClass.PUBLIC_HEALTH:
                 operation.pop("security", None)
                 operation["responses"].pop("401", None)

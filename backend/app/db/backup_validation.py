@@ -57,8 +57,9 @@ def validate_sqlite_backup(
     target_revision: str | None = None,
     require_target_in_filename: bool = False,
 ) -> SQLiteBackupValidation:
-    path = backup_path.expanduser().resolve()
-    _validate_regular_file(path)
+    candidate_path = backup_path.expanduser().absolute()
+    _validate_regular_file(candidate_path)
+    path = candidate_path.resolve()
     known_revisions = set(revision_chain)
 
     database_engine = _create_read_only_sqlite_engine(path)
@@ -84,7 +85,9 @@ def validate_sqlite_backup(
         )
 
     if target_revision is not None:
-        _validate_revision_relationship(path, identity.revision, target_revision, revision_chain)
+        _validate_revision_relationship(
+            path, identity.revision, target_revision, revision_chain
+        )
     if require_target_in_filename:
         _validate_filename_target(path, target_revision)
 
@@ -114,14 +117,22 @@ def create_standalone_sqlite_backup(
     target_path: Path,
     revision_chain: tuple[str, ...],
 ) -> SQLiteBackupValidation:
-    source = source_path.expanduser().resolve()
-    target = target_path.expanduser().resolve()
-    source_validation = validate_sqlite_backup(source, revision_chain)
+    source_candidate = source_path.expanduser().absolute()
+    source_validation = validate_sqlite_backup(source_candidate, revision_chain)
+    source = Path(source_validation.path)
     source_identity = SchemaRevisionIdentity(
         source_validation.source_revision,
         source_validation.revision_kind,
     )
 
+    target_candidate = target_path.expanduser().absolute()
+    if target_candidate.is_symlink():
+        raise BackupValidationError(
+            target_candidate,
+            "file_type",
+            "standalone backup target must not be a symbolic link",
+        )
+    target = target_candidate.resolve()
     if target.exists():
         raise BackupValidationError(
             target,
@@ -165,9 +176,13 @@ def create_standalone_sqlite_backup(
 
 def _validate_regular_file(path: Path) -> None:
     if path.is_symlink():
-        raise BackupValidationError(path, "file_type", "backup must not be a symbolic link")
+        raise BackupValidationError(
+            path, "file_type", "backup must not be a symbolic link"
+        )
     if not path.is_file():
-        raise BackupValidationError(path, "file_type", "backup must be a readable regular file")
+        raise BackupValidationError(
+            path, "file_type", "backup must be a readable regular file"
+        )
 
 
 def _create_read_only_sqlite_engine(path: Path) -> Engine:
@@ -220,7 +235,10 @@ def _validate_integrity(connection: Connection, path: Path) -> None:
     except Exception as exc:
         raise BackupValidationError(path, "sqlite_integrity", str(exc)) from exc
     if results != ["ok"]:
-        detail = "; ".join(str(result) for result in results) or "integrity check returned no result"
+        detail = (
+            "; ".join(str(result) for result in results)
+            or "integrity check returned no result"
+        )
         raise BackupValidationError(path, "sqlite_integrity", detail)
 
 
@@ -263,7 +281,9 @@ def _validate_revision_relationship(
 
 def _validate_filename_target(path: Path, target_revision: str | None) -> None:
     if target_revision is None:
-        raise BackupValidationError(path, "filename_target", "expected target revision is unavailable")
+        raise BackupValidationError(
+            path, "filename_target", "expected target revision is unavailable"
+        )
     expected_suffix = f".pre-{target_revision}.bak"
     if not path.name.endswith(expected_suffix):
         raise BackupValidationError(
