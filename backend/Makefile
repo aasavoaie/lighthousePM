@@ -1,7 +1,7 @@
 PYTHON ?= python
 APP_MODULE ?= app.main:app
 
-.PHONY: help install install-dev locks locks-upgrade run test api-contracts-update postgres-test lint format typecheck dependency-check migration-check quality db-upgrade seed
+.PHONY: help install install-dev locks locks-upgrade run test api-contracts-update postgres-test lint format typecheck dependency-check migration-check hygiene-check quality db-upgrade seed
 
 help:
 	@echo "Available targets:"
@@ -18,7 +18,8 @@ help:
 	@echo "  typecheck    Run MyPy type checking"
 	@echo "  dependency-check  Verify direct imports and installed packages"
 	@echo "  migration-check  Verify SQLite migrations and startup upgrades"
-	@echo "  quality      Run lint, typecheck, SQLite migrations, and normal tests"
+	@echo "  hygiene-check  Verify repository artifacts and policies"
+	@echo "  quality      Run lint, typecheck, dependencies, migrations, hygiene, and tests"
 	@echo "  db-upgrade   Apply Alembic migrations"
 	@echo "  seed         Insert sample data"
 
@@ -62,7 +63,10 @@ dependency-check:
 migration-check:
 	$(PYTHON) -m pytest tests/test_db.py tests/test_migration_upgrade_matrix.py tests/test_application_startup_acceptance.py -m "not postgres and not docker" -q
 
-quality: lint typecheck dependency-check migration-check test
+hygiene-check:
+	$(PYTHON) scripts/check_repository_hygiene.py
+
+quality: lint typecheck dependency-check migration-check hygiene-check test
 
 db-upgrade:
 	alembic upgrade head

@@ -36,7 +36,10 @@ def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
     assert "python -m pip check" in backend_job
     assert "working-directory: backend" in backend_job
     assert "name: Run backend quality gates and API contracts read-only" in backend_job
-    assert "run: make quality" in backend_job
+    assert "make quality" in backend_job
+    assert (
+        "python scripts/check_repository_hygiene.py --verification-clean" in backend_job
+    )
     assert "api-contracts-update" not in backend_job
     assert "update_api_contract_snapshots.py" not in backend_job
     assert "LIGHTHOUSE_UPDATE_API_CONTRACT_SNAPSHOTS" not in backend_job
@@ -44,6 +47,7 @@ def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
 
 def test_postgres_integration_job_is_required_and_ephemeral() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    postgres_job = workflow.split("  postgres-integration:\n", maxsplit=1)[1]
 
     assert "  postgres-integration:\n    name: postgres-integration" in workflow
     assert "image: postgres:14" in workflow
@@ -57,7 +61,11 @@ def test_postgres_integration_job_is_required_and_ephemeral() -> None:
     assert "pip install --require-hashes -r requirements/linux-dev.lock" in workflow
     assert "pip install --no-deps --no-build-isolation -e ." in workflow
     assert "python -m pip check" in workflow
-    assert "run: python scripts/run_postgres_integration.py" in workflow
+    assert "python scripts/run_postgres_integration.py" in postgres_job
+    assert (
+        "python scripts/check_repository_hygiene.py --verification-clean"
+        in postgres_job
+    )
 
 
 def test_frontend_job_uses_locked_isolated_test_and_build_gates() -> None:
@@ -71,6 +79,7 @@ def test_frontend_job_uses_locked_isolated_test_and_build_gates() -> None:
     assert "uses: actions/checkout@v7" in frontend_job
     assert "persist-credentials: false" in frontend_job
     assert "uses: actions/setup-node@v6" in frontend_job
+    assert "uses: actions/setup-python@v6" in frontend_job
     assert 'node-version: "22"' in frontend_job
     assert "cache: npm" in frontend_job
     assert "cache-dependency-path: frontend/package-lock.json" in frontend_job
@@ -80,6 +89,10 @@ def test_frontend_job_uses_locked_isolated_test_and_build_gates() -> None:
     assert "name: Run frontend logic and component tests" in frontend_job
     assert "run: npm test" in frontend_job
     assert "run: npm run build" in frontend_job
+    assert (
+        "python backend/scripts/check_repository_hygiene.py --verification-clean"
+        in frontend_job
+    )
     assert "npm install" not in frontend_job
     assert "LIGHTHOUSE_" not in frontend_job
     assert "JIRA_" not in frontend_job
@@ -122,6 +135,10 @@ def test_desktop_job_builds_and_smokes_the_real_windows_backend() -> None:
     assert "run: npm run build:backend" in desktop_job
     assert "name: Smoke-test packaged Windows backend" in desktop_job
     assert "run: npm run smoke:backend" in desktop_job
+    assert (
+        "python backend/scripts/check_repository_hygiene.py --verification-clean"
+        in desktop_job
+    )
     assert "npm install" not in desktop_job
     assert "npm run build:frontend" not in desktop_job
     assert "npm run package" not in desktop_job

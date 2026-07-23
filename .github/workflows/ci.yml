@@ -41,7 +41,9 @@ jobs:
 
       - name: Run backend quality gates and API contracts read-only
         working-directory: backend
-        run: make quality
+        run: |
+          make quality
+          python scripts/check_repository_hygiene.py --verification-clean
 
   desktop:
     name: desktop
@@ -100,6 +102,9 @@ jobs:
         working-directory: desktop
         run: npm run smoke:backend
 
+      - name: Verify verification left generated content unchanged
+        run: python backend/scripts/check_repository_hygiene.py --verification-clean
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest
@@ -117,6 +122,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Set up Python 3.11 for repository hygiene
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
       - name: Install locked frontend dependencies
         working-directory: frontend
         run: npm ci
@@ -132,6 +142,9 @@ jobs:
       - name: Build production frontend
         working-directory: frontend
         run: npm run build
+
+      - name: Verify verification left generated content unchanged
+        run: python backend/scripts/check_repository_hygiene.py --verification-clean
 
   postgres-integration:
     name: postgres-integration
@@ -176,4 +189,6 @@ jobs:
 
       - name: Run required PostgreSQL integration gate
         working-directory: backend
-        run: python scripts/run_postgres_integration.py
+        run: |
+          python scripts/run_postgres_integration.py
+          python scripts/check_repository_hygiene.py --verification-clean

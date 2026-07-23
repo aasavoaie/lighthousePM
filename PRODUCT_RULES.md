@@ -2485,16 +2485,18 @@ or generated-content filtering. Tracked files are renormalized against this
 policy and checked with `git diff --check`.
 
 The repository removes `6.0`, tracked log files, all generated
-`frontend/.tmp-tests` output, frontend TypeScript build metadata, and the known
-malformed `WorkingDirectory`/`PassThru` filename and its untracked variant.
-`.gitignore` covers `*.log`, `*.tsbuildinfo`, `frontend/.tmp-tests/`, and `6.0`.
-Malformed filename patterns are not ignored: future occurrences remain visible
-and fail the hygiene check.
+`frontend/.tmp-tests` output, frontend TypeScript build metadata, the generated
+`frontend/vite.config.js` and `frontend/vite.config.d.ts` duplicates of
+`frontend/vite.config.ts`, and the known malformed `WorkingDirectory`/`PassThru`
+filename and its untracked variant. `.gitignore` covers `*.log`,
+`*.tsbuildinfo`, `frontend/.tmp-tests/`, `frontend/vite.config.js`,
+`frontend/vite.config.d.ts`, and `6.0`. Malformed filename patterns are not
+ignored: future occurrences remain visible and fail the hygiene check.
 
 A deterministic safeguard rejects tracked generated-test output, logs,
-TypeScript build metadata, `6.0`, known accidental command fragments, a missing
-line-ending policy, and verification commands that unexpectedly modify tracked
-generated content.
+TypeScript build metadata, generated Vite configuration duplicates, `6.0`,
+known accidental command fragments, a missing line-ending policy, and
+verification commands that unexpectedly modify tracked generated content.
 
 History retains two isolated changes: a line-ending-only change containing
 `.gitattributes` and renormalization, followed by a dedicated hygiene change

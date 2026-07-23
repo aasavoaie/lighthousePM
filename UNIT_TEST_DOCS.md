@@ -282,6 +282,10 @@ make quality
 ```
 
 Use `make migration-check` to run only the focused SQLite migration gate.
+Use `make hygiene-check` to verify that generated test output, logs, TypeScript
+build metadata, generated Vite configuration duplicates, and accidental
+filenames are not tracked; required ignore and line-ending policies are
+present; and malformed command-fragment filenames remain visible.
 
 The equivalent commands are:
 
@@ -292,7 +296,20 @@ python -m mypy app
 python scripts/check_dependency_inventory.py
 python -m pip check
 python -m pytest tests/test_db.py tests/test_migration_upgrade_matrix.py tests/test_application_startup_acceptance.py -m "not postgres and not docker" -q
+python scripts/check_repository_hygiene.py
 ```
+
+After running verification commands in a clean checkout, CI additionally runs:
+
+```bash
+cd backend
+python scripts/check_repository_hygiene.py --verification-clean
+```
+
+This mode fails when verification unexpectedly changes the committed API
+contract snapshots or generated frontend metric-catalog fallback. It is
+intended for clean-checkout acceptance, not for rejecting an intentional,
+reviewable generated-file update during development.
 
 Run frontend assertions and the production build:
 
