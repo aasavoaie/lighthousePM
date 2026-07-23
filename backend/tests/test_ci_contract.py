@@ -34,6 +34,12 @@ def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
     assert "pip install --require-hashes -r requirements/linux-dev.lock" in backend_job
     assert "pip install --no-deps --no-build-isolation -e ." in backend_job
     assert "python -m pip check" in backend_job
+    assert "name: Verify Linux Python locks are reproducible" in backend_job
+    assert "python scripts/compile_python_locks.py" in backend_job
+    assert (
+        "git diff --exit-code -- requirements/linux-runtime.lock "
+        "requirements/linux-dev.lock"
+    ) in backend_job
     assert "working-directory: backend" in backend_job
     assert "name: Run backend quality gates and API contracts read-only" in backend_job
     assert "make quality" in backend_job
@@ -43,6 +49,12 @@ def test_backend_job_uses_locked_quality_and_read_only_contract_gates() -> None:
     assert "api-contracts-update" not in backend_job
     assert "update_api_contract_snapshots.py" not in backend_job
     assert "LIGHTHOUSE_UPDATE_API_CONTRACT_SNAPSHOTS" not in backend_job
+    assert backend_job.index("python -m pip check") < backend_job.index(
+        "python scripts/compile_python_locks.py"
+    )
+    assert backend_job.index("python scripts/compile_python_locks.py") < (
+        backend_job.index("make quality")
+    )
 
 
 def test_postgres_integration_job_is_required_and_ephemeral() -> None:
@@ -125,6 +137,9 @@ def test_desktop_job_builds_and_smokes_the_real_windows_backend() -> None:
     )
     assert "pip install --no-deps --no-build-isolation -e ." in desktop_job
     assert "python -m pip check" in desktop_job
+    assert "name: Verify Windows Python lock is reproducible" in desktop_job
+    assert "python scripts/compile_python_locks.py" in desktop_job
+    assert "git diff --exit-code -- requirements/windows-dev.lock" in desktop_job
     assert "run: npm ci" in desktop_job
     assert "run: npm run check:dependencies" in desktop_job
     assert "name: Lint desktop sources and scripts" in desktop_job
@@ -155,3 +170,9 @@ def test_desktop_job_builds_and_smokes_the_real_windows_backend() -> None:
     ]
     positions = [desktop_job.index(command) for command in ordered_commands]
     assert positions == sorted(positions)
+    assert desktop_job.index("python -m pip check") < desktop_job.index(
+        "python scripts/compile_python_locks.py"
+    )
+    assert desktop_job.index("python scripts/compile_python_locks.py") < (
+        desktop_job.index("run: npm ci")
+    )

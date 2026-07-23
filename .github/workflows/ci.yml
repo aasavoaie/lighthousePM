@@ -39,6 +39,12 @@ jobs:
           python -m pip install --no-deps --no-build-isolation -e .
           python -m pip check
 
+      - name: Verify Linux Python locks are reproducible
+        working-directory: backend
+        run: |
+          python scripts/compile_python_locks.py
+          git diff --exit-code -- requirements/linux-runtime.lock requirements/linux-dev.lock
+
       - name: Run backend quality gates and API contracts read-only
         working-directory: backend
         run: |
@@ -77,6 +83,12 @@ jobs:
           python -m pip install --require-hashes -r requirements/windows-dev.lock
           python -m pip install --no-deps --no-build-isolation -e .
           python -m pip check
+
+      - name: Verify Windows Python lock is reproducible
+        working-directory: backend
+        run: |
+          python scripts/compile_python_locks.py
+          git diff --exit-code -- requirements/windows-dev.lock
 
       - name: Install locked desktop dependencies
         working-directory: desktop

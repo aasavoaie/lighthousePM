@@ -206,7 +206,9 @@ intentionally upgrading compatible dependency versions. `make locks` and
 `make locks-upgrade` provide the same commands where GNU Make is available.
 Lock regeneration requires Python 3.11 and `pip-tools` from the backend `dev`
 extra. Both native-platform outputs must be regenerated and their diffs
-reviewed before an upgrade is accepted.
+reviewed before an upgrade is accepted. CI performs the same non-upgrading
+regeneration on native Linux and Windows runners and fails when the applicable
+lock files drift from `pyproject.toml`.
 
 Verify direct declarations and the installed dependency trees independently:
 

@@ -16,7 +16,10 @@ def test_makefile_exposes_only_the_explicit_contract_update_command() -> None:
 
     assert "api-contracts-update:" in makefile
     assert "$(PYTHON) scripts/update_api_contract_snapshots.py" in makefile
-    assert "quality: lint typecheck dependency-check migration-check test" in makefile
+    assert (
+        "quality: lint typecheck dependency-check migration-check hygiene-check test"
+        in makefile
+    )
     assert "quality: api-contracts-update" not in makefile
 
 

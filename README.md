@@ -661,7 +661,8 @@ platform with Python 3.11, run `python scripts/compile_python_locks.py`; add
 `make locks-upgrade` are equivalent convenience targets. Linux and Windows
 locks must each be generated on their native platform, and every resulting
 diff must be reviewed. `backend/pyproject.toml` remains the source for direct
-dependency ranges.
+dependency ranges. CI repeats non-upgrading regeneration on native Linux and
+Windows runners and rejects any diff in the corresponding lock files.
 
 Direct-dependency inventories are deterministic and package-specific:
 
