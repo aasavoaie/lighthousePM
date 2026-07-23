@@ -14,7 +14,8 @@ Development and deployment commands are summarized in
 | Area | Source |
 |---|---|
 | Backend | `backend/tests/test_*.py` |
-| Frontend assertions | `frontend/src/**/*.test.ts` and `*.test.tsx` |
+| Frontend logic assertions | `frontend/src/**/*.test.ts` |
+| Frontend component behavior | `frontend/src/**/*.component.test.tsx` |
 | Desktop and storage lifecycle | `desktop/tests/*.test.cjs` |
 | Docker runtime acceptance | `backend/tests/test_docker_runtime_security.py` |
 | Packaged clean-machine acceptance | `desktop/scripts/clean-machine-acceptance.ps1` |
@@ -40,6 +41,38 @@ Backend API tests cover:
   authentication;
 - README endpoint inventory, current migration head, canonical terminology,
   and other documentation contracts.
+
+### Critical API snapshot workflow
+
+Committed JSON snapshots under `backend/tests/contracts/api` protect complete
+representative release, sprint, configuration, synchronization, and error
+payloads. Normal tests and CI always compare these files read-only.
+
+Run the contract suite without changing snapshots:
+
+```bash
+cd backend
+python -m pytest tests/test_api_contract_snapshots.py \
+  tests/test_release_api_contract_snapshots.py \
+  tests/test_sprint_api_contract_snapshots.py \
+  tests/test_configuration_sync_api_contract_snapshots.py -q
+```
+
+After an intentional API contract change, regenerate snapshots only through
+the explicit local command:
+
+```bash
+cd backend
+make api-contracts-update
+```
+
+The direct equivalent is
+`python scripts/update_api_contract_snapshots.py`. The command executes the
+deterministic fixtures twice and fails if the second pass changes any JSON
+file. It then reruns the suite read-only. Review the complete snapshot diff,
+confirm that no secret or machine-local value is present, and reconcile
+schemas, frontend consumers, maintained documentation, and `ruleset_version`
+when metric meaning changes. CI never runs the update command.
 
 ### Deterministic metrics and signals
 
@@ -116,8 +149,19 @@ rulesets, and presentation synchronization with the metric catalog.
 Frontend assertion files cover authentication helpers, workspace and release
 selection, navigation, Jira configuration payloads, metric availability,
 sprint delivery confidence, charts, recommendations, catalog compatibility,
-and workspace hooks. `npm test` compiles and runs these deterministic Node
-assertions; it is not a browser end-to-end suite.
+and workspace hooks. Component tests cover authentication, release and sprint
+loading, empty and error states, project-switch race protection, settings form
+associations, report action states, dialog keyboard behavior, and representative
+Axe checks. They use Vitest, React Testing Library, `user-event`, and JSDOM,
+mock the API-client boundary, and make no network requests.
+
+`npm test` runs dependency-inventory and assertion-runner contracts, compiles
+and executes every deterministic `.test.ts` logic assertion, and then runs all
+`.component.test.tsx` tests. Empty discovery, inventory drift, compilation
+failure, assertion failure, or component failure makes the aggregate command
+fail. The suite is locally isolated, requires no backend, API token, or Jira
+credentials, and is not a browser end-to-end suite. Automated Axe coverage is
+a regression aid, not complete accessibility certification.
 
 `npm run build` is a separate required check. It performs TypeScript project
 compilation and a production Vite build, catching integration and bundling
@@ -125,11 +169,19 @@ problems that assertion tests do not.
 
 ### Desktop and storage lifecycle
 
-Desktop Node tests cover Electron startup and security contracts, backend
-process control, operation locking, transactional backup/restore, Clear Data,
-Factory Reset, rollback, interrupted-journal recovery, and release/acceptance
-script contracts. These tests use Node's built-in test runner and do not launch
-the Electron GUI.
+Desktop Node tests cover the exact frozen preload IPC surface, trusted
+main-frame sender checks, payload validation, BrowserWindow and session
+hardening, permission denial, navigation and external-link controls, backend
+readiness and exit handling, confirmed application shutdown, startup failure
+boundaries, escaped error documents, operation locking, transactional
+backup/restore, Clear Data, Factory Reset, rollback, interrupted-journal
+recovery, and release/acceptance script contracts. These tests use Node's
+built-in test runner with mocked Electron boundaries and do not launch the
+Electron GUI.
+
+`npm run test:node` uses explicit sorted `.test.cjs` discovery and fails if no
+desktop tests are found. `npm test` remains the local aggregate that runs
+desktop lint first and then the Node suite.
 
 Packaged acceptance is separate. It verifies the real embedded backend,
 frontend assets, Electron application, installer artifacts, local persistence,
@@ -137,25 +189,57 @@ upgrade behavior, native PDF save flow, and operation recovery boundaries.
 
 ## Local prerequisites
 
-Install backend and development dependencies in a virtual environment:
+Install the locked backend and development dependencies in a Python 3.11
+virtual environment:
 
 ```bash
 cd backend
-python -m pip install -e .
-python -m pip install -r requirements-dev.txt
+python -m pip install --require-hashes -r requirements/linux-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip check
 ```
+
+On Windows, replace `linux-dev.lock` with `windows-dev.lock`. Regenerate the
+locks for the current native platform with
+`python scripts/compile_python_locks.py`; add `--upgrade` only when
+intentionally upgrading compatible dependency versions. `make locks` and
+`make locks-upgrade` provide the same commands where GNU Make is available.
+Lock regeneration requires Python 3.11 and `pip-tools` from the backend `dev`
+extra. Both native-platform outputs must be regenerated and their diffs
+reviewed before an upgrade is accepted.
+
+Verify direct declarations and the installed dependency trees independently:
+
+```bash
+cd backend
+make dependency-check
+
+cd ../frontend
+npm run check:dependencies
+
+cd ../desktop
+npm run check:dependencies
+```
+
+The inventories scan maintained production, test, configuration, and build
+sources. Python module-to-distribution mappings, frontend runtime/dev
+classification, desktop's approved Electron dev-runtime exception, configured
+Electron Forge makers, and command-only tools are explicit. Standard-library,
+Node built-in, local, generated, and internal type-only imports are excluded.
+The commands fail for an unknown or undeclared third-party import, a misplaced
+runtime dependency, an unused direct declaration, or a broken `pip`/npm tree.
 
 Install frontend and desktop dependencies in each package:
 
 ```bash
 cd frontend
-npm install
+npm ci
 
 cd ../desktop
-npm install
+npm ci
 ```
 
-Use Python 3.11 or newer and a supported Node.js/npm installation. Normal
+Use Python 3.11 and a supported Node.js/npm installation. Normal
 backend tests do not require Jira, Docker, PostgreSQL, or Electron.
 
 ## Focused verification
@@ -180,7 +264,8 @@ already execute small deterministic suites:
 
 ```bash
 cd frontend
-npm test
+npm run test:assertions
+npm run test:components
 
 cd ../desktop
 npm test
@@ -188,21 +273,41 @@ npm test
 
 ## Full repository verification
 
-Run all normal backend tests and lint:
+Run the complete normal backend quality gate and the focused SQLite migration
+gate:
 
 ```bash
 cd backend
-python -m pytest tests -q
-python -m ruff check app tests alembic
+make quality
+```
+
+Use `make migration-check` to run only the focused SQLite migration gate.
+
+The equivalent commands are:
+
+```bash
+python -m pytest tests -m "not postgres and not docker" -q
+python -m ruff check app tests alembic scripts desktop_entry.py seed.py
+python -m mypy app
+python scripts/check_dependency_inventory.py
+python -m pip check
+python -m pytest tests/test_db.py tests/test_migration_upgrade_matrix.py tests/test_application_startup_acceptance.py -m "not postgres and not docker" -q
 ```
 
 Run frontend assertions and the production build:
 
 ```bash
 cd frontend
+npm run check:dependencies
 npm test
 npm run build
 ```
+
+CI runs the same commands in the stable `frontend` job on Ubuntu with Node.js
+22 and a clean `npm ci` installation. The aggregate logic-and-component test
+gate and the TypeScript/Vite build are separate blocking steps. Build warnings
+remain visible, but the existing bundle-size warning is not treated as a
+failure by itself.
 
 Run desktop syntax and lifecycle tests:
 
@@ -211,27 +316,64 @@ cd desktop
 npm test
 ```
 
-These commands are the normal cross-platform regression checks. Environment-
-marked PostgreSQL and Docker tests may skip when their explicit prerequisites
-are absent.
+For focused executable desktop behavior without the syntax pass:
+
+```bash
+cd desktop
+npm run test:node
+```
+
+On Windows, run the focused real packaged-backend gate after installing the
+locked Python 3.11 development environment:
+
+```bash
+cd backend
+python -m pip install --require-hashes -r requirements/windows-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip check
+
+cd ../desktop
+npm ci
+npm run check:dependencies
+npm run lint
+npm run test:node
+npm run build:backend
+npm run smoke:backend
+```
+
+The smoke test uses a dynamic `127.0.0.1` port, disposable SQLite database, and
+synthetic API token. It requires health, authentication enforcement, and an
+authenticated empty release collection, then confirms shutdown and cleanup.
+The stable Windows CI job is named `desktop`. This gate does not build the
+frontend, launch Electron, or build the Electron package, ZIP, or installer.
+
+These commands are the normal cross-platform regression checks. PostgreSQL and
+Docker tests are explicitly excluded from this gate and run only in their
+dedicated acceptance gates below.
 
 ## PostgreSQL acceptance
 
 PostgreSQL migration and application-startup acceptance requires a real
 PostgreSQL admin URL capable of creating and dropping disposable databases.
-The tests create only names beginning with `lighthouse_migration_` and refuse
-to drop anything outside that namespace.
+The tests create only names beginning with `lighthouse_migration_` or
+`lighthouse_startup_` and refuse to drop anything outside those namespaces.
+The normal LighthousePM application database is never a test target.
 
-Set `MIGRATION_TEST_POSTGRES_ADMIN_URL` and run:
+Set `MIGRATION_TEST_POSTGRES_ADMIN_URL` and run the required gate:
 
 ```bash
 cd backend
 MIGRATION_TEST_POSTGRES_ADMIN_URL=postgresql+psycopg://postgres:<password>@127.0.0.1:5432/postgres \
-  python -m pytest \
-    tests/test_migration_upgrade_matrix.py \
-    tests/test_application_startup_acceptance.py \
-    -m postgres -q
+  make postgres-test
 ```
+
+The Make target passes `--required`, which enables
+`LIGHTHOUSE_REQUIRE_POSTGRES_INTEGRATION=1`. CI sets that environment variable
+explicitly and runs `python scripts/run_postgres_integration.py`. Required mode
+fails for a missing or invalid admin URL, unavailable service, zero collected
+PostgreSQL tests, any skipped PostgreSQL test, or any test failure. Direct
+`pytest -m postgres` remains available for optional local iteration and may
+skip only when required mode is not enabled.
 
 When using the repository's Docker Compose database, first configure the
 required synthetic secret files and start PostgreSQL with the loopback-only
@@ -286,7 +428,7 @@ Packaging requires:
 - Windows when producing and validating the supported Windows distributables;
 - frontend and desktop npm dependencies;
 - the project Python environment with PyInstaller from
-  `backend/requirements-dev.txt`;
+  the backend `dev` dependency extra;
 - sufficient disk space for the embedded Python backend, Electron package,
   Squirrel installer, and ZIP artifact.
 

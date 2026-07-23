@@ -15,6 +15,23 @@ const {
 } = require("./backup.cjs");
 const { createDesktopOperationLock, stopProcessAndWait } = require("./operation-control.cjs");
 const {
+  registerTrustedIpcHandler,
+  validatedJiraToken,
+  validatedPdfPayload,
+  withoutIpcArguments,
+} = require("./ipc-security.cjs");
+const {
+  attachBackendProcessObservers,
+  createApplicationShutdownCoordinator,
+  focusExistingWindow,
+  runApplicationStartup,
+} = require("./desktop-lifecycle.cjs");
+const { configureDesktopSessionSecurity } = require("./session-security.cjs");
+const {
+  backendErrorScreenUrl,
+  startupScreenUrl,
+} = require("./status-document.cjs");
+const {
   TARGET_LOCATION_APPLICATION_SIDECAR,
   TARGET_LOCATION_USER_DATA,
 } = require("./storage-recovery.cjs");
@@ -25,6 +42,11 @@ const {
   replaceFileAtomically,
   runStorageTransaction,
 } = require("./storage-transaction.cjs");
+const {
+  configureWindowNavigationGuards,
+  createMainWindowOptions,
+  delegateApprovedExternalUrl,
+} = require("./window-security.cjs");
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEV_RENDERER_ORIGIN = "http://127.0.0.1:5173";
@@ -64,6 +86,7 @@ let localApiToken = null;
 let rendererServer = null;
 let rendererOrigin = null;
 let isQuitting = false;
+let backendIsReady = false;
 const intentionallyStoppedBackendProcesses = new WeakSet();
 const desktopStorageOperations = createDesktopOperationLock();
 
@@ -232,10 +255,7 @@ function storeEncryptedJiraToken(token) {
 }
 
 function storeJiraTokenFromRenderer(token) {
-  const normalizedToken = typeof token === "string" ? token.trim() : "";
-  if (!normalizedToken) {
-    throw new Error("Jira API token is required.");
-  }
+  const normalizedToken = validatedJiraToken(token);
   storeEncryptedJiraToken(normalizedToken);
   return { ok: true };
 }
@@ -426,6 +446,7 @@ async function verifyFactoryResetState() {
 }
 
 async function startBackend() {
+  backendIsReady = false;
   const executablePath = getBackendExecutable();
   if (!fs.existsSync(executablePath)) {
     throw new Error(`Packaged backend not found at ${executablePath}. Run npm run build:backend first.`);
@@ -483,23 +504,23 @@ async function startBackend() {
   }
 
   const spawnedBackendProcess = backendProcess;
-  spawnedBackendProcess.once("error", (error) => {
-    if (!isQuitting && !intentionallyStoppedBackendProcesses.has(spawnedBackendProcess)) {
-      showBackendErrorScreen(`The local backend could not start: ${error.message}`, `Log: ${logPath}`);
-    }
-  });
-  spawnedBackendProcess.once("exit", (code) => {
-    const wasIntentionallyStopped = intentionallyStoppedBackendProcesses.has(spawnedBackendProcess);
-    intentionallyStoppedBackendProcesses.delete(spawnedBackendProcess);
-    if (backendProcess === spawnedBackendProcess) {
-      backendProcess = null;
-    }
-    if (!isQuitting && !wasIntentionallyStopped) {
-      showBackendErrorScreen(`The local backend exited with code ${code ?? "unknown"}.`, `Log: ${logPath}`);
-    }
+  attachBackendProcessObservers({
+    backendProcess: spawnedBackendProcess,
+    intentionallyStoppedBackendProcesses,
+    isBackendReady: () => backendIsReady,
+    isQuitting: () => isQuitting,
+    clearCurrentBackendProcess: (processToClear) => {
+      if (backendProcess === processToClear) {
+        backendProcess = null;
+        backendIsReady = false;
+      }
+    },
+    showBackendError: showBackendErrorScreen,
+    logPath,
   });
 
   await waitForBackend(backendOrigin, logPath);
+  backendIsReady = true;
 }
 
 async function stopBackend() {
@@ -507,6 +528,7 @@ async function stopBackend() {
   if (!processToStop || processToStop.exitCode !== null) {
     if (backendProcess === processToStop) {
       backendProcess = null;
+      backendIsReady = false;
     }
     return;
   }
@@ -521,6 +543,7 @@ async function stopBackend() {
   intentionallyStoppedBackendProcesses.delete(processToStop);
   if (backendProcess === processToStop) {
     backendProcess = null;
+    backendIsReady = false;
   }
 }
 
@@ -1037,12 +1060,10 @@ function safePdfFilename(filename) {
   return normalized.toLowerCase().endsWith(".pdf") ? normalized : `${normalized}.pdf`;
 }
 
-async function savePdfFromRenderer({ filename, data }) {
+async function savePdfFromRenderer(payload) {
+  const { filename, data } = validatedPdfPayload(payload);
   const safeFilename = safePdfFilename(filename);
-  const bytes = Buffer.from(data instanceof Uint8Array ? data : new Uint8Array(data));
-  if (bytes.length === 0) {
-    throw new Error("PDF export was empty.");
-  }
+  const bytes = Buffer.from(data);
 
   const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
     title: "Save PDF Report",
@@ -1263,163 +1284,65 @@ function getDevRendererOrigin() {
   return parsedUrl.origin;
 }
 
-function isAllowedAppNavigation(targetUrl) {
-  try {
-    return new URL(targetUrl).origin === rendererOrigin;
-  } catch {
-    return false;
-  }
-}
-
 function openExternalUrl(targetUrl) {
-  try {
-    const parsedUrl = new URL(targetUrl);
-    if (parsedUrl.protocol === "https:") {
-      void shell.openExternal(parsedUrl.toString());
-      return { ok: true };
-    }
-  } catch {
-    // Invalid external URLs are ignored.
-  }
-  return { ok: false, message: "Only HTTPS links can be opened externally." };
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function desktopStatusDocument({ title, heading, message, detail }) {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="color-scheme" content="light" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #f4f7fb;
-        color: #101733;
-        font-family: Inter, Segoe UI, Arial, sans-serif;
-      }
-      main {
-        width: min(560px, calc(100vw - 48px));
-        display: grid;
-        gap: 14px;
-      }
-      h1 {
-        margin: 0;
-        font-size: 1.45rem;
-      }
-      p {
-        margin: 0;
-        color: #52617f;
-        line-height: 1.5;
-      }
-      code {
-        display: block;
-        padding: 12px;
-        border: 1px solid #d9deec;
-        border-radius: 8px;
-        background: #ffffff;
-        color: #344468;
-        overflow-wrap: anywhere;
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>${escapeHtml(heading)}</h1>
-      <p>${escapeHtml(message)}</p>
-      ${detail ? `<code>${escapeHtml(detail)}</code>` : ""}
-    </main>
-  </body>
-</html>`;
-}
-
-function desktopStatusUrl(options) {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(desktopStatusDocument(options))}`;
-}
-
-function startupScreenUrl() {
-  return desktopStatusUrl({
-    title: "LighthousePM Starting",
-    heading: "Starting LighthousePM",
-    message: "Preparing the local backend and loading your dashboard.",
-  });
-}
-
-function backendErrorScreenUrl(message, detail) {
-  return desktopStatusUrl({
-    title: "LighthousePM Backend Error",
-    heading: "The local backend stopped",
-    message,
-    detail,
-  });
+  return delegateApprovedExternalUrl(targetUrl, (url) => shell.openExternal(url));
 }
 
 async function configureSession() {
-  const appSession = getAppSession();
-  await appSession.clearCache();
-  await appSession.clearStorageData({
-    storages: ["cookies", "localstorage", "indexdb", "cachestorage", "websql", "serviceworkers", "shadercache"],
+  await configureDesktopSessionSecurity({
+    appSession: getAppSession(),
+    devRendererOrigin: DEV_RENDERER_ORIGIN,
+    isDevelopmentRendererConfigured: Boolean(DEV_RENDERER_URL),
+    getLocalApiToken: () => localApiToken,
   });
-  appSession.setPermissionCheckHandler(() => false);
-  appSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-
-  appSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    if (!localApiToken || !DEV_RENDERER_URL) {
-      callback({ requestHeaders: details.requestHeaders });
-      return;
-    }
-
-    try {
-      const targetUrl = new URL(details.url);
-      if (targetUrl.origin === DEV_RENDERER_ORIGIN && targetUrl.pathname.startsWith("/api")) {
-        callback({
-          requestHeaders: {
-            ...details.requestHeaders,
-            Authorization: `Bearer ${localApiToken}`,
-          },
-        });
-        return;
-      }
-    } catch {
-      // Ignore invalid URLs and keep the request unchanged.
-    }
-    callback({ requestHeaders: details.requestHeaders });
-  });
-
-  if (typeof appSession.setDevicePermissionHandler === "function") {
-    appSession.setDevicePermissionHandler(() => false);
-  }
 }
 
 function configureIpcHandlers() {
-  ipcMain.handle("jira-token:store", (_event, token) => storeJiraTokenFromRenderer(token));
-  ipcMain.handle("desktop-save:pdf", (_event, payload) => savePdfFromRenderer(payload));
-  ipcMain.handle("desktop-open:external", (_event, targetUrl) => openExternalUrl(targetUrl));
-  ipcMain.handle("desktop-storage:info", () => getDesktopStorageInfo());
-  ipcMain.handle("desktop-storage:backup", () =>
-    desktopStorageOperations.run("backup", () => createDesktopBackup()),
+  function registerDesktopIpcHandler(channel, handler) {
+    registerTrustedIpcHandler({
+      ipcMain,
+      channel,
+      getMainWindow: () => mainWindow,
+      getRendererOrigin: () => rendererOrigin,
+      handler,
+    });
+  }
+
+  registerDesktopIpcHandler("jira-token:store", (token) => storeJiraTokenFromRenderer(token));
+  registerDesktopIpcHandler("desktop-save:pdf", (payload) => savePdfFromRenderer(payload));
+  registerDesktopIpcHandler("desktop-open:external", (targetUrl) => openExternalUrl(targetUrl));
+  registerDesktopIpcHandler(
+    "desktop-storage:info",
+    withoutIpcArguments("desktop-storage:info", () => getDesktopStorageInfo()),
   );
-  ipcMain.handle("desktop-storage:restore", () =>
-    desktopStorageOperations.run("restore", () => restoreDesktopBackup()),
+  registerDesktopIpcHandler(
+    "desktop-storage:backup",
+    withoutIpcArguments("desktop-storage:backup", () =>
+      desktopStorageOperations.run("backup", () => createDesktopBackup()),
+    ),
   );
-  ipcMain.handle("desktop-storage:clear-data", () =>
-    desktopStorageOperations.run("clear-data", () => clearDesktopData()),
+  registerDesktopIpcHandler(
+    "desktop-storage:restore",
+    withoutIpcArguments("desktop-storage:restore", () =>
+      desktopStorageOperations.run("restore", () => restoreDesktopBackup()),
+    ),
   );
-  ipcMain.handle("desktop-storage:factory-reset", () =>
-    desktopStorageOperations.run("factory-reset", () => factoryResetDesktopData()),
+  registerDesktopIpcHandler(
+    "desktop-storage:clear-data",
+    withoutIpcArguments("desktop-storage:clear-data", () =>
+      desktopStorageOperations.run("clear-data", () => clearDesktopData()),
+    ),
   );
-  ipcMain.handle("desktop-storage:reveal", () => revealDesktopDataFolder());
+  registerDesktopIpcHandler(
+    "desktop-storage:factory-reset",
+    withoutIpcArguments("desktop-storage:factory-reset", () =>
+      desktopStorageOperations.run("factory-reset", () => factoryResetDesktopData()),
+    ),
+  );
+  registerDesktopIpcHandler(
+    "desktop-storage:reveal",
+    withoutIpcArguments("desktop-storage:reveal", () => revealDesktopDataFolder()),
+  );
 }
 
 function showBackendErrorScreen(message, detail) {
@@ -1483,46 +1406,21 @@ function configureOptionalUpdates() {
 }
 
 function createMainWindow(initialUrl = startupScreenUrl()) {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    minWidth: 1100,
-    minHeight: 700,
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: "#f4f7fb",
-    title: "LighthousePM",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
+  mainWindow = new BrowserWindow(
+    createMainWindowOptions({
+      preloadPath: path.join(__dirname, "preload.cjs"),
       partition: APP_SESSION_PARTITION,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      spellcheck: false,
-    },
-  });
+    }),
+  );
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
   });
 
-  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
-    if (isAllowedAppNavigation(targetUrl)) {
-      return;
-    }
-    event.preventDefault();
-    openExternalUrl(targetUrl);
-  });
-
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
-    return { action: "deny" };
-  });
-
-  mainWindow.webContents.on("will-attach-webview", (event) => {
-    event.preventDefault();
+  configureWindowNavigationGuards({
+    webContents: mainWindow.webContents,
+    getRendererOrigin: () => rendererOrigin,
+    openExternal: (url) => shell.openExternal(url),
   });
 
   mainWindow.on("closed", () => {
@@ -1537,13 +1435,16 @@ async function startApplication() {
   configureIpcHandlers();
   createMainWindow();
   try {
-    const recoveryResult = await recoverDesktopStorageAtStartup();
-    if (!recoveryResult.backendStarted) {
-      await startBackend();
-    }
-    rendererOrigin = getDevRendererOrigin() ?? (await startRendererServer());
-    await mainWindow?.loadURL(rendererOrigin);
-    configureOptionalUpdates();
+    await runApplicationStartup({
+      recoverStorage: recoverDesktopStorageAtStartup,
+      startBackend,
+      resolveRendererOrigin: async () => getDevRendererOrigin() ?? (await startRendererServer()),
+      setRendererOrigin: (origin) => {
+        rendererOrigin = origin;
+      },
+      loadRenderer: (origin) => mainWindow?.loadURL(origin),
+      configureUpdates: configureOptionalUpdates,
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown startup error";
     showBackendErrorScreen("LighthousePM could not start the local backend.", detail);
@@ -1552,12 +1453,7 @@ async function startApplication() {
 
 if (hasSingleInstanceLock) {
   app.on("second-instance", () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.focus();
-    }
+    focusExistingWindow(mainWindow);
   });
 
   app.whenReady().then(startApplication).catch((error) => {
@@ -1578,10 +1474,26 @@ if (hasSingleInstanceLock) {
     }
   });
 
-  app.on("before-quit", () => {
-    isQuitting = true;
-    rendererServer?.close();
-    rendererServer = null;
-    void stopBackend().catch(() => {});
+  const shutdownCoordinator = createApplicationShutdownCoordinator({
+    stopBackend,
+    closeRendererServer: () => {
+      rendererServer?.close();
+      rendererServer = null;
+    },
+    quitApplication: () => app.quit(),
+    setQuitting: (value) => {
+      isQuitting = value;
+    },
+    onShutdownFailure: (error) => {
+      const detail = error instanceof Error ? error.message : "Unknown shutdown error";
+      showBackendErrorScreen(
+        "LighthousePM could not confirm local backend shutdown.",
+        detail,
+      );
+    },
+  });
+
+  app.on("before-quit", (event) => {
+    void shutdownCoordinator.handleBeforeQuit(event);
   });
 }

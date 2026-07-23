@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -19,9 +20,11 @@ from app.schemas.issues import (
 )
 from app.schemas.sprints import (
     CurrentSprintResponse,
+    ComputationStatus,
     DeliveryConfidenceComponents,
     DeliveryConfidenceDetail,
     DeliveryConfidenceInputs,
+    DeliveryConfidenceStatus,
     DeliveryConfidenceWeights,
     SprintListResponse,
     SprintMetricIssueKeys,
@@ -492,12 +495,27 @@ class SprintResponseService:
             )
         )
         if snapshot.ruleset_version > 0:
-            computation_status = provenance.get(
-                "computation_status", computation_status
-            )
-            unavailable_reason = provenance.get(
-                "unavailable_reason", unavailable_reason
-            )
+            stored_computation_status = provenance.get("computation_status")
+            if stored_computation_status in {
+                "COMPUTED",
+                "PARTIAL",
+                "NOT_COMPUTED",
+            }:
+                computation_status = cast(
+                    ComputationStatus,
+                    stored_computation_status,
+                )
+            if "unavailable_reason" in provenance:
+                stored_unavailable_reason = provenance["unavailable_reason"]
+                if stored_unavailable_reason is None or isinstance(
+                    stored_unavailable_reason,
+                    str,
+                ):
+                    unavailable_reason = stored_unavailable_reason
+
+        component_outputs = provenance.get("component_outputs", {})
+        if not isinstance(component_outputs, dict):
+            component_outputs = {}
 
         return SprintMetricsResponse(
             sprint_id=sprint_id,
@@ -572,7 +590,10 @@ class SprintResponseService:
                     snapshot.bugs_created_during_sprint_missing_created_at_issue_keys
                 ),
             ),
-            bugs_created_during_sprint_status=snapshot.bugs_created_during_sprint_status,
+            bugs_created_during_sprint_status=cast(
+                ComputationStatus,
+                snapshot.bugs_created_during_sprint_status,
+            ),
             metric_names=SPRINT_METRIC_NAMES,
             metric_availability=metric_availability,
             story_point_coverage=StoryPointCoverage(
@@ -582,17 +603,20 @@ class SprintResponseService:
                 coverage_pct=snapshot.story_point_coverage_pct,
                 unpointed_issue_keys=snapshot.story_point_unpointed_issue_keys,
             ),
-            delivery_confidence_status=snapshot.delivery_confidence_status,
+            delivery_confidence_status=cast(
+                DeliveryConfidenceStatus,
+                snapshot.delivery_confidence_status,
+            ),
             delivery_confidence_explanations=snapshot.delivery_confidence_explanations,
             delivery_confidence=_build_delivery_confidence(snapshot),
             workload_distribution=_build_workload_distribution(snapshot),
             confidence_breakdown=(
-                provenance.get("component_outputs", {}).get("confidence_breakdown")
+                component_outputs.get("confidence_breakdown")
                 if snapshot.ruleset_version > 0
                 else _build_sprint_confidence_breakdown(snapshot)
             ),
             biggest_driver=(
-                provenance.get("component_outputs", {}).get("biggest_driver")
+                component_outputs.get("biggest_driver")
                 if snapshot.ruleset_version > 0
                 else _build_sprint_biggest_driver(snapshot)
             ),

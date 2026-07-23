@@ -1,22 +1,24 @@
-import os
 from pathlib import Path
-from uuid import uuid4
 
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 import pytest
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import Engine, URL, make_url
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine, URL
 
 from app.config import Settings
 from app.db.base import Base
 from app.db.migrations import LEGACY_REVISION_SHAPES, migrate_database
 from app.db.session import create_database_engine
+from tests.postgres_test_support import (
+    create_postgres_test_database,
+    drop_postgres_test_database,
+    postgres_admin_url_or_skip,
+)
 
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
-POSTGRES_ADMIN_URL_ENV = "MIGRATION_TEST_POSTGRES_ADMIN_URL"
 
 
 def _alembic_config() -> Config:
@@ -264,45 +266,14 @@ def test_unknown_recorded_revision_is_rejected_without_data_changes(tmp_path: Pa
         database_engine.dispose()
 
 
-def _create_postgres_test_database(admin_url: str) -> tuple[Engine, str]:
-    parsed_admin_url = make_url(admin_url)
-    if not parsed_admin_url.drivername.startswith("postgresql"):
-        raise ValueError(f"{POSTGRES_ADMIN_URL_ENV} must use a PostgreSQL URL")
-
-    database_name = f"lighthouse_migration_{uuid4().hex}"
-    admin_engine = create_engine(parsed_admin_url, isolation_level="AUTOCOMMIT")
-    with admin_engine.connect() as connection:
-        connection.execute(text(f'CREATE DATABASE "{database_name}"'))
-    return admin_engine, parsed_admin_url.set(database=database_name).render_as_string(
-        hide_password=False
-    )
-
-
-def _drop_postgres_test_database(admin_engine: Engine, database_url: str) -> None:
-    database_name = make_url(database_url).database
-    if database_name is None or not database_name.startswith("lighthouse_migration_"):
-        raise RuntimeError("Refusing to drop a database outside the migration-test namespace")
-
-    with admin_engine.connect() as connection:
-        connection.execute(
-            text(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = :database_name AND pid <> pg_backend_pid()"
-            ),
-            {"database_name": database_name},
-        )
-        connection.execute(text(f'DROP DATABASE "{database_name}"'))
-    admin_engine.dispose()
-
-
 @pytest.mark.postgres
-@pytest.mark.parametrize("source_revision", PRIOR_VERSIONED_REVISIONS, ids=PRIOR_VERSIONED_REVISIONS)
+@pytest.mark.parametrize("source_revision", MIGRATION_REVISIONS, ids=MIGRATION_REVISIONS)
 def test_every_versioned_postgres_revision_upgrades_to_head(source_revision: str) -> None:
-    admin_url = os.getenv(POSTGRES_ADMIN_URL_ENV)
-    if not admin_url:
-        pytest.skip(f"Set {POSTGRES_ADMIN_URL_ENV} to run the PostgreSQL migration matrix")
-
-    admin_engine, database_url = _create_postgres_test_database(admin_url)
+    admin_url = postgres_admin_url_or_skip()
+    admin_engine, database_url = create_postgres_test_database(
+        admin_url,
+        prefix="lighthouse_migration_",
+    )
     try:
         database_engine = create_database_engine(
             Settings(_env_file=None, database_url=database_url)
@@ -316,4 +287,4 @@ def test_every_versioned_postgres_revision_upgrades_to_head(source_revision: str
         finally:
             database_engine.dispose()
     finally:
-        _drop_postgres_test_database(admin_engine, database_url)
+        drop_postgres_test_database(admin_engine, database_url)

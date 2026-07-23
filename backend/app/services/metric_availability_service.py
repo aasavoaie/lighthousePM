@@ -1,7 +1,7 @@
 import math
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Final, Literal, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -16,13 +16,18 @@ from app.schemas.availability import (
     MetricAvailability,
     MetricAvailabilityContext,
     MetricAvailabilityItem,
+    MetricAvailabilityStatus,
 )
 from app.services.jira_field_mapper import JiraFieldMapper
 
-COMPUTATION_STATUS_COMPUTED = "COMPUTED"
-COMPUTATION_STATUS_PARTIAL = "PARTIAL"
-COMPUTATION_STATUS_NOT_COMPUTED = "NOT_COMPUTED"
-COMPUTATION_STATUS_NOT_APPLICABLE = "NOT_APPLICABLE"
+ComputationStatus = Literal["COMPUTED", "PARTIAL", "NOT_COMPUTED"]
+
+COMPUTATION_STATUS_COMPUTED: Final[Literal["COMPUTED"]] = "COMPUTED"
+COMPUTATION_STATUS_PARTIAL: Final[Literal["PARTIAL"]] = "PARTIAL"
+COMPUTATION_STATUS_NOT_COMPUTED: Final[Literal["NOT_COMPUTED"]] = "NOT_COMPUTED"
+COMPUTATION_STATUS_NOT_APPLICABLE: Final[Literal["NOT_APPLICABLE"]] = (
+    "NOT_APPLICABLE"
+)
 UNAVAILABLE_REASON_NO_TICKETS = "No tickets are available for this scope."
 UNAVAILABLE_REASON_NO_STORY_POINTS = "Delivery confidence requires at least 50% of sprint tickets to have valid story points."
 UNAVAILABLE_REASON_NO_CHANGELOG = (
@@ -155,10 +160,11 @@ class MetricAvailabilityService:
             unavailable_confidence_metrics = sorted(set(unavailable_confidence_metrics))
             missing_issue_keys = sorted(
                 {
-                    issue_key
+                    str(issue_key)
                     for metric_name in unavailable_confidence_metrics
-                    for issue_key in result_by_metric[metric_name].get(
-                        "missing_issue_keys", []
+                    for issue_key in cast(
+                        Iterable[object],
+                        result_by_metric[metric_name].get("missing_issue_keys", []),
                     )
                 }
             )
@@ -193,10 +199,13 @@ class MetricAvailabilityService:
             if unavailable_readiness_metrics:
                 readiness_missing_issue_keys = sorted(
                     {
-                        issue_key
+                        str(issue_key)
                         for metric_name in unavailable_readiness_metrics
-                        for issue_key in result_by_metric[metric_name].get(
-                            "missing_issue_keys", []
+                        for issue_key in cast(
+                            Iterable[object],
+                            result_by_metric[metric_name].get(
+                                "missing_issue_keys", []
+                            ),
                         )
                     }
                 )
@@ -335,7 +344,10 @@ class MetricAvailabilityService:
             )
         )
         if context.has_story_points and prerequisites is not None:
-            _apply_delivery_confidence_prerequisite_availability(metrics, prerequisites)
+            _apply_delivery_confidence_prerequisite_availability(
+                metrics,
+                cast(dict[str, object], prerequisites),
+            )
         return MetricAvailability(context=context, metrics=metrics)
 
     @staticmethod
@@ -676,7 +688,7 @@ class MetricAvailabilityService:
             "unfinished_issue_keys": unfinished_issue_keys,
         }
         if sprint_state != "closed":
-            rollover = {
+            rollover: dict[str, Any] = {
                 "value": None,
                 "status": COMPUTATION_STATUS_NOT_APPLICABLE,
                 "available": False,
@@ -729,7 +741,7 @@ class MetricAvailabilityService:
         *,
         is_computed: bool,
         empty_scope_reason: str,
-    ) -> tuple[str, str | None]:
+    ) -> tuple[ComputationStatus, str | None]:
         if not availability.context.has_tickets:
             return COMPUTATION_STATUS_NOT_COMPUTED, empty_scope_reason
         if not is_computed:
@@ -747,7 +759,7 @@ def _evaluate_classification_metrics(
 ) -> dict[str, dict[str, Any]]:
     issue_keys = [issue.issue_key for issue in issues]
     if not issues:
-        empty_evidence = {
+        empty_evidence: dict[str, list[str]] = {
             "evaluated_issue_keys": [],
             "matching_issue_keys": [],
         }
@@ -986,25 +998,22 @@ def _build_metric_availability_items(
     *,
     classification_results: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, MetricAvailabilityItem]:
-    items = {
-        metric_name: MetricAvailabilityItem(
+    items: dict[str, MetricAvailabilityItem] = {}
+    for metric_name, dependencies in dependencies_by_metric.items():
+        available = _dependencies_available(context, dependencies)
+        unavailable_reason = _first_unavailable_reason(context, dependencies)
+        items[metric_name] = MetricAvailabilityItem(
             status=(
                 COMPUTATION_STATUS_COMPUTED
-                if _dependencies_available(context, dependencies)
+                if available
                 else COMPUTATION_STATUS_NOT_COMPUTED
             ),
-            available=_dependencies_available(context, dependencies),
-            reason=_first_unavailable_reason(context, dependencies),
-            explanations=(
-                [_first_unavailable_reason(context, dependencies)]
-                if _first_unavailable_reason(context, dependencies)
-                else []
-            ),
+            available=available,
+            reason=unavailable_reason,
+            explanations=[unavailable_reason] if unavailable_reason else [],
             missing_issue_keys=[],
             depends_on=dependencies,
         )
-        for metric_name, dependencies in dependencies_by_metric.items()
-    }
     for metric_name, result in (classification_results or {}).items():
         explanations = list(result["explanations"])
         items[metric_name] = MetricAvailabilityItem(
@@ -1022,10 +1031,14 @@ def _apply_scope_churn_availability(
     items: dict[str, MetricAvailabilityItem],
     result: dict[str, object],
 ) -> None:
-    status = str(result["status"])
-    explanations = [str(item) for item in result.get("explanations", [])]
+    status = cast(MetricAvailabilityStatus, result["status"])
+    explanations = [
+        str(item)
+        for item in cast(Iterable[object], result.get("explanations", []))
+    ]
     missing_issue_keys = sorted(
-        str(key) for key in result.get("missing_issue_keys", [])
+        str(key)
+        for key in cast(Iterable[object], result.get("missing_issue_keys", []))
     )
     for metric_name in (
         "scope_churn_7d_pct",
@@ -1054,16 +1067,22 @@ def _apply_flow_metric_availability(
 ) -> None:
     for metric_name in ("median_cycle_time_days", "reopen_rate_pct"):
         result = results[metric_name]
-        status = str(result["status"])
+        status = cast(MetricAvailabilityStatus, result["status"])
         available = status == COMPUTATION_STATUS_COMPUTED
-        explanations = [str(item) for item in result.get("explanations", [])]
+        explanations = [
+            str(item)
+            for item in cast(Iterable[object], result.get("explanations", []))
+        ]
         items[metric_name] = MetricAvailabilityItem(
             status=status,
             available=available,
             reason=explanations[0] if not available and explanations else None,
             explanations=explanations,
             missing_issue_keys=sorted(
-                str(key) for key in result.get("missing_issue_keys", [])
+                str(key)
+                for key in cast(
+                    Iterable[object], result.get("missing_issue_keys", [])
+                )
             ),
             depends_on=items[metric_name].depends_on,
         )
@@ -1075,15 +1094,21 @@ def _apply_sprint_scope_metric_availability(
 ) -> None:
     for metric_name in ("committed_scope", "completed_scope_pct"):
         result = results[metric_name]
-        explanations = [str(item) for item in result.get("explanations", [])]
+        explanations = [
+            str(item)
+            for item in cast(Iterable[object], result.get("explanations", []))
+        ]
         available = bool(result["available"])
         items[metric_name] = MetricAvailabilityItem(
-            status=str(result["status"]),
+            status=cast(MetricAvailabilityStatus, result["status"]),
             available=available,
             reason=explanations[0] if not available and explanations else None,
             explanations=explanations,
             missing_issue_keys=sorted(
-                str(key) for key in result.get("missing_issue_keys", [])
+                str(key)
+                for key in cast(
+                    Iterable[object], result.get("missing_issue_keys", [])
+                )
             ),
             depends_on=items[metric_name].depends_on,
         )
@@ -1095,15 +1120,21 @@ def _apply_sprint_work_state_metric_availability(
 ) -> None:
     for metric_name in ("in_progress_count", "not_started_count", "rollover_count"):
         result = results[metric_name]
-        explanations = [str(item) for item in result.get("explanations", [])]
+        explanations = [
+            str(item)
+            for item in cast(Iterable[object], result.get("explanations", []))
+        ]
         available = bool(result["available"])
         items[metric_name] = MetricAvailabilityItem(
-            status=str(result["status"]),
+            status=cast(MetricAvailabilityStatus, result["status"]),
             available=available,
             reason=explanations[0] if not available and explanations else None,
             explanations=explanations,
             missing_issue_keys=sorted(
-                str(key) for key in result.get("missing_issue_keys", [])
+                str(key)
+                for key in cast(
+                    Iterable[object], result.get("missing_issue_keys", [])
+                )
             ),
             depends_on=items[metric_name].depends_on,
         )
@@ -1115,14 +1146,18 @@ def _apply_delivery_confidence_prerequisite_availability(
 ) -> None:
     if bool(result["available"]):
         return
-    explanations = [str(item) for item in result.get("explanations", [])]
+    explanations = [
+        str(item)
+        for item in cast(Iterable[object], result.get("explanations", []))
+    ]
     items["delivery_confidence_score"] = MetricAvailabilityItem(
         status=COMPUTATION_STATUS_NOT_COMPUTED,
         available=False,
         reason=explanations[0] if explanations else None,
         explanations=explanations,
         missing_issue_keys=sorted(
-            str(key) for key in result.get("missing_issue_keys", [])
+            str(key)
+            for key in cast(Iterable[object], result.get("missing_issue_keys", []))
         ),
         depends_on=SPRINT_METRIC_DEPENDENCIES["delivery_confidence_score"],
     )
@@ -1142,14 +1177,18 @@ def _apply_workload_distribution_availability(
         COMPUTATION_STATUS_COMPUTED,
         COMPUTATION_STATUS_PARTIAL,
     }
-    explanations = [str(item) for item in result.get("explanations", [])]
+    explanations = [
+        str(item)
+        for item in cast(Iterable[object], result.get("explanations", []))
+    ]
     items["workload_concentration_pct"] = MetricAvailabilityItem(
-        status=status,
+        status=cast(MetricAvailabilityStatus, status),
         available=available,
         reason=explanations[0] if not available and explanations else None,
         explanations=explanations,
         missing_issue_keys=sorted(
-            str(key) for key in result.get("missing_issue_keys", [])
+            str(key)
+            for key in cast(Iterable[object], result.get("missing_issue_keys", []))
         ),
         depends_on=SPRINT_METRIC_DEPENDENCIES["workload_concentration_pct"],
     )

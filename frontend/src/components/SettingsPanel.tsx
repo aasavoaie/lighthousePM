@@ -239,12 +239,17 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
         </button>
       </div>
 
-      {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
-      {statusMessage ? <p className="muted action-status">{statusMessage}</p> : null}
+      {errorMessage ? <p className="error-text" role="alert">{errorMessage}</p> : null}
+      {statusMessage ? <p className="muted action-status" role="status">{statusMessage}</p> : null}
       {testMessage ? (
-        <p className={testSucceeded ? "success-text action-status" : "error-text action-status"}>{testMessage}</p>
+        <p
+          className={testSucceeded ? "success-text action-status" : "error-text action-status"}
+          role={testSucceeded ? "status" : "alert"}
+        >
+          {testMessage}
+        </p>
       ) : null}
-      {isLoading ? <p className="muted">Loading settings...</p> : null}
+      {isLoading ? <p className="muted" role="status">Loading settings...</p> : null}
 
       {form ? (
         <form className="settings-form" onSubmit={(event) => event.preventDefault()}>
@@ -531,7 +536,7 @@ export function SettingsPanel({ onConfigurationSaved }: SettingsPanelProps) {
             <button type="button" className="secondary-button" disabled={isTesting || isSaving} onClick={() => void handleTestConnection()}>
               {isTesting ? "Testing..." : "Test Jira Connection"}
             </button>
-            <button type="button" className="primary-button" disabled={isSaving} onClick={() => void handleSave()}>
+            <button type="button" className="primary-button" disabled={isSaving || isTesting} onClick={() => void handleSave()}>
               {isSaving ? "Saving..." : "Save Settings"}
             </button>
           </div>

@@ -2222,6 +2222,358 @@ generated `openapi.json` file is not committed. This assurance contract does
 not change endpoint behavior, authentication enforcement, metric meaning, or
 the runtime `ruleset_version`, which remains `2`.
 
+## Continuous-Integration Execution Contract
+
+Status: **Approved — Phase 6.1**
+
+GitHub Actions is the repository's continuous-integration provider. CI runs for
+pull requests, pushes to the main branch, and manual dispatches. Workflows use
+least-privilege read-only repository permissions and cancel superseded runs for
+the same branch or pull request.
+
+The pipeline exposes independently visible jobs for backend quality and tests,
+PostgreSQL integration, frontend tests and production build, and desktop
+validation. Stable job names form the merge-readiness contract: every required
+job must pass before a change is considered ready to merge.
+
+Dependency installation is locked and reproducible. Python jobs install from
+explicitly maintained requirement files, while frontend and desktop jobs use
+`npm ci`. Backend compatibility is checked with Python 3.11, the declared
+minimum version. PostgreSQL integration uses PostgreSQL 14, the minimum
+supported database version. Frontend and desktop jobs use Node.js 22. Desktop
+packaged-backend validation runs on Windows because the distributed backend and
+Electron application target Windows. It validates the packaged backend rather
+than producing the complete Electron installer; release packaging remains a
+separate release process.
+
+Every CI command must also remain runnable locally and documented. CI must not
+depend on developer credentials, Jira access, production secrets, or persistent
+external services. Test fixtures and generated contract snapshots must be
+deterministic.
+
+## Backend Quality and Migration Controls
+
+Status: **Approved — Phase 6.2**
+
+The backend CI job runs on Ubuntu with Python 3.11 and installs the backend
+package plus its explicitly maintained development dependencies. The general
+backend test command excludes tests marked `postgres`, which run under the
+dedicated Phase 6.3 database contract, and tests marked `docker`, which require
+an isolated Docker runtime. Static Docker security tests remain part of the
+general backend suite because they require no external service.
+
+Ruff checks all maintained backend Python under `app`, `tests`, and `alembic`,
+plus `desktop_entry.py` and `seed.py`. MyPy checks `app`, matching the existing
+application boundary. Phase 6 does not impose an unrelated strict-mode
+conversion, but every error reported within the configured boundary fails CI.
+
+Migration checks enforce exactly one loadable Alembic head and an unbroken
+revision graph. Deterministic SQLite coverage verifies clean migration to head,
+upgrade from every supported versioned revision and registered unversioned
+legacy schema, idempotence, data preservation, backup behavior, invalid-state
+handling, and maintained documentation references to the current head.
+PostgreSQL migration execution remains in Phase 6.3 so database-infrastructure
+failures are independently visible.
+
+Local Makefile targets and CI use the same commands. Any backend test, Ruff,
+MyPy, or migration-check failure blocks the backend job. No coverage-percentage
+threshold is introduced without a separate approved product decision.
+
+## PostgreSQL Integration Gate
+
+Status: **Approved — Phase 6.3**
+
+A dedicated Ubuntu CI job runs against an ephemeral PostgreSQL 14 service with
+synthetic credentials and a service health check. It sets
+`MIGRATION_TEST_POSTGRES_ADMIN_URL` to the administrative `postgres` database
+and runs every test marked `postgres`, so newly marked PostgreSQL tests enter
+the gate automatically.
+
+CI enables an explicit required-test flag. A missing administrative URL,
+unavailable service, skipped required test, or uncollected PostgreSQL suite is a
+failure rather than a successful no-op. The job uses no repository, Jira,
+developer, or production credential and attaches no persistent database volume.
+
+Each test creates a uniquely named disposable database. Cleanup may remove only
+the `lighthouse_migration_*` and `lighthouse_startup_*` namespaces and must
+refuse any other database name. The normal LighthousePM application database is
+never a test target.
+
+The gate verifies every supported versioned PostgreSQL migration to the current
+head, preservation of existing data, idempotent repeat migration and startup,
+clean application startup, migration before readiness for an existing database,
+authenticated health and representative API responses, and structured
+empty-dataset responses. The equivalent local command and prerequisites remain
+documented in `UNIT_TEST_DOCS.md`.
+
+Docker Compose security acceptance remains separate. This gate tests the
+backend directly against PostgreSQL and does not build application containers.
+
+## Frontend Assertions and Production-Build Gate
+
+Status: **Approved — Phase 6.4**
+
+A dedicated Ubuntu CI job uses Node.js 22 and installs the committed frontend
+lockfile with `npm ci`. Separate steps run the deterministic logic assertions
+and the TypeScript plus Vite production build. Any dependency-installation,
+TypeScript, assertion, or bundling failure blocks the job.
+
+The assertion runner must fail when it discovers no source tests, produces no
+executable compiled tests, or encounters a failing assertion. Existing coverage
+continues to protect authentication, workspace state, release and project
+selection, navigation, Jira configuration, metric availability, confidence,
+charts, recommendations, and metric-catalog compatibility. It remains locally
+isolated and requires neither a backend process nor API or Jira credentials.
+
+Build warnings remain visible but are not all promoted to failures. In
+particular, the existing bundle-size warning does not silently create a new
+bundle policy in this point. Generated `.tmp-tests`, TypeScript build metadata,
+and `dist` output remain untracked; Phase 6.9 owns their ignore and cleanup
+rules.
+
+Phase 6.6 adds component-rendering and accessibility coverage. Once present,
+the frontend provides one documented local entry point that runs both the
+logic-assertion and component suites. Commands and prerequisites remain
+documented in `UNIT_TEST_DOCS.md`.
+
+## Desktop Lint and Packaged-Backend Smoke Gate
+
+Status: **Approved — Phase 6.5**
+
+The desktop CI job runs on Windows with Node.js 22 and Python 3.11. It installs
+the desktop lockfile with `npm ci` and installs the maintained backend runtime
+and development dependencies, including PyInstaller. `npm run lint` checks the
+Electron main and preload files, storage and operation-control modules, desktop
+build and verification scripts, and Electron Forge configuration.
+
+The job builds the real Windows backend executable with
+`npm run build:backend`. A focused packaged-backend smoke command verifies the
+expected executable, starts it on a dynamically selected loopback port with a
+temporary SQLite database and synthetic API token, and waits for health within
+a bounded timeout. It then verifies that an unauthenticated protected request
+returns `401` and an authenticated releases request returns a structured empty
+response. This proves that the packaged executable contains the application,
+migrations, API schemas, authentication middleware, and required runtime
+dependencies.
+
+The smoke command captures useful process diagnostics without printing the
+synthetic token, terminates the packaged process, and removes its temporary
+data. Build failure, missing output, early process exit, readiness timeout,
+incorrect authentication behavior, malformed API output, or failed cleanup
+fails the job. The same command remains documented for local execution.
+
+This gate does not build the React frontend, Electron package, ZIP, or
+installer. Complete Electron packaging, release verification, signing, and
+interactive clean-machine acceptance remain separate release controls.
+
+## Component-Level Frontend Behavior and Accessibility Tests
+
+Status: **Approved — Phase 6.6**
+
+The frontend adds a focused React component-test layer using Vitest, React
+Testing Library, `user-event`, `jest-dom`, JSDOM, and automated Axe checks.
+Existing compiled Node assertions remain separate. `test:assertions` runs the
+existing suite, `test:components` runs component tests under a dedicated file
+convention, and `test` runs both as the single local and CI entry point.
+
+Component coverage includes authentication, release-list, release-detail,
+sprint-list, and sprint-detail loading behavior; release, sprint, metric, and
+report empty states; invalid-token and API-request errors; and removal of stale
+loading indicators and unrelated stale data after failure.
+
+Project-switching tests verify that saving a different Jira project clears the
+previous project's releases, selection, metrics, charts, signal, and sprint
+state; loads and selects the new project independently; and prevents a late
+response from the previous project from repopulating the active workspace.
+
+Accessibility tests verify accessible roles, names, labels, disabled states,
+form and validation-message associations, dialog labeling and close behavior,
+keyboard operation, and no automated Axe violations in representative loading,
+empty, error, and populated states. Automated rules are a regression aid and
+are not represented as complete accessibility certification.
+
+Tests mock the API-client boundary and make no network request. They prefer
+accessible role and label queries over CSS selectors, assert both present and
+prohibited stale content, avoid broad DOM snapshots and implementation-state
+assertions, and reset mocks and rendered DOM between cases. Only small focused
+testability seams may be added; no generic frontend abstraction framework is
+introduced.
+
+## Desktop IPC, Security, and Lifecycle Tests
+
+Status: **Approved — Phase 6.7**
+
+Existing desktop storage, recovery, shutdown, startup, transaction, rollback,
+backup, restore, Clear Data, Factory Reset, and interrupted-journal tests remain
+required. Phase 6 adds only coverage and safeguards missing from those suites.
+
+The preload exposes only the approved frozen `lighthouseDesktop` API and no
+generic Electron, process, filesystem, send, or invoke capability. Exposed
+channel names exactly match registered main-process handlers. Every IPC request
+validates that its sender belongs to the active LighthousePM renderer; foreign
+origins, detached frames, and unavailable renderer state fail closed. Storage
+operations accept no renderer-supplied filesystem paths, Jira-token, PDF-save,
+and external-link payloads are validated before side effects, and mutating
+storage requests retain the exclusive operation lock.
+
+Executable security tests enforce `contextIsolation: true`,
+`nodeIntegration: false`, `sandbox: true`, `webSecurity: true`, and
+`allowRunningInsecureContent: false`. Permission checks, permission requests,
+and device permissions are denied. Navigation outside the active renderer,
+new windows, and webviews are blocked. Only valid HTTPS links may be delegated
+to the operating system. The local API token may be attached only to the exact
+development renderer origin's `/api` requests and never to another origin.
+Startup and backend-error documents escape untrusted details.
+
+Lifecycle coverage verifies that pre-readiness failure keeps the workspace
+closed; unexpected backend exit shows the error boundary and log location;
+intentional shutdown does not report an unexpected exit; a second instance
+restores and focuses the existing window; application shutdown waits for
+confirmed backend termination; recovery completes before ordinary backend
+startup; and recovery, migration, and configuration failures remain
+fail-closed.
+
+Tests prefer executable Node behavior with mocked Electron boundaries and small
+pure policy helpers. Limited source-contract assertions remain only for
+immutable Electron wiring. Normal CI does not launch the Electron GUI or add a
+desktop testing framework. `test:node` runs the Node suite, `npm test` remains
+the local aggregate, and empty test discovery is a failure. Windows CI runs the
+Node suite after lint and before the packaged-backend smoke. GUI, installer,
+upgrade, and clean-machine behavior remains release acceptance.
+
+## Critical API Payload Snapshots
+
+Status: **Approved — Phase 6.8**
+
+Committed human-readable JSON contracts protect representative paginated and
+project-scoped release data; populated and incomplete-evidence release metrics;
+stored release signals with reasons, ruleset, provenance, and availability;
+release snapshot comparison; sprint collection and current-sprint selection;
+sprint metrics with complete, partial, and inconclusive story-point coverage
+and repeated reopen-event evidence; sprint snapshot comparison; redacted Jira
+configuration; successful Jira synchronization; and standard `401`, `404`,
+`409`, and `422` error payloads.
+
+Snapshots compare the complete serialized payload, including names, nesting,
+nullability, ordering, reasons, and evidence. Fixtures use fixed identifiers,
+dates, timestamps, seeded data, and frozen clock sources where required.
+Nondeterministic fields are not broadly removed. API tokens, Jira credentials,
+database URLs, local paths, and other secrets must never enter a snapshot.
+
+OpenAPI remains authoritative for endpoint mechanics and schemas, semantic
+tests remain authoritative for formulas and rules, and `PRODUCT_RULES.md`
+remains the product-rule authority. PDF bytes, generated OpenAPI JSON, and the
+complete metric catalog are not duplicated as snapshots because focused
+contracts already protect them.
+
+A manifest test rejects missing, duplicate, and orphaned snapshot files.
+Ordinary tests and CI compare snapshots read-only and never rewrite them. One
+explicit local command regenerates the contracts from deterministic fixtures,
+must produce a reviewable diff, and fails for nondeterministic output. An
+intentional change requires review of schemas, frontend consumers, maintained
+documentation, and `ruleset_version` whenever metric meaning changes.
+
+## Line Endings and Repository Hygiene
+
+Status: **Approved — Phase 6.9**
+
+`.gitattributes` defines LF for source code, Markdown, configuration, YAML,
+JSON, lockfiles, shell scripts, and web assets; CRLF only for Windows command,
+batch, and PowerShell scripts; and explicit binary treatment for images, icons,
+PDFs, archives, executables, and databases. It performs no encoding conversion
+or generated-content filtering. Tracked files are renormalized against this
+policy and checked with `git diff --check`.
+
+The repository removes `6.0`, tracked log files, all generated
+`frontend/.tmp-tests` output, frontend TypeScript build metadata, and the known
+malformed `WorkingDirectory`/`PassThru` filename and its untracked variant.
+`.gitignore` covers `*.log`, `*.tsbuildinfo`, `frontend/.tmp-tests/`, and `6.0`.
+Malformed filename patterns are not ignored: future occurrences remain visible
+and fail the hygiene check.
+
+A deterministic safeguard rejects tracked generated-test output, logs,
+TypeScript build metadata, `6.0`, known accidental command fragments, a missing
+line-ending policy, and verification commands that unexpectedly modify tracked
+generated content.
+
+History retains two isolated changes: a line-ending-only change containing
+`.gitattributes` and renormalization, followed by a dedicated hygiene change
+containing `.gitignore`, artifact removal, and the safeguard. Renormalization
+must wait for a safe committed functional baseline. Existing work is never
+reset, stashed, discarded, or mixed with line-ending noise. The index is
+inspected and explicit confirmation requested before either commit is created.
+
+## Explicit and Reproducible Dependencies
+
+Status: **Approved — Phase 6.10**
+
+`backend/pyproject.toml` is the canonical direct-dependency declaration. It
+explicitly declares FastAPI, Starlette, Pydantic, pydantic-settings, SQLAlchemy,
+Alembic, the psycopg binary distribution, HTTPX, APScheduler, Uvicorn, and
+python-dotenv as runtime requirements. A single `dev` optional-dependency group
+declares pytest, pytest-asyncio, Ruff, MyPy, PyInstaller, and the selected Python
+lock-generation tool. Alembic is not duplicated as a development-only
+requirement. LighthousePM never relies on a transitive installation for a
+package it imports directly or loads as its configured database driver.
+
+Exact platform-appropriate lock files are generated from this canonical
+metadata rather than from a competing handwritten dependency list. Maintained
+locks cover Linux runtime, Linux CI/development, and Windows CI/packaged-backend
+installation. Regeneration is an explicit documented command, and CI rejects a
+regenerated diff. Jobs install the applicable lock, install the project with
+`--no-deps`, and run `pip check`. Docker builds use the Linux runtime lock
+instead of resolving open ranges during each image build.
+
+Frontend runtime dependencies remain React, React DOM, and Recharts. TypeScript,
+Vite, React types, the React Vite plugin, and every Phase 6.6 testing package
+are explicit development dependencies. Desktop explicitly declares Electron,
+Electron Forge, each configured maker, and every directly invoked build
+utility. Electron remains a development dependency because it supplies the
+packaged runtime API, and no desktop test framework is added. Npm lockfiles are
+updated only through npm; CI uses `npm ci` and `npm ls --depth=0`.
+
+A deterministic inventory check maps imported module names to distribution
+names and rejects undeclared third-party production or test/build imports.
+Standard-library, Node built-in, local, generated, and internal type-only
+imports are excluded explicitly. Fresh CI environments must pass without
+globally installed packages. Phase 6 performs no unrelated opportunistic
+dependency upgrade. Installation, lock regeneration, and validation remain
+documented in `README.md` and `UNIT_TEST_DOCS.md`.
+
+## Phase 6 Verification and Completion Gate
+
+Status: **Approved — Phase 6.11**
+
+The stable required CI jobs are `backend-quality`, `postgres-integration`,
+`frontend`, `desktop`, and `docker-security`. The Docker job preserves the
+already approved Phase 4.6 acceptance requirement: on an Ubuntu runner with
+Docker available, it sets `LIGHTHOUSE_REQUIRE_DOCKER_SECURITY=1`, uses only
+synthetic secret files, builds an isolated Compose project, verifies health,
+authentication, configuration-secret rejection, and network isolation, and
+removes disposable containers, volumes, images, and credentials. Required
+Docker acceptance fails rather than skips.
+
+Phase 6 is complete only when backend non-external tests, whole-backend Ruff,
+application MyPy, SQLite migration integrity, required PostgreSQL acceptance,
+frontend logic and component tests, TypeScript and the production build,
+desktop lint and Node tests, the real packaged Windows backend smoke, Docker
+runtime security acceptance, API payload snapshots, dependency inventory and
+locks, `pip check`, `npm ls`, repository hygiene, and line-ending checks pass.
+Each required suite fails on empty or skipped collection where applicable.
+Verification commands must leave tracked generated content unchanged.
+
+`README.md`, `UNIT_TEST_DOCS.md`, and relevant `AGENTS.md` delivery instructions
+must match the implemented commands. No gate depends on Jira, production,
+developer, or repository secrets. Ordinary CI does not build a complete
+Electron installer or replace interactive clean-machine acceptance. Stable job
+names are provided for owner-managed branch protection, but repository-external
+GitHub settings are not changed automatically.
+
+Final reporting separates locally passed gates, environment-dependent gates,
+and CI-only results that have not actually run. Existing warnings, including
+the frontend bundle-size warning, remain visible. Delivery-control and IPC
+security changes do not alter metric meaning, so `ruleset_version` remains `2`.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -2342,3 +2694,22 @@ framework.
 | 5.4 | Use one metric catalog for shared metadata while retaining `PRODUCT_RULES.md` as the normative product authority | Approved |
 | 5.5 | Reconcile maintained technical, API, test, user, and agent documentation with the implemented architecture | Approved |
 | 5.6 | Make OpenAPI authoritative for endpoint mechanics and enforce documentation synchronization with contract tests | Approved |
+
+## Phase 6 Decision Register
+
+Phase 6 strengthens deterministic delivery controls without changing product
+behavior or the approved single-service architecture.
+
+| Point | Decision | Status |
+|---|---|---|
+| 6.1 | Use GitHub Actions with reproducible, independently visible backend, PostgreSQL, frontend, and desktop quality gates | Approved |
+| 6.2 | Enforce backend tests, whole-backend Ruff checks, application MyPy checks, and deterministic SQLite migration integrity | Approved |
+| 6.3 | Require isolated PostgreSQL 14 migration and startup acceptance with fail-closed test collection | Approved |
+| 6.4 | Require deterministic frontend assertions, non-empty test collection, TypeScript compilation, and a production Vite build | Approved |
+| 6.5 | Require Windows desktop lint plus a bounded authentication and API smoke test of the real PyInstaller backend | Approved |
+| 6.6 | Add deterministic component tests for loading, empty, error, project-switching, keyboard, semantic, and automated accessibility behavior | Approved |
+| 6.7 | Add gap-based executable IPC sender, Electron security-policy, and application lifecycle tests while retaining existing recovery coverage | Approved |
+| 6.8 | Protect representative critical API serialization with deterministic, reviewable, read-only JSON contract snapshots | Approved |
+| 6.9 | Normalize line endings and remove generated, logged, metadata, and accidental tracked artifacts through isolated safeguards and commits | Approved |
+| 6.10 | Declare every direct backend, frontend, desktop, and test/build dependency and enforce platform-specific reproducible locks | Approved |
+| 6.11 | Require complete backend, PostgreSQL, frontend, desktop, Docker, contract, dependency, hygiene, and documentation verification | Approved |

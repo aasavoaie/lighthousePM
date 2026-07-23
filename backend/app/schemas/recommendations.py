@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 RecommendationEffort = Literal["low", "medium", "high"]
+RecommendationDataStatus = Literal["COMPUTED", "PARTIAL"]
 
 
 class RecommendationAction(BaseModel):
@@ -13,5 +14,5 @@ class RecommendationAction(BaseModel):
     confidenceImpact: int
     effort: RecommendationEffort
     category: str
-    dataStatus: Literal["COMPUTED", "PARTIAL"] = "COMPUTED"
+    dataStatus: RecommendationDataStatus = "COMPUTED"
     explanations: list[str] = Field(default_factory=list)

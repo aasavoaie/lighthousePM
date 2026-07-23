@@ -486,18 +486,22 @@ idempotent restart. The complete versioned matrix must run on file-backed
 SQLite and a real PostgreSQL instance. Migration-specific downgrade tests are
 additional checks; downgrade is not a supported desktop recovery path.
 
-Run the PostgreSQL portion against the Docker Compose database using an admin
-URL that can create and remove disposable `lighthouse_migration_*` databases:
+Start PostgreSQL with the loopback-only Compose override documented under
+Docker Compose below, using synthetic secret files. Then run the PostgreSQL
+gate with the same database password:
 
 ```bash
-docker compose up -d postgres
 cd backend
-MIGRATION_TEST_POSTGRES_ADMIN_URL=postgresql+psycopg://postgres:postgres@localhost:5432/postgres \
-  pytest tests/test_migration_upgrade_matrix.py tests/test_application_startup_acceptance.py -m postgres
+MIGRATION_TEST_POSTGRES_ADMIN_URL=postgresql+psycopg://postgres:<password>@127.0.0.1:5432/postgres \
+  make postgres-test
 ```
 
-The test refuses to drop databases outside the `lighthouse_migration_*`
-namespace. The normal `lighthouse` application database is not modified.
+The required runner sets `LIGHTHOUSE_REQUIRE_POSTGRES_INTEGRATION=1`, verifies
+the administrative connection, and fails when no PostgreSQL tests are
+collected or any required test skips. Tests create only
+`lighthouse_migration_*` and `lighthouse_startup_*` databases and refuse to
+drop anything else. The normal `lighthouse` application database is never a
+test target.
 
 Migration acceptance also runs through the application startup boundary. Clean
 startup tests begin without a database or parent directory and verify current
@@ -633,8 +637,8 @@ the user to the desktop backend log; it never triggers an automatic data reset.
 
 ### Prerequisites
 
-- Python 3.11 or newer
-- Node.js and npm for the frontend or desktop shell
+- Python 3.11 (the version used to generate and validate dependency locks)
+- Node.js 22 and npm for the frontend or desktop shell
 - PostgreSQL 14 or newer for the default backend setup, or SQLite for local
   file-backed development
 - Docker Desktop when using Docker Compose
@@ -643,11 +647,43 @@ the user to the desktop backend log; it never triggers an automatic data reset.
 
 ```bash
 cd backend
-python -m pip install -e .
-python -m pip install -r requirements-dev.txt
+python -m pip install --require-hashes -r requirements/linux-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip check
 DEPLOYMENT_MODE=local-browser APP_HOST=127.0.0.1 \
   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+On Windows, use `requirements/windows-dev.lock` in place of
+`requirements/linux-dev.lock`. To regenerate the locks for the current native
+platform with Python 3.11, run `python scripts/compile_python_locks.py`; add
+`--upgrade` only for an intentional dependency upgrade. `make locks` and
+`make locks-upgrade` are equivalent convenience targets. Linux and Windows
+locks must each be generated on their native platform, and every resulting
+diff must be reviewed. `backend/pyproject.toml` remains the source for direct
+dependency ranges.
+
+Direct-dependency inventories are deterministic and package-specific:
+
+```bash
+cd backend
+make dependency-check
+
+cd ../frontend
+npm run check:dependencies
+
+cd ../desktop
+npm run check:dependencies
+```
+
+The backend command maps maintained Python imports to the distributions in
+`pyproject.toml` and runs `pip check`. The frontend and desktop commands verify
+source imports, configured build tools, and Electron Forge makers against the
+applicable `package.json`, then run `npm ls --depth=0`. Standard-library and
+Node built-in modules, local imports, generated output, and internal type-only
+imports are excluded explicitly. An undeclared third-party dependency, an
+incorrect runtime/dev classification, or a broken installed tree fails the
+command.
 
 The API documentation is available at `http://127.0.0.1:8000/docs` while the
 development server is running.
@@ -696,9 +732,17 @@ Backend verification:
 
 ```bash
 cd backend
-pytest tests -q
-ruff check app tests alembic
+make quality
 ```
+
+The equivalent canonical commands run normal backend tests with PostgreSQL and
+Docker acceptance excluded, check every maintained backend Python file, type
+check the application boundary, verify direct and installed dependencies, and
+exercise deterministic SQLite migration and startup upgrades. The
+environment-backed PostgreSQL and Docker gates are run separately.
+
+Use `make migration-check` when only the SQLite migration and startup-upgrade
+matrix needs to be verified.
 
 Run the complete Phase 4 security acceptance gate from the desktop directory:
 
@@ -800,7 +844,7 @@ CORS, TLS reverse-proxy, and network controls defined in the security contract.
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev -- --host 127.0.0.1
 ```
 
@@ -808,9 +852,28 @@ Frontend verification:
 
 ```bash
 cd frontend
+npm run check:dependencies
 npm test
 npm run build
 ```
+
+`npm test` is the aggregate frontend gate. It runs dependency-inventory and
+assertion-runner contracts, every deterministic `.test.ts` logic assertion,
+and the Vitest `.component.test.tsx` component suite. The assertion runner
+fails if no source tests are found, compilation produces no executable tests,
+the source and compiled inventories differ, or an assertion fails. The
+component suite uses React Testing Library, `user-event`, JSDOM, and Axe to
+cover authentication, loading, empty and error states, project-switch races,
+forms, reports, and dialog behavior. Both layers mock the API boundary and
+require no backend process, API token, Jira credentials, or network service.
+
+Use `npm run test:assertions` or `npm run test:components` for a focused layer;
+`npm test` remains the required local and CI entry point.
+
+`npm run build` is a separate TypeScript and Vite production-build gate. Build
+warnings remain visible; the existing Vite bundle-size warning is not by itself
+a failure. CI runs these commands in the independently visible `frontend` job
+on Ubuntu with Node.js 22 after installing the committed lockfile with `npm ci`.
 
 The offline frontend metric-catalog fallback is generated from the backend
 catalog. After an approved catalog change, regenerate it before verification:
@@ -832,6 +895,13 @@ The Electron shell packages the FastAPI backend, migration scripts, frontend,
 and local SQLite storage into one application. Build and release procedures
 are documented in [`desktop/README.md`](desktop/README.md).
 
+Desktop security and lifecycle tests use Node's built-in test runner with
+mocked Electron boundaries. They cover the exact preload IPC surface, trusted
+sender and payload validation, BrowserWindow and session hardening, permission
+denial, navigation controls, backend readiness and exit handling, confirmed
+shutdown, recovery ordering, and escaped startup/error documents. They do not
+launch Electron or constitute installer acceptance.
+
 Common commands:
 
 ```bash
@@ -841,6 +911,35 @@ npm run package
 npm run make
 npm run verify:release
 ```
+
+The focused Windows desktop-validation gate builds and exercises only the real
+packaged backend; it does not build React, Electron, a ZIP, or an installer:
+
+```bash
+cd backend
+python -m pip install --require-hashes -r requirements/windows-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip check
+
+cd ../desktop
+npm ci
+npm run check:dependencies
+npm run lint
+npm run test:node
+npm run build:backend
+npm run smoke:backend
+```
+
+Use `npm test` for the local aggregate of desktop lint and Node tests, or
+`npm run test:node` while iterating on executable desktop behavior. The desktop
+runner discovers `.test.cjs` files deterministically and fails if discovery is
+empty.
+
+The smoke command starts `lighthousepm-backend.exe` on a dynamic loopback port
+with disposable SQLite data and a synthetic token. It requires healthy startup,
+anonymous rejection, and an authenticated structured empty releases response,
+then confirms process shutdown and removes its temporary data. CI runs the same
+commands in the stable `desktop` job on Windows with Node.js 22 and Python 3.11.
 
 ## Repository structure
 

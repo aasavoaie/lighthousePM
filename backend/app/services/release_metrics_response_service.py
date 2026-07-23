@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -8,6 +9,7 @@ from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.schemas.metrics import (
     ChartPoint,
+    ComputationStatus,
     MetricIssueKeys,
     MetricSeries,
     MetricThresholds,
@@ -309,12 +311,23 @@ class ReleaseMetricsResponseService:
             metric_availability = type(metric_availability).model_validate(
                 stored_availability
             )
-            computation_status = provenance.get(
-                "computation_status", computation_status
-            )
-            unavailable_reason = provenance.get(
-                "unavailable_reason", unavailable_reason
-            )
+            stored_computation_status = provenance.get("computation_status")
+            if stored_computation_status in {
+                "COMPUTED",
+                "PARTIAL",
+                "NOT_COMPUTED",
+            }:
+                computation_status = cast(
+                    ComputationStatus,
+                    stored_computation_status,
+                )
+            if "unavailable_reason" in provenance:
+                stored_unavailable_reason = provenance["unavailable_reason"]
+                if stored_unavailable_reason is None or isinstance(
+                    stored_unavailable_reason,
+                    str,
+                ):
+                    unavailable_reason = stored_unavailable_reason
         confidence_score = (
             snapshot.confidence_score
             if has_release_tickets and snapshot.ruleset_version > 0
@@ -375,12 +388,19 @@ class ReleaseMetricsResponseService:
             metric_issue_keys=MetricIssueKeys(
                 open_blockers=snapshot.open_blocker_issue_keys,
                 open_high_severity_bugs=snapshot.open_high_severity_bug_issue_keys,
-                completed_tickets=(
-                    provenance.get("issue_key_evidence", {}).get(
-                        "completed_tickets", []
-                    )
-                    if snapshot.ruleset_version > 0
-                    else []
+                completed_tickets=cast(
+                    list[str],
+                    (
+                        issue_key_evidence.get("completed_tickets", [])
+                        if snapshot.ruleset_version > 0
+                        and isinstance(
+                            issue_key_evidence := provenance.get(
+                                "issue_key_evidence"
+                            ),
+                            dict,
+                        )
+                        else []
+                    ),
                 ),
             ),
             metric_names=RELEASE_METRIC_NAMES,

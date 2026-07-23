@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import TypedDict, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -53,6 +54,12 @@ def _coerce_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+class _RiskStartEvidence(TypedDict):
+    risk_started_at: datetime | None
+    source_field: str | None
+    source_changed_at: datetime | None
 
 
 class SignalService:
@@ -285,9 +292,13 @@ class SignalService:
                 and cycle_time_availability.get("status") == "NOT_COMPUTED"
             ):
                 unavailable_gate_metrics.discard("median_cycle_time_days")
+            release_gates = cast(
+                list[dict[str, object]],
+                readiness.get("release_gates", []),
+            )
             readiness["release_gates"] = [
                 gate
-                for gate in readiness.get("release_gates", [])
+                for gate in release_gates
                 if gate.get("metric_name") not in unavailable_gate_metrics
             ]
             readiness["unavailable_inputs"] = [
@@ -301,10 +312,15 @@ class SignalService:
                 for metric_name, item in unavailable_confidence_items.items()
             ]
             readiness["primary_risk"] = None
-            for risk in [
-                *readiness.get("critical_risks", []),
-                *readiness.get("warnings", []),
-            ]:
+            critical_risks = cast(
+                list[dict[str, object]],
+                readiness.get("critical_risks", []),
+            )
+            warnings = cast(
+                list[dict[str, object]],
+                readiness.get("warnings", []),
+            )
+            for risk in [*critical_risks, *warnings]:
                 risk["contribution_pct"] = 0.0
             readiness["reasons"] = reasons
         risk_aging = self._build_release_risk_aging(
@@ -339,8 +355,11 @@ class SignalService:
             signal=signal,
             confidence_score=snapshot.confidence_score,
             reasons=reasons,
-            reason_details=reason_details,
-            release_gates=readiness.get("release_gates", []),
+            reason_details=[dict(detail) for detail in reason_details],
+            release_gates=cast(
+                list[dict[str, object]],
+                readiness.get("release_gates", []),
+            ),
             readiness_evidence=self._json_safe_evidence(readiness),
             risk_aging_evidence=self._json_safe_evidence(risk_aging),
             calculated_at=calculated_at,
@@ -401,7 +420,11 @@ class SignalService:
                 }
             )
 
-        if churn_ratio is not None and churn_ratio > SCOPE_CHURN_RED_THRESHOLD:
+        if (
+            churn_ratio is not None
+            and scope_churn_7d_pct is not None
+            and churn_ratio > SCOPE_CHURN_RED_THRESHOLD
+        ):
             threshold_pct = SCOPE_CHURN_RED_THRESHOLD * 100
             message = f"Scope churn: {scope_churn_7d_pct:.1f}% > {threshold_pct:.0f}%"
             red_reasons.append(message)
@@ -416,7 +439,11 @@ class SignalService:
                 }
             )
 
-        if reopen_ratio is not None and reopen_ratio > REOPEN_RATE_RED_THRESHOLD:
+        if (
+            reopen_ratio is not None
+            and reopen_rate_pct is not None
+            and reopen_ratio > REOPEN_RATE_RED_THRESHOLD
+        ):
             threshold_pct = REOPEN_RATE_RED_THRESHOLD * 100
             message = f"Reopen events per 100 eligible tickets: {reopen_rate_pct:.1f}% > {threshold_pct:.0f}%"
             red_reasons.append(message)
@@ -456,6 +483,7 @@ class SignalService:
 
         if (
             churn_ratio is not None
+            and scope_churn_7d_pct is not None
             and SCOPE_CHURN_YELLOW_THRESHOLD < churn_ratio <= SCOPE_CHURN_RED_THRESHOLD
         ):
             threshold_pct = SCOPE_CHURN_YELLOW_THRESHOLD * 100
@@ -474,6 +502,7 @@ class SignalService:
 
         if (
             reopen_ratio is not None
+            and reopen_rate_pct is not None
             and REOPEN_RATE_YELLOW_THRESHOLD < reopen_ratio <= REOPEN_RATE_RED_THRESHOLD
         ):
             threshold_pct = REOPEN_RATE_YELLOW_THRESHOLD * 100
@@ -729,7 +758,10 @@ class SignalService:
 
         primary_risk = None
         if risk_points:
-            primary_metric_name = max(risk_points, key=risk_points.get)
+            primary_metric_name = max(
+                risk_points,
+                key=lambda metric_name: risk_points[metric_name],
+            )
             label_by_metric = {
                 "open_blockers": "Open blockers",
                 "open_high_severity_bugs": "High severity bugs",
@@ -912,14 +944,22 @@ class SignalService:
             else None
         )
         confidence_change_24h = None
-        for item in last_24_hours.get("items", []):
+        last_24_hour_items = cast(
+            list[dict[str, object]],
+            last_24_hours.get("items", []),
+        )
+        for item in last_24_hour_items:
             if isinstance(item, dict) and item.get("metric_name") == "confidence_score":
                 confidence_change_24h = item.get("delta")
                 break
 
         active_conditions = [*critical_risks, *warnings]
         return {
-            "label": label_by_signal.get(final_signal, "NOT COMPUTED"),
+            "label": (
+                label_by_signal.get(final_signal, "NOT COMPUTED")
+                if final_signal is not None
+                else "NOT COMPUTED"
+            ),
             "signal": final_signal,
             "confidence_score": confidence_score,
             "snapshot_at": snapshot_at,
@@ -1098,7 +1138,7 @@ class SignalService:
         as_of: datetime,
         field_mapper: JiraFieldMapper,
         risk_type: str,
-    ) -> dict[str, object]:
+    ) -> _RiskStartEvidence:
         if not issue.jira_changelog_complete:
             return {"risk_started_at": None, "source_field": None, "source_changed_at": None}
 

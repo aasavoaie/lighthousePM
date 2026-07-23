@@ -366,6 +366,9 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
 
       setIsLoadingList(true);
       setErrorMessage(null);
+      setCurrentSprint(null);
+      setClosedSprints([]);
+      setSelectedSprintId(null);
       try {
         const [currentResult, closedResult] = await Promise.allSettled([
           apiClient.getCurrentSprint(activeProjectKey),
@@ -383,8 +386,11 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         setCurrentSprint(activeSprint);
         setClosedSprints(closed);
         setSelectedSprintId(activeSprint?.sprint_id ?? closed[0]?.sprint_id ?? null);
-        if (closedResult.status === "rejected") {
-          setErrorMessage(closedResult.reason instanceof Error ? closedResult.reason.message : "Failed to load sprints.");
+        const failures = [currentResult, closedResult]
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason instanceof Error ? result.reason.message : "Failed to load sprints.");
+        if (failures.length > 0) {
+          setErrorMessage(failures.join(" "));
         }
       } finally {
         if (isActive) {
@@ -413,6 +419,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     async function loadSprintDetails() {
       setIsLoadingDetails(true);
       setErrorMessage(null);
+      setMetrics(null);
+      setIssues([]);
       try {
         const [metricsResponse, issueResponse] = await Promise.all([
           apiClient.getSprintMetrics(sprintId),
@@ -425,6 +433,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         setIssues(issueResponse);
       } catch (error) {
         if (isActive) {
+          setMetrics(null);
+          setIssues([]);
           setErrorMessage(error instanceof Error ? error.message : "Failed to load sprint details.");
         }
       } finally {
@@ -454,6 +464,8 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     async function loadSnapshotChanges() {
       setIsLoadingSnapshotChanges(true);
       setSnapshotChangeError(null);
+      setSnapshotComparison(null);
+      setSnapshotHistory(null);
       try {
         const [comparison, history] = await Promise.all([
           apiClient.getSprintSnapshotComparison(sprintId, snapshotBaseline),
@@ -494,6 +506,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     async function loadSprintConfidence() {
       setIsLoadingSprintConfidence(true);
       setSprintConfidenceError(null);
+      setSprintChartRows([]);
       try {
         const sources = await Promise.all(
           recentSprints.map(async (sprint) => {
@@ -512,6 +525,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
         }
       } catch (error) {
         if (isActive) {
+          setSprintChartRows([]);
           setSprintConfidenceError(error instanceof Error ? error.message : "Failed to load sprint confidence.");
         }
       } finally {
@@ -552,7 +566,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
 
   return (
     <div className="sprints-panel">
-      {errorMessage ? <div className="panel error-panel">{errorMessage}</div> : null}
+      {errorMessage ? <div className="panel error-panel" role="alert">{errorMessage}</div> : null}
 
       {mode === "intelligence" ? (
         <>

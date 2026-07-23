@@ -11,6 +11,7 @@ import {
 type AuthenticationState = "checking" | "required" | "authenticated";
 
 export function ApiAuthenticationGate({ children }: { children: ReactNode }) {
+  const tokenErrorId = "lighthouse-api-token-error";
   const isElectron = Boolean(window.lighthouseDesktop?.isElectron);
   const [authenticationState, setAuthenticationState] = useState<AuthenticationState>(
     isElectron ? "authenticated" : "checking"
@@ -123,6 +124,8 @@ export function ApiAuthenticationGate({ children }: { children: ReactNode }) {
             autoComplete="off"
             spellCheck={false}
             disabled={isChecking}
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? tokenErrorId : undefined}
             onChange={(event) => setCandidateToken(event.target.value)}
           />
         </label>
@@ -130,7 +133,7 @@ export function ApiAuthenticationGate({ children }: { children: ReactNode }) {
           {isChecking ? "Checking..." : "Continue"}
         </button>
         <p className="muted">The token is kept in memory only and is cleared when this page closes.</p>
-        {error ? <p className="error-text" role="alert">{error}</p> : null}
+        {error ? <p id={tokenErrorId} className="error-text" role="alert">{error}</p> : null}
       </form>
     </main>
   );

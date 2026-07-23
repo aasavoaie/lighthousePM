@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from app.models import MetricSnapshot
@@ -88,8 +88,10 @@ class ReleaseReportTemplate:
             ReportSection(
                 "Executive Summary",
                 lines=[
-                    readiness.get("summary")
-                    or "Release report generated from deterministic LighthousePM snapshots."
+                    str(
+                        readiness.get("summary")
+                        or "Release report generated from deterministic LighthousePM snapshots."
+                    )
                 ],
                 rows=[
                     ("Release", release.name),
@@ -150,7 +152,7 @@ class ReleaseReportTemplate:
                         points=[
                             (
                                 format_short_datetime(item.snapshot_at),
-                                item_readiness.get("readiness_pct"),
+                                _numeric_value(item_readiness.get("readiness_pct")),
                             )
                             for item, item_readiness in zip(
                                 snapshots,
@@ -172,15 +174,20 @@ class ReleaseReportTemplate:
             ReportSection(
                 "Risk Analysis",
                 bullets=[
-                    *[str(reason) for reason in readiness.get("reasons", [])],
+                    *[
+                        str(reason)
+                        for reason in _list_value(readiness.get("reasons", []))
+                    ],
                     *[
                         risk.get("message", "")
-                        for risk in readiness.get("critical_risks", [])
+                        for risk in _list_value(
+                            readiness.get("critical_risks", [])
+                        )
                         if isinstance(risk, dict)
                     ],
                     *[
                         risk.get("message", "")
-                        for risk in readiness.get("warnings", [])
+                        for risk in _list_value(readiness.get("warnings", []))
                         if isinstance(risk, dict)
                     ],
                 ]
@@ -229,8 +236,10 @@ class ReleaseReportTemplate:
             ReportSection(
                 "Executive Summary",
                 lines=[
-                    readiness.get("summary")
-                    or "Release summary generated from deterministic LighthousePM metrics."
+                    str(
+                        readiness.get("summary")
+                        or "Release summary generated from deterministic LighthousePM metrics."
+                    )
                 ],
                 rows=[
                     ("Release", release.name),
@@ -323,7 +332,7 @@ class ReleaseReportTemplate:
             bullets=(
                 [
                     str(item.get("message", ""))
-                    for item in active_conditions
+                    for item in _list_value(active_conditions)
                     if isinstance(item, dict) and item.get("message")
                 ]
                 or ["No active hard RED or YELLOW conditions."]
@@ -370,7 +379,7 @@ class ReleaseReportTemplate:
                     ),
                 ]
             )
-            for ticket in group.get("tickets", []):
+            for ticket in _list_value(group.get("tickets", [])):
                 if not isinstance(ticket, dict):
                     continue
                 bullets.append(
@@ -427,7 +436,12 @@ class ReleaseReportTemplate:
             rows=[
                 ("Current snapshot", format_datetime(snapshots[-1].snapshot_at)),
                 ("Baseline snapshot", format_datetime(snapshots[-2].snapshot_at)),
-                ("Confidence delta", format_delta(comparison.confidence_delta)),
+                (
+                    "Confidence delta",
+                    format_delta(comparison.confidence_delta)
+                    if comparison.confidence_delta is not None
+                    else "N/A",
+                ),
                 ("Primary driver", comparison.primary_driver),
                 ("Entity", release_id),
             ],
@@ -436,7 +450,7 @@ class ReleaseReportTemplate:
     def historical_charts(
         self,
         release_id: str,
-        snapshots: list[MetricSnapshot],
+        snapshots: Sequence[MetricSnapshot],
         release_availability: MetricAvailability | None = None,
     ) -> list[ChartSpec]:
         return [
@@ -565,3 +579,11 @@ class ReleaseReportTemplate:
         return sum(
             1 for gate in gates if isinstance(gate, dict) and gate.get("passed") is True
         )
+
+
+def _list_value(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def _numeric_value(value: object) -> float | None:
+    return float(value) if isinstance(value, int | float) else None

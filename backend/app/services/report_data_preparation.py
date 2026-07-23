@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 import tomllib
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, cast
 
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,16 @@ from app.services.snapshot_comparison_service import SnapshotComparisonService
 
 
 RELEASE_NO_TICKETS_MESSAGE = "No tickets are available for this scope."
+
+
+def _dict_items(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, list):
+        return []
+    return [
+        cast(dict[str, object], item)
+        for item in value
+        if isinstance(item, dict)
+    ]
 
 
 @dataclass(frozen=True)
@@ -350,8 +360,8 @@ class ReportDataPreparationService:
         details["confidence_score"] = (
             signal_row.confidence_score if signal_row else snapshot.confidence_score
         )
-        gates = details.get("release_gates", [])
-        gate_count = len(gates) if isinstance(gates, list) else 0
+        gates = _dict_items(details.get("release_gates", []))
+        gate_count = len(gates)
         passed = sum(
             1
             for gate in gates
@@ -373,19 +383,10 @@ class ReportDataPreparationService:
         snapshot: MetricSnapshot | None,
         readiness: Mapping[str, object],
     ) -> Mapping[str, object]:
-        release_gates = [
-            item
-            for item in readiness.get("release_gates", [])
-            if isinstance(item, dict)
-        ]
-        critical_risks = [
-            item
-            for item in readiness.get("critical_risks", [])
-            if isinstance(item, dict)
-        ]
-        warnings = [
-            item for item in readiness.get("warnings", []) if isinstance(item, dict)
-        ]
+        release_gates = _dict_items(readiness.get("release_gates", []))
+        critical_risks = _dict_items(readiness.get("critical_risks", []))
+        warnings = _dict_items(readiness.get("warnings", []))
+        confidence_value = readiness.get("confidence_score")
         last_24_hours = (
             SignalService._build_last_24_hours(
                 session=session,
@@ -410,8 +411,8 @@ class ReportDataPreparationService:
                 else None
             ),
             confidence_score=(
-                float(readiness["confidence_score"])
-                if isinstance(readiness.get("confidence_score"), int | float)
+                float(confidence_value)
+                if isinstance(confidence_value, int | float)
                 else None
             ),
             release_gates=release_gates,

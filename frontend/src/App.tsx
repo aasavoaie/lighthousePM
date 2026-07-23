@@ -127,7 +127,7 @@ export default function App() {
         />
 
         <main className={selectedTab === "overview" ? "overview-grid" : "dashboard-grid detail-dashboard-grid"}>
-          {errorMessage && selectedTab !== "admin" ? <div className="panel error-panel">{errorMessage}</div> : null}
+          {errorMessage && selectedTab !== "admin" ? <div className="panel error-panel" role="alert">{errorMessage}</div> : null}
 
           {shouldShowDetailHeader(selectedTab) ? (
             <DetailHeader

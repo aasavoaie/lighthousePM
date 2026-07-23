@@ -5,12 +5,18 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
+COPY requirements/linux-runtime.lock /app/requirements/linux-runtime.lock
+COPY pyproject.toml /app/pyproject.toml
+
+RUN python -m pip install --no-cache-dir --require-hashes \
+        -r requirements/linux-runtime.lock
+
 COPY app /app/app
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
-COPY pyproject.toml /app/pyproject.toml
 
-RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir --no-deps --no-build-isolation . \
+    && python -m pip check
 
 EXPOSE 8000
 

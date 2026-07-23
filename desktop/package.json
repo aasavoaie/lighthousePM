@@ -10,6 +10,7 @@
   "scripts": {
     "build:assets": "node scripts/generate-icons.cjs",
     "build:backend": "node scripts/build-backend.cjs",
+    "smoke:backend": "node scripts/smoke-packaged-backend.cjs",
     "build:frontend": "cross-env VITE_API_BASE_URL=/api npm --prefix ../frontend run build",
     "dev": "npm run build:assets && npm run build:backend && concurrently -k -s first \"cross-env VITE_API_BASE_URL=/api npm --prefix ../frontend run dev -- --host 127.0.0.1\" \"wait-on http-get://127.0.0.1:5173 && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron-forge start\"",
     "start": "npm run build:assets && npm run build:backend && npm run build:frontend && electron-forge start",
@@ -17,10 +18,12 @@
     "make": "npm run build:assets && npm run build:backend && npm run build:frontend && electron-forge make",
     "release:windows": "npm run verify:security && npm run make && npm run verify:release",
     "acceptance:clean-machine": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/clean-machine-acceptance.ps1",
+    "check:dependencies": "node scripts/check-dependency-inventory.cjs && npm ls --depth=0",
     "verify:security": "node scripts/verify-security.cjs",
     "verify:release": "node scripts/verify-release.cjs",
-    "lint": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/operation-control.cjs && node --check src/storage-recovery.cjs && node --check src/storage-transaction.cjs && node --check scripts/build-backend.cjs && node --check scripts/generate-icons.cjs && node --check scripts/verify-security.cjs && node --check scripts/verify-release.cjs && node --check forge.config.cjs",
-    "test": "npm run lint && node --test tests/*.test.cjs"
+    "lint": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/desktop-lifecycle.cjs && node --check src/ipc-security.cjs && node --check src/operation-control.cjs && node --check src/security-policy.cjs && node --check src/session-security.cjs && node --check src/status-document.cjs && node --check src/storage-recovery.cjs && node --check src/storage-transaction.cjs && node --check src/window-security.cjs && node --check scripts/build-backend.cjs && node --check scripts/check-dependency-inventory.cjs && node --check scripts/generate-icons.cjs && node --check scripts/run-node-tests.cjs && node --check scripts/smoke-packaged-backend.cjs && node --check scripts/verify-security.cjs && node --check scripts/verify-release.cjs && node --check forge.config.cjs",
+    "test:node": "node scripts/run-node-tests.cjs",
+    "test": "npm run lint && npm run test:node"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",

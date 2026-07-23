@@ -10,7 +10,7 @@ Responsibilities:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -283,7 +283,13 @@ class JiraService:
 
     async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
         """Return all versions for a Jira project."""
-        data = await self._request("GET", f"/rest/api/3/project/{project_key}/versions")
+        data = cast(
+            list[dict[str, Any]],
+            await self._request(
+                "GET",
+                f"/rest/api/3/project/{project_key}/versions",
+            ),
+        )
         try:
             versions: list[JiraVersion] = []
             for v in data:

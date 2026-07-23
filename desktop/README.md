@@ -9,8 +9,36 @@ or a separately started server.
 From `desktop/`:
 
 ```bash
-npm install
+npm ci
 ```
+
+## Packaged Backend Smoke Gate
+
+The focused Windows gate validates the actual PyInstaller backend without
+building the React frontend, Electron application, ZIP, or installer. Install
+the locked Python 3.11 development environment, then run:
+
+```bash
+cd backend
+python -m pip install --require-hashes -r requirements/windows-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip check
+
+cd ../desktop
+npm ci
+npm run check:dependencies
+npm run lint
+npm run test:node
+npm run build:backend
+npm run smoke:backend
+```
+
+The smoke command starts `backend/dist/lighthousepm-backend/lighthousepm-backend.exe`
+on a dynamic loopback port with an isolated temporary SQLite database and a
+synthetic API token. It verifies health, anonymous `401` enforcement, and the
+authenticated structured empty releases response. The process must terminate
+and its temporary data must be removed. Diagnostics are bounded and redact the
+synthetic token.
 
 ## Development
 

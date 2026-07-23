@@ -140,6 +140,7 @@ export function useReleaseWorkspace(): ReleaseWorkspace {
         if (!isActive) {
           return;
         }
+        setReleases([]);
         setWorkspaceErrorMessage(errorMessage(error, "Failed to load releases."));
       } finally {
         if (isActive) {
@@ -211,6 +212,10 @@ export function useReleaseWorkspace(): ReleaseWorkspace {
     async function loadReleaseDashboard() {
       setIsLoadingDetails(true);
       setWorkspaceErrorMessage(null);
+      setSelectedRelease(null);
+      setMetrics(null);
+      setCharts(null);
+      setSignal(null);
       try {
         const [release, metricsResponse, chartsResponse, signalResponse] = await Promise.all([
           apiClient.getRelease(currentReleaseId),
@@ -236,6 +241,10 @@ export function useReleaseWorkspace(): ReleaseWorkspace {
         if (!isActive) {
           return;
         }
+        setSelectedRelease(null);
+        setMetrics(null);
+        setCharts(null);
+        setSignal(null);
         setWorkspaceErrorMessage(errorMessage(error, "Failed to load dashboard data."));
       } finally {
         if (isActive) {

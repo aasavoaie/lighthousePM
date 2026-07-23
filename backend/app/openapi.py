@@ -60,4 +60,6 @@ def install_openapi_security(app: FastAPI) -> None:
         _apply_route_security(openapi_schema, app)
         return openapi_schema
 
-    app.openapi = openapi_with_security
+    # FastAPI intentionally supports replacing this instance hook at runtime,
+    # while its type declaration exposes ``openapi`` as a class method.
+    setattr(app, "openapi", openapi_with_security)

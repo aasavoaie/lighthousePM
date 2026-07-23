@@ -3,6 +3,7 @@ import math
 import statistics
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
+from typing import TypedDict, cast
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -54,6 +55,72 @@ DELIVERY_CONFIDENCE_WEIGHTS = {
     "scope_stability": 0.1,
 }
 HISTORICAL_VELOCITY_SPRINT_COUNT = 3
+
+
+class _StoryPointCoverage(TypedDict):
+    total_ticket_count: int
+    pointed_ticket_count: int
+    unpointed_ticket_count: int
+    coverage_pct: float
+    unpointed_issue_keys: list[str]
+
+
+class _ScopeChurnResult(TypedDict):
+    status: str
+    scope_churn_7d_pct: float | None
+    scope_added_7d_count: int
+    scope_removed_7d_count: int
+    explanations: list[str]
+    missing_issue_keys: list[str]
+    evidence: dict[str, object]
+
+
+class _BugsCreatedDuringSprintResult(TypedDict):
+    status: str
+    issue_keys: list[str]
+    missing_created_at_issue_keys: list[str]
+
+
+class _ScopeStabilityInputs(TypedDict):
+    initial_commitment_count: int
+    scope_change_count: int
+    scope_added_count: int
+    scope_removed_count: int
+    scope_stability_index: float | None
+    scope_change_issue_keys: list[str]
+    scope_added_issue_keys: list[str]
+    scope_removed_issue_keys: list[str]
+
+
+class _VelocityBaselineEvidence(TypedDict):
+    sprint_id: str
+    coverage_pct: float
+    status: str
+    completed_points: float
+
+
+class _DeliveryConfidenceResult(TypedDict):
+    status: str
+    score: float | None
+    components: dict[str, float] | None
+    inputs: dict[str, object] | None
+    coverage: _StoryPointCoverage
+    prerequisites: dict[str, object]
+    explanations: list[str]
+
+
+class _WorkloadBucket(TypedDict):
+    assignee_key: str
+    labels: list[str]
+    story_points: float
+    issue_keys: list[str]
+
+
+class _AssigneeTotal(TypedDict):
+    assignee_key: str
+    assignee: str
+    story_points: float
+    issue_keys: list[str]
 
 
 class AnalyticsService:
@@ -109,8 +176,15 @@ class AnalyticsService:
         flow_metrics = self.evaluate_release_flow_metrics(session, release_id, field_mapper)
         reopen_rate_result = flow_metrics["reopen_rate_pct"]
         cycle_time_result = flow_metrics["median_cycle_time_days"]
-        reopen_rate_pct = reopen_rate_result["reopen_rate_pct"]
-        median_cycle_time_days = cycle_time_result["median_cycle_time_days"]
+        reopen_rate_pct = cast(
+            float | None,
+            reopen_rate_result["reopen_rate_pct"],
+        )
+        median_cycle_time_days = cast(
+            float | None,
+            cycle_time_result["median_cycle_time_days"],
+        )
+        scope_churn_7d_pct = scope_churn_7d["scope_churn_7d_pct"]
         classification_confidence_partial = any(
             classification_results[metric_name]["status"] == "PARTIAL"
             for metric_name in ("open_blockers", "open_high_severity_bugs")
@@ -128,13 +202,14 @@ class AnalyticsService:
             SignalService._compute_release_confidence_score(
                 open_blockers=len(open_blocker_issue_keys),
                 open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
-                scope_churn_7d_pct=scope_churn_7d["scope_churn_7d_pct"],
+                scope_churn_7d_pct=scope_churn_7d_pct,
                 reopen_rate_pct=reopen_rate_pct,
                 median_cycle_time_days=median_cycle_time_days,
             )
             if ticket_count > 0
             and not release_confidence_unavailable
-            and scope_churn_7d["scope_churn_7d_pct"] is not None
+            and scope_churn_7d_pct is not None
+            and reopen_rate_pct is not None
             else None
         )
         snapshot = MetricSnapshot(
@@ -153,7 +228,7 @@ class AnalyticsService:
             open_high_severity_bug_issue_keys=open_high_severity_bug_issue_keys,
             scope_completed_pct=scope_completed_pct if scope_completed_pct is not None else 0.0,
             completed_tickets=int(completed_tickets or 0),
-            scope_churn_7d_pct=scope_churn_7d["scope_churn_7d_pct"],
+            scope_churn_7d_pct=scope_churn_7d_pct,
             scope_added_7d_count=scope_churn_7d["scope_added_7d_count"],
             scope_removed_7d_count=scope_churn_7d["scope_removed_7d_count"],
             reopen_rate_pct=reopen_rate_pct,
@@ -347,7 +422,7 @@ class AnalyticsService:
         field_mapper: JiraFieldMapper,
         ticket_count: int,
         classification_results: dict[str, dict[str, object]],
-        scope_churn_7d: dict[str, object],
+        scope_churn_7d: _ScopeChurnResult,
         flow_metrics: dict[str, dict[str, object]],
     ) -> dict[str, object]:
         from app.services.driver_analysis_service import DriverAnalysisService
@@ -386,7 +461,7 @@ class AnalyticsService:
             session=session,
             release_id=release_id,
             field_mapper=field_mapper,
-            scope_churn_result=scope_churn_7d,
+            scope_churn_result=cast(dict[str, object], scope_churn_7d),
             flow_metric_results=flow_metrics,
         )
         computation_status, unavailable_reason = MetricAvailabilityService.computation_state(
@@ -442,8 +517,20 @@ class AnalyticsService:
                 "readiness_pct": (
                     round(
                         100.0
-                        * sum(1 for gate in readiness.get("release_gates", []) if gate.get("passed") is True)
-                        / len(readiness.get("release_gates", [])),
+                        * sum(
+                            1
+                            for gate in cast(
+                                list[dict[str, object]],
+                                readiness.get("release_gates", []),
+                            )
+                            if gate.get("passed") is True
+                        )
+                        / len(
+                            cast(
+                                list[dict[str, object]],
+                                readiness.get("release_gates", []),
+                            )
+                        ),
                         2,
                     )
                     if readiness.get("release_gates")
@@ -453,9 +540,10 @@ class AnalyticsService:
             "issue_key_evidence": {
                 "open_blockers": snapshot.open_blocker_issue_keys,
                 "open_high_severity_bugs": snapshot.open_high_severity_bug_issue_keys,
-                "completed_tickets": classification_results["completed_tickets"]["evidence"][
-                    "matching_issue_keys"
-                ],
+                "completed_tickets": cast(
+                    dict[str, object],
+                    classification_results["completed_tickets"]["evidence"],
+                )["matching_issue_keys"],
                 "scope_added_7d": scope_churn_7d["evidence"]["added_issue_keys"],
                 "scope_removed_7d": scope_churn_7d["evidence"]["removed_issue_keys"],
             },
@@ -482,7 +570,7 @@ class AnalyticsService:
         flow_metrics: dict[str, dict[str, object]],
         scope_metrics: dict[str, dict[str, object]],
         work_state_metrics: dict[str, dict[str, object]],
-        delivery_confidence_result: dict[str, object],
+        delivery_confidence_result: _DeliveryConfidenceResult,
         workload_distribution: dict[str, object],
     ) -> dict[str, object]:
         from app.services.driver_analysis_service import DriverAnalysisService
@@ -498,7 +586,10 @@ class AnalyticsService:
             flow_metric_results=flow_metrics,
             scope_metric_results=scope_metrics,
             work_state_metric_results=work_state_metrics,
-            delivery_confidence_result=delivery_confidence_result,
+            delivery_confidence_result=cast(
+                dict[str, object],
+                delivery_confidence_result,
+            ),
             workload_distribution_result=workload_distribution,
         )
         computation_status, unavailable_reason = MetricAvailabilityService.computation_state(
@@ -534,7 +625,7 @@ class AnalyticsService:
                 "components": snapshot.delivery_confidence_components,
                 "confidence_breakdown": (
                     ConfidenceBreakdownService.build_sprint_breakdown(
-                        score=float(snapshot.delivery_confidence_score),
+                        score=cast(float, snapshot.delivery_confidence_score),
                         components=snapshot.delivery_confidence_components or {},
                         inputs=snapshot.delivery_confidence_inputs,
                     ).model_dump()
@@ -543,7 +634,7 @@ class AnalyticsService:
                 ),
                 "biggest_driver": (
                     DriverAnalysisService.build_sprint_driver(
-                        score=float(snapshot.delivery_confidence_score),
+                        score=cast(float, snapshot.delivery_confidence_score),
                         components=snapshot.delivery_confidence_components or {},
                     ).model_dump()
                     if has_confidence
@@ -632,9 +723,10 @@ class AnalyticsService:
         release_name: str,
         field_mapper: JiraFieldMapper,
         snapshot_at: datetime,
-    ) -> dict[str, object]:
+    ) -> _ScopeChurnResult:
         """Evaluate seven-day release scope churn from stored Jira evidence."""
         window_end = _coerce_utc(snapshot_at)
+        assert window_end is not None
         window_start = window_end - timedelta(days=7)
         normalized_release_value = release_name.strip().casefold()
 
@@ -884,7 +976,7 @@ class AnalyticsService:
         sprint: Sprint,
         snapshot_at: datetime,
         field_mapper: JiraFieldMapper,
-    ) -> dict[str, object]:
+    ) -> _BugsCreatedDuringSprintResult:
         """Sorted sprint bug keys where issue creation falls inside the sprint window.
 
         The window starts at sprint.start_date. It ends at complete_date for closed
@@ -892,8 +984,9 @@ class AnalyticsService:
         sprints whose configured end date is in the future.
         """
         start_at = _coerce_utc(sprint.start_date)
-        snapshot_at = _coerce_utc(snapshot_at)
-        if start_at is None or snapshot_at is None:
+        normalized_snapshot_at = _coerce_utc(snapshot_at)
+        assert normalized_snapshot_at is not None
+        if start_at is None:
             return {
                 "status": "NOT_COMPUTED",
                 "issue_keys": [],
@@ -904,11 +997,15 @@ class AnalyticsService:
             upper_bound = (
                 _coerce_utc(sprint.complete_date)
                 or _coerce_utc(sprint.end_date)
-                or snapshot_at
+                or normalized_snapshot_at
             )
         else:
             configured_end_at = _coerce_utc(sprint.end_date)
-            upper_bound = min(configured_end_at, snapshot_at) if configured_end_at is not None else snapshot_at
+            upper_bound = (
+                min(configured_end_at, normalized_snapshot_at)
+                if configured_end_at is not None
+                else normalized_snapshot_at
+            )
         if upper_bound < start_at:
             return {
                 "status": "COMPUTED",
@@ -1047,9 +1144,9 @@ class AnalyticsService:
             included_active_issue_keys: list[str] | None = None,
             excluded_active_issue_keys: list[str] | None = None,
             fallback_issue_keys: list[str] | None = None,
-            assignee_totals: list[dict[str, object]] | None = None,
+            assignee_totals: Sequence[_AssigneeTotal] | None = None,
             total_active_points: float | None = None,
-            top_assignee: dict[str, object] | None = None,
+            top_assignee: _AssigneeTotal | None = None,
             risk_band: str | None = None,
         ) -> dict[str, object]:
             return {
@@ -1061,7 +1158,7 @@ class AnalyticsService:
                 "excluded_active_issue_keys": excluded_active_issue_keys or [],
                 "missing_status_issue_keys": missing_status_issue_keys,
                 "assignee_identity_fallback_issue_keys": fallback_issue_keys or [],
-                "assignee_totals": assignee_totals or [],
+                "assignee_totals": list(assignee_totals or []),
                 "total_active_points": total_active_points,
                 "top_assignee": top_assignee,
                 "risk_band": risk_band,
@@ -1121,7 +1218,7 @@ class AnalyticsService:
         included_active_issue_keys = sorted(issue.issue_key for issue, _points in included)
         excluded_active_issue_keys.sort()
 
-        buckets: dict[str, dict[str, object]] = {}
+        buckets: dict[str, _WorkloadBucket] = {}
         fallback_issue_keys: list[str] = []
         for issue, points in included:
             display_name = (issue.assignee or "").strip()
@@ -1150,7 +1247,7 @@ class AnalyticsService:
             bucket["story_points"] = float(bucket["story_points"]) + points
             bucket["issue_keys"].append(issue.issue_key)
 
-        assignee_totals: list[dict[str, object]] = []
+        assignee_totals: list[_AssigneeTotal] = []
         for bucket in buckets.values():
             labels = sorted(set(str(label).strip() for label in bucket["labels"]))
             assignee_totals.append(
@@ -1231,12 +1328,12 @@ class AnalyticsService:
                 "Workload distribution is partial because normalized assignee display-name "
                 "fallback is used for: " + ", ".join(fallback_issue_keys) + "."
             )
-        top_assignee = {
-            "assignee_key": top["assignee_key"],
-            "assignee": top["assignee"],
-            "story_points": top["story_points"],
-            "issue_keys": top["issue_keys"],
-        }
+        top_assignee = _AssigneeTotal(
+            assignee_key=top["assignee_key"],
+            assignee=top["assignee"],
+            story_points=top["story_points"],
+            issue_keys=top["issue_keys"],
+        )
         return {
             "status": COMPUTATION_STATUS_PARTIAL if is_partial else COMPUTATION_STATUS_COMPUTED,
             "value": concentration_pct,
@@ -1267,7 +1364,7 @@ class AnalyticsService:
         field_mapper: JiraFieldMapper,
         open_blockers: int,
         prerequisites: dict[str, object],
-    ) -> dict[str, object]:
+    ) -> _DeliveryConfidenceResult:
         sprint_issues = AnalyticsService._list_sprint_issues(session, sprint.sprint_id)
         committed_issue_count = len(sprint_issues)
         coverage = _story_point_coverage(sprint_issues)
@@ -1291,7 +1388,11 @@ class AnalyticsService:
                 "delivery confidence. Ideally, all tickets should have story points."
             )
         prerequisite_explanations = [
-            str(item) for item in prerequisites.get("explanations", [])
+            str(item)
+            for item in cast(
+                Sequence[object],
+                prerequisites.get("explanations", []),
+            )
         ]
         if coverage_explanations or not bool(prerequisites["available"]):
             return {
@@ -1351,7 +1452,7 @@ class AnalyticsService:
         )
 
         baseline_sprints = AnalyticsService._list_velocity_baseline_sprints(session=session, sprint=sprint)
-        baseline_evidence = []
+        baseline_evidence: list[_VelocityBaselineEvidence] = []
         for baseline in baseline_sprints:
             baseline_issues = AnalyticsService._list_sprint_issues(session, baseline.sprint_id)
             baseline_coverage = _story_point_coverage(baseline_issues)
@@ -1521,7 +1622,7 @@ class AnalyticsService:
         snapshot_at: datetime,
         field_mapper: JiraFieldMapper,
         current_issue_count: int,
-    ) -> dict[str, object]:
+    ) -> _ScopeStabilityInputs:
         """Compute post-start scope movement as (added + removed) / initial commitment."""
         start_at = _coerce_utc(sprint.start_date)
         if start_at is None:
@@ -1585,7 +1686,9 @@ def _load_status_histories(
     session: Session,
     issue_keys: Sequence[str],
 ) -> dict[str, list[IssueHistory]]:
-    histories_by_issue = {issue_key: [] for issue_key in issue_keys}
+    histories_by_issue: dict[str, list[IssueHistory]] = {
+        issue_key: [] for issue_key in issue_keys
+    }
     if not issue_keys:
         return histories_by_issue
 
@@ -1877,7 +1980,7 @@ def _valid_story_points(value: object) -> float | None:
     return numeric_value
 
 
-def _story_point_coverage(issues: list[Issue]) -> dict[str, object]:
+def _story_point_coverage(issues: list[Issue]) -> _StoryPointCoverage:
     unpointed_issue_keys = sorted(
         issue.issue_key for issue in issues if _valid_story_points(issue.story_points) is None
     )
@@ -1913,10 +2016,11 @@ def _coerce_utc(value: datetime | None) -> datetime | None:
 def _compute_time_elapsed_pct(sprint: Sprint, snapshot_at: datetime) -> float | None:
     start_at = _coerce_utc(sprint.start_date)
     end_at = _coerce_utc(sprint.end_date)
-    snapshot_at = _coerce_utc(snapshot_at)
-    if start_at is None or end_at is None or snapshot_at is None or end_at <= start_at:
+    normalized_snapshot_at = _coerce_utc(snapshot_at)
+    assert normalized_snapshot_at is not None
+    if start_at is None or end_at is None or end_at <= start_at:
         return None
-    elapsed_seconds = (snapshot_at - start_at).total_seconds()
+    elapsed_seconds = (normalized_snapshot_at - start_at).total_seconds()
     total_seconds = (end_at - start_at).total_seconds()
     return _clamp(100.0 * elapsed_seconds / total_seconds, 0.0, 100.0)
 
@@ -1945,7 +2049,7 @@ def _build_scope_stability_inputs(
     added_issue_keys: list[str],
     removed_issue_keys: list[str],
     current_issue_count: int,
-) -> dict[str, object]:
+) -> _ScopeStabilityInputs:
     added_count = len(added_issue_keys)
     removed_count = len(removed_issue_keys)
     change_count = added_count + removed_count

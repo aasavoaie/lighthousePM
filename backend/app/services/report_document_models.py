@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import Literal, Mapping
+from typing import Literal
 
 
 ReportDepth = Literal["summary", "full"]
 RgbColor = tuple[float, float, float]
+PdfFontName = Literal["F1", "F2"]
 
 
 @dataclass(frozen=True)
@@ -18,8 +20,8 @@ class PdfColor:
 
 @dataclass(frozen=True)
 class PdfTypography:
-    body_font: str
-    heading_font: str
+    body_font: PdfFontName
+    heading_font: PdfFontName
     title_size: int
     section_size: int
     body_size: int
@@ -73,7 +75,7 @@ class PdfTheme:
         object.__setattr__(self, "metric_colors", MappingProxyType(dict(self.metric_colors)))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ChartSpec:
     title: str
     kind: Literal["line", "bar"]
@@ -82,8 +84,21 @@ class ChartSpec:
     y_max: float | None = None
     value_suffix: str = ""
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "points", tuple(self.points))
+    def __init__(
+        self,
+        title: str,
+        kind: Literal["line", "bar"],
+        points: Iterable[tuple[str, float | None]],
+        color: RgbColor = (11 / 255, 107 / 255, 203 / 255),
+        y_max: float | None = None,
+        value_suffix: str = "",
+    ) -> None:
+        object.__setattr__(self, "title", title)
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "points", tuple(points))
+        object.__setattr__(self, "color", color)
+        object.__setattr__(self, "y_max", y_max)
+        object.__setattr__(self, "value_suffix", value_suffix)
 
 
 @dataclass(frozen=True)
@@ -93,23 +108,33 @@ class ChartImage:
     rgb_data: bytes
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ReportSection:
     title: str
-    lines: tuple[str, ...] = field(default_factory=tuple)
-    rows: tuple[tuple[str, str], ...] = field(default_factory=tuple)
-    bullets: tuple[str, ...] = field(default_factory=tuple)
-    charts: tuple[ChartSpec, ...] = field(default_factory=tuple)
+    lines: tuple[str, ...] = ()
+    rows: tuple[tuple[str, str], ...] = ()
+    bullets: tuple[str, ...] = ()
+    charts: tuple[ChartSpec, ...] = ()
     heading_color: RgbColor | None = None
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "lines", tuple(self.lines))
-        object.__setattr__(self, "rows", tuple(self.rows))
-        object.__setattr__(self, "bullets", tuple(self.bullets))
-        object.__setattr__(self, "charts", tuple(self.charts))
+    def __init__(
+        self,
+        title: str,
+        lines: Iterable[str] = (),
+        rows: Iterable[tuple[str, str]] = (),
+        bullets: Iterable[str] = (),
+        charts: Iterable[ChartSpec] = (),
+        heading_color: RgbColor | None = None,
+    ) -> None:
+        object.__setattr__(self, "title", title)
+        object.__setattr__(self, "lines", tuple(lines))
+        object.__setattr__(self, "rows", tuple(rows))
+        object.__setattr__(self, "bullets", tuple(bullets))
+        object.__setattr__(self, "charts", tuple(charts))
+        object.__setattr__(self, "heading_color", heading_color)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ReportDocument:
     title: str
     subtitle: str
@@ -118,5 +143,18 @@ class ReportDocument:
     version: str
     sections: tuple[ReportSection, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "sections", tuple(self.sections))
+    def __init__(
+        self,
+        title: str,
+        subtitle: str,
+        entity_id: str,
+        generated_at: datetime,
+        version: str,
+        sections: Iterable[ReportSection],
+    ) -> None:
+        object.__setattr__(self, "title", title)
+        object.__setattr__(self, "subtitle", subtitle)
+        object.__setattr__(self, "entity_id", entity_id)
+        object.__setattr__(self, "generated_at", generated_at)
+        object.__setattr__(self, "version", version)
+        object.__setattr__(self, "sections", tuple(sections))

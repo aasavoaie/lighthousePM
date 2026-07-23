@@ -72,6 +72,7 @@ export function SprintHealthPanel({
                 </option>
               ))}
             </select>
+            {isLoadingList ? <p className="muted action-status" role="status">Loading sprints...</p> : null}
             {selectedSprint ? (
               <dl className="release-health-card-grid" aria-label="Selected sprint summary">
                 <div>

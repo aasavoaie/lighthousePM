@@ -1,9 +1,13 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from app.metric_catalog import metric_threshold_value
 from app.schemas.availability import MetricAvailability
-from app.schemas.recommendations import RecommendationAction, RecommendationEffort
+from app.schemas.recommendations import (
+    RecommendationAction,
+    RecommendationDataStatus,
+    RecommendationEffort,
+)
 OPEN_BLOCKERS_RED_THRESHOLD = metric_threshold_value(
     "release.open_blockers", "critical"
 )
@@ -206,7 +210,10 @@ class RecommendationEngine:
         # comes only from the persisted snapshot fields.
         _ = sprint_issues
         candidates: list[_RecommendationRule] = []
-        evidence_by_key: dict[str, tuple[str, list[str]]] = {}
+        evidence_by_key: dict[
+            str,
+            tuple[RecommendationDataStatus, list[str]],
+        ] = {}
         components = (snapshot.delivery_confidence_components or {}) if include_story_point_rules else {}
         inputs = (snapshot.delivery_confidence_inputs or {}) if include_story_point_rules else {}
 
@@ -236,7 +243,7 @@ class RecommendationEngine:
         ):
             candidates.append(RecommendationEngine.SPRINT_RULES["workload_concentration"])
             evidence_by_key["workload_concentration"] = (
-                str(workload_status),
+                cast(RecommendationDataStatus, workload_status),
                 list(getattr(snapshot, "workload_distribution_explanations", None) or []),
             )
         if (
@@ -259,7 +266,11 @@ class RecommendationEngine:
     def _prioritize(
         candidates: list[_RecommendationRule],
         rule_order: list[str],
-        evidence_by_key: dict[str, tuple[str, list[str]]] | None = None,
+        evidence_by_key: dict[
+            str,
+            tuple[RecommendationDataStatus, list[str]],
+        ]
+        | None = None,
     ) -> list[RecommendationAction]:
         ordered = sorted(
             candidates,

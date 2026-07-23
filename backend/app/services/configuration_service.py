@@ -122,7 +122,10 @@ def _update_env_text(original: str, replacements: dict[str, str]) -> str:
     output: list[str] = []
     for line in original.splitlines(keepends=True):
         match = _ENV_ASSIGNMENT.match(line)
-        key = match.group("key") if match else None
+        if match is None:
+            output.append(line)
+            continue
+        key = match.group("key")
         if key in updated_keys:
             continue
         if key not in remaining:

@@ -250,7 +250,12 @@ class _RasterCanvas:
 
 
 def _rgb255(color: tuple[float, float, float]) -> tuple[int, int, int]:
-    return tuple(max(0, min(255, round(component * 255))) for component in color)
+    red, green, blue = color
+    return (
+        max(0, min(255, round(red * 255))),
+        max(0, min(255, round(green * 255))),
+        max(0, min(255, round(blue * 255))),
+    )
 
 
 def _chart_y(

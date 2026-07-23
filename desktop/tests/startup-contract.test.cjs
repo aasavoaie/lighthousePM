@@ -52,11 +52,11 @@ test("desktop workspace remains behind the startup screen until backend readines
 
   assertInOrder(source, [
     "createMainWindow();",
-    "const recoveryResult = await recoverDesktopStorageAtStartup();",
-    "if (!recoveryResult.backendStarted)",
-    "await startBackend();",
-    "rendererOrigin = getDevRendererOrigin() ?? (await startRendererServer());",
-    "await mainWindow?.loadURL(rendererOrigin);",
+    "await runApplicationStartup({",
+    "recoverStorage: recoverDesktopStorageAtStartup",
+    "startBackend,",
+    "resolveRendererOrigin:",
+    "loadRenderer:",
   ]);
   assert.match(source, /showBackendErrorScreen\("LighthousePM could not start the local backend\.", detail\)/);
 });
@@ -113,9 +113,9 @@ test("startup recovery runs before normal backend start and uses the authenticat
     "verifyState: verifyRestoredBackendState",
   ]);
   assertInOrder(startupSource, [
-    "await recoverDesktopStorageAtStartup()",
-    "if (!recoveryResult.backendStarted)",
-    "await startBackend()",
+    "await runApplicationStartup({",
+    "recoverStorage: recoverDesktopStorageAtStartup",
+    "startBackend,",
   ]);
 });
 

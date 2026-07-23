@@ -1,0 +1,18 @@
+{
+  "items": [
+    {
+      "release_id": "LHPM-REL-ALPHA",
+      "name": "Alpha Release",
+      "project_key": "LHPM",
+      "description": "Primary deterministic release contract fixture.",
+      "status": "active",
+      "start_date": "2026-07-01T00:00:00",
+      "release_date": "2026-07-31T00:00:00",
+      "created_at": "2026-07-01T08:00:00",
+      "updated_at": "2026-07-18T09:30:00"
+    }
+  ],
+  "skip": 0,
+  "limit": 1,
+  "total": 2
+}

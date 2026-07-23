@@ -8,5 +8,6 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+.tmp-lock-*/
 .env
 .git/

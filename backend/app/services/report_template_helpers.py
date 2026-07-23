@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from collections.abc import Mapping
 
 from app.metric_catalog import (
     METRIC_CATALOG_BY_KEY,
@@ -227,7 +228,7 @@ def recommendation_bullets(recommendations, limit: int | None = None) -> list[st
     ]
 
 
-def release_top_risk_bullets(readiness: dict[str, object], limit: int) -> list[str]:
+def release_top_risk_bullets(readiness: Mapping[str, object], limit: int) -> list[str]:
     risks: list[str] = []
     for key in ("critical_risks", "warnings"):
         items = readiness.get(key, [])
@@ -245,7 +246,7 @@ def release_top_risk_bullets(readiness: dict[str, object], limit: int) -> list[s
     ]
 
 
-def decision_recommendation_lines(readiness: dict[str, object]) -> list[str]:
+def decision_recommendation_lines(readiness: Mapping[str, object]) -> list[str]:
     signal = str(readiness.get("signal") or "").upper()
     if signal == "GREEN":
         return [
@@ -338,7 +339,7 @@ def overview_sprint_metric_rows(
 
 
 def overview_risk_bullets(
-    readiness: dict[str, object],
+    readiness: Mapping[str, object],
     snapshot: MetricSnapshot | None,
     sprint_snapshot: SprintMetricSnapshot | None,
 ) -> list[str]:
@@ -363,7 +364,7 @@ def overview_risk_bullets(
     return list(dict.fromkeys(bullets)) or ["No active overview risk indicators found."]
 
 
-def overview_signal_rows(readiness: dict[str, object]) -> list[tuple[str, str]]:
+def overview_signal_rows(readiness: Mapping[str, object]) -> list[tuple[str, str]]:
     reasons = readiness.get("reasons", [])
     reason_text = (
         ", ".join(str(reason) for reason in reasons)
@@ -390,13 +391,14 @@ def overview_signal_rows(readiness: dict[str, object]) -> list[tuple[str, str]]:
 
 
 def overview_health_rows(
-    readiness: dict[str, object],
+    readiness: Mapping[str, object],
     snapshot: MetricSnapshot | None,
     sprint_snapshot: SprintMetricSnapshot | None,
     sprint_has_story_points: bool = True,
 ) -> list[tuple[str, str]]:
-    gates = readiness.get("release_gates", [])
-    gate_count = len(gates) if isinstance(gates, list) else 0
+    gates_value = readiness.get("release_gates", [])
+    gates = gates_value if isinstance(gates_value, list) else []
+    gate_count = len(gates)
     gates_passed = sum(
         1 for gate in gates if isinstance(gate, dict) and gate.get("passed") is True
     )

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 
 from app.models import SprintMetricSnapshot
@@ -284,7 +285,12 @@ class SprintReportTemplate:
             rows=[
                 ("Current snapshot", format_datetime(snapshots[-1].snapshot_at)),
                 ("Baseline snapshot", format_datetime(snapshots[-2].snapshot_at)),
-                ("Confidence delta", format_delta(comparison.confidence_delta)),
+                (
+                    "Confidence delta",
+                    format_delta(comparison.confidence_delta)
+                    if comparison.confidence_delta is not None
+                    else "N/A",
+                ),
                 ("Primary driver", comparison.primary_driver),
                 ("Entity", sprint_id),
             ],
@@ -292,7 +298,7 @@ class SprintReportTemplate:
 
     def _sprint_historical_charts(
         self,
-        snapshots: list[SprintMetricSnapshot],
+        snapshots: Sequence[SprintMetricSnapshot],
         has_story_points: bool = True,
     ) -> list[ChartSpec]:
         story_point_charts = (

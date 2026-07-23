@@ -1,3 +1,5 @@
+from typing import cast
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -7,14 +9,24 @@ from app.repositories.metric_repository import MetricRepository
 from app.repositories.release_repository import ReleaseRepository
 from app.repositories.signal_repository import SignalRepository
 from app.schemas.errors import ApiErrorResponse
-from app.schemas.signals import ReleaseSignalResponse, SignalReasonDetail, SignalThresholds
+from app.schemas.signals import (
+    ReleaseOutlook,
+    ReleaseSignalResponse,
+    SignalGate,
+    SignalLast24Hours,
+    SignalPrimaryRisk,
+    SignalReasonDetail,
+    SignalRiskAging,
+    SignalRiskItem,
+    SignalThresholds,
+)
 from app.services.signal_service import SignalService
 
 router = APIRouter(prefix="/releases", tags=["signals"])
 
 
 def _empty_risk_aging() -> dict[str, object]:
-    empty_group = {
+    empty_group: dict[str, object] = {
         "count": 0,
         "known_count": 0,
         "unknown_count": 0,
@@ -30,7 +42,15 @@ def _empty_last_24_hours() -> dict[str, object]:
 
 
 def _build_thresholds() -> SignalThresholds:
-    return SignalThresholds(**RELEASE_THRESHOLD_METADATA)
+    return SignalThresholds.model_validate(dict(RELEASE_THRESHOLD_METADATA))
+
+
+def _optional_string(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _object_dict_list(value: object) -> list[dict[str, object]]:
+    return cast(list[dict[str, object]], value) if isinstance(value, list) else []
 
 
 def _not_computed_signal_response(
@@ -61,17 +81,19 @@ def _not_computed_signal_response(
         critical_risks=[],
         warnings=[],
         primary_risk=None,
-        risk_aging=_empty_risk_aging(),
-        last_24_hours=last_24_hours,
-        release_outlook=SignalService._build_release_outlook(
-            release_date=release_date,
-            latest_snapshot=latest_snapshot,
-            final_signal=None,
-            confidence_score=None,
-            release_gates=[],
-            critical_risks=[],
-            warnings=[],
-            last_24_hours=last_24_hours,
+        risk_aging=SignalRiskAging.model_validate(_empty_risk_aging()),
+        last_24_hours=SignalLast24Hours.model_validate(last_24_hours),
+        release_outlook=ReleaseOutlook.model_validate(
+            SignalService._build_release_outlook(
+                release_date=release_date,
+                latest_snapshot=latest_snapshot,
+                final_signal=None,
+                confidence_score=None,
+                release_gates=[],
+                critical_risks=[],
+                warnings=[],
+                last_24_hours=last_24_hours,
+            )
         ),
         thresholds=_build_thresholds() if ruleset_version > 0 else None,
         calculated_at=calculated_at,
@@ -148,11 +170,16 @@ def get_release_signal(
             confidence_breakdown = outputs.get("confidence_breakdown")
             biggest_driver = outputs.get("biggest_driver")
 
-    response_signal = readiness_details.get("signal") or (signal_row.signal if signal_row.signal != "NOT_COMPUTED" else None)
+    response_signal = _optional_string(readiness_details.get("signal")) or (
+        signal_row.signal if signal_row.signal != "NOT_COMPUTED" else None
+    )
     final_signal = response_signal if signal_row.ruleset_version > 0 else None
-    release_gates = signal_row.release_gates if signal_row.ruleset_version > 0 else []
-    critical_risks = readiness_details.get("critical_risks", [])
-    warnings = readiness_details.get("warnings", [])
+    release_gates = (
+        signal_row.release_gates if signal_row.ruleset_version > 0 else []
+    )
+    critical_risks = _object_dict_list(readiness_details.get("critical_risks", []))
+    warnings = _object_dict_list(readiness_details.get("warnings", []))
+    primary_risk_value = readiness_details.get("primary_risk")
     confidence_score = signal_row.confidence_score if signal_row.ruleset_version > 0 else None
     return ReleaseSignalResponse(
         release_id=signal_row.release_id,
@@ -160,31 +187,39 @@ def get_release_signal(
         ruleset_version=signal_row.ruleset_version,
         signal=response_signal,
         status_label=(
-            readiness_details.get("status_label")
+            _optional_string(readiness_details.get("status_label"))
             if signal_row.ruleset_version > 0
             else "Unversioned legacy result"
         ),
         confidence_score=confidence_score,
         confidence_breakdown=confidence_breakdown,
         biggest_driver=biggest_driver,
-        summary=readiness_details.get("summary"),
+        summary=_optional_string(readiness_details.get("summary")),
         reasons=signal_row.reasons,
         reason_details=reason_details,
-        release_gates=release_gates,
-        critical_risks=critical_risks,
-        warnings=warnings,
-        primary_risk=readiness_details.get("primary_risk"),
-        risk_aging=risk_aging,
-        last_24_hours=last_24_hours,
-        release_outlook=SignalService._build_release_outlook(
-            release_date=release.release_date,
-            latest_snapshot=latest_snapshot,
-            final_signal=final_signal,
-            confidence_score=confidence_score,
-            release_gates=release_gates,
-            critical_risks=critical_risks,
-            warnings=warnings,
-            last_24_hours=last_24_hours,
+        release_gates=[SignalGate.model_validate(gate) for gate in release_gates],
+        critical_risks=[
+            SignalRiskItem.model_validate(item) for item in critical_risks
+        ],
+        warnings=[SignalRiskItem.model_validate(item) for item in warnings],
+        primary_risk=(
+            SignalPrimaryRisk.model_validate(primary_risk_value)
+            if primary_risk_value is not None
+            else None
+        ),
+        risk_aging=SignalRiskAging.model_validate(risk_aging),
+        last_24_hours=SignalLast24Hours.model_validate(last_24_hours),
+        release_outlook=ReleaseOutlook.model_validate(
+            SignalService._build_release_outlook(
+                release_date=release.release_date,
+                latest_snapshot=latest_snapshot,
+                final_signal=final_signal,
+                confidence_score=confidence_score,
+                release_gates=release_gates,
+                critical_risks=critical_risks,
+                warnings=warnings,
+                last_24_hours=last_24_hours,
+            )
         ),
         thresholds=(
             SignalThresholds.model_validate(

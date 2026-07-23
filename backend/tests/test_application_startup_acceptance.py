@@ -13,18 +13,22 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 import pytest
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import Engine, URL, make_url
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine, URL
 
 from app.config import Settings
 from app.db.session import create_database_engine
+from tests.postgres_test_support import (
+    create_postgres_test_database,
+    drop_postgres_test_database,
+    postgres_admin_url_or_skip,
+)
 
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
 DESKTOP_ENTRY = BACKEND_DIRECTORY / "desktop_entry.py"
 API_TOKEN = "phase-3-4-startup-acceptance-token"
 REPRESENTATIVE_PRIOR_REVISION = "20260716_0010"
-POSTGRES_ADMIN_URL_ENV = "MIGRATION_TEST_POSTGRES_ADMIN_URL"
 
 
 def _alembic_config() -> Config:
@@ -253,7 +257,22 @@ def _prepare_existing_database(
             connection.execute(text("DROP TABLE alembic_version"))
 
 
+def _assert_health_and_authentication_boundary(port: int) -> None:
+    health_status, health = _request_json(port, "/health", authenticated=False)
+    anonymous_status, anonymous = _request_json(
+        port,
+        "/releases",
+        authenticated=False,
+    )
+
+    assert health_status == 200
+    assert health["status"] == "ok"
+    assert anonymous_status == 401
+    assert anonymous == {"detail": "API authentication failed."}
+
+
 def _assert_empty_api(port: int) -> None:
+    _assert_health_and_authentication_boundary(port)
     release_status, releases = _request_json(port, "/releases")
     sprint_status, sprints = _request_json(port, "/sprints")
 
@@ -266,6 +285,7 @@ def _assert_empty_api(port: int) -> None:
 
 
 def _assert_representative_api(port: int) -> None:
+    _assert_health_and_authentication_boundary(port)
     requests = {
         "/releases?project_key=MIG": "MIG-REL",
         "/sprints?project_key=MIG": "MIG-SPRINT",
@@ -293,37 +313,6 @@ def _assert_representative_api(port: int) -> None:
 def _assert_database_revision(database_engine: Engine) -> None:
     with database_engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == CURRENT_HEAD
-
-
-def _create_postgres_test_database(admin_url: str) -> tuple[Engine, str]:
-    parsed_admin_url = make_url(admin_url)
-    if not parsed_admin_url.drivername.startswith("postgresql"):
-        raise ValueError(f"{POSTGRES_ADMIN_URL_ENV} must use a PostgreSQL URL")
-
-    database_name = f"lighthouse_startup_{os.getpid()}_{time.time_ns()}"
-    admin_engine = create_engine(parsed_admin_url, isolation_level="AUTOCOMMIT")
-    with admin_engine.connect() as connection:
-        connection.execute(text(f'CREATE DATABASE "{database_name}"'))
-    return admin_engine, parsed_admin_url.set(database=database_name).render_as_string(
-        hide_password=False
-    )
-
-
-def _drop_postgres_test_database(admin_engine: Engine, database_url: str) -> None:
-    database_name = make_url(database_url).database
-    if database_name is None or not database_name.startswith("lighthouse_startup_"):
-        raise RuntimeError("Refusing to drop a database outside the startup-test namespace")
-
-    with admin_engine.connect() as connection:
-        connection.execute(
-            text(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = :database_name AND pid <> pg_backend_pid()"
-            ),
-            {"database_name": database_name},
-        )
-        connection.execute(text(f'DROP DATABASE "{database_name}"'))
-    admin_engine.dispose()
 
 
 def test_clean_desktop_startup_creates_current_database_and_empty_api(tmp_path: Path) -> None:
@@ -406,11 +395,11 @@ def test_existing_older_desktop_database_migrates_before_api_readiness(
 def test_clean_postgres_application_startup_creates_current_database_and_empty_api(
     tmp_path: Path,
 ) -> None:
-    admin_url = os.getenv(POSTGRES_ADMIN_URL_ENV)
-    if not admin_url:
-        pytest.skip(f"Set {POSTGRES_ADMIN_URL_ENV} to run PostgreSQL startup acceptance")
-
-    admin_engine, database_url = _create_postgres_test_database(admin_url)
+    admin_url = postgres_admin_url_or_skip()
+    admin_engine, database_url = create_postgres_test_database(
+        admin_url,
+        prefix="lighthouse_startup_",
+    )
     try:
         database_engine = create_database_engine(
             Settings(_env_file=None, database_url=database_url)
@@ -427,16 +416,16 @@ def test_clean_postgres_application_startup_creates_current_database_and_empty_a
         finally:
             database_engine.dispose()
     finally:
-        _drop_postgres_test_database(admin_engine, database_url)
+        drop_postgres_test_database(admin_engine, database_url)
 
 
 @pytest.mark.postgres
 def test_existing_postgres_application_migrates_before_api_readiness(tmp_path: Path) -> None:
-    admin_url = os.getenv(POSTGRES_ADMIN_URL_ENV)
-    if not admin_url:
-        pytest.skip(f"Set {POSTGRES_ADMIN_URL_ENV} to run PostgreSQL startup acceptance")
-
-    admin_engine, database_url = _create_postgres_test_database(admin_url)
+    admin_url = postgres_admin_url_or_skip()
+    admin_engine, database_url = create_postgres_test_database(
+        admin_url,
+        prefix="lighthouse_startup_",
+    )
     try:
         database_engine = create_database_engine(
             Settings(_env_file=None, database_url=database_url)
@@ -459,4 +448,4 @@ def test_existing_postgres_application_migrates_before_api_readiness(tmp_path: P
         finally:
             database_engine.dispose()
     finally:
-        _drop_postgres_test_database(admin_engine, database_url)
+        drop_postgres_test_database(admin_engine, database_url)

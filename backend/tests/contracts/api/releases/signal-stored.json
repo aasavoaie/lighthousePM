@@ -1,0 +1,296 @@
+{
+  "release_id": "LHPM-REL-ALPHA",
+  "metric_snapshot_id": 2,
+  "ruleset_version": 2,
+  "signal": "RED",
+  "status_label": "NOT READY FOR RELEASE",
+  "confidence_score": 64.0,
+  "confidence_breakdown": {
+    "totalScore": 64.0,
+    "components": [
+      {
+        "id": "delivery",
+        "name": "Delivery",
+        "score": 14.0,
+        "maxScore": 30.0,
+        "status": "critical",
+        "explanation": "Open blockers and Scope churn above the red threshold are reducing delivery confidence."
+      },
+      {
+        "id": "quality",
+        "name": "Quality",
+        "score": 30.0,
+        "maxScore": 30.0,
+        "status": "good",
+        "explanation": "High-severity bugs and reopen events per 100 eligible tickets are within quality confidence thresholds."
+      },
+      {
+        "id": "flow",
+        "name": "Flow",
+        "score": 20.0,
+        "maxScore": 20.0,
+        "status": "good",
+        "explanation": "Median cycle time is within the flow confidence threshold."
+      },
+      {
+        "id": "risk",
+        "name": "Risk",
+        "score": 0.0,
+        "maxScore": 20.0,
+        "status": "critical",
+        "explanation": "1 open blocker issue is consuming release risk capacity."
+      }
+    ]
+  },
+  "biggest_driver": {
+    "title": "Open Blockers",
+    "category": "Risk",
+    "impact": -28.0,
+    "contributionPercent": 77.8,
+    "explanation": "Open blockers are consuming the largest share of release confidence.",
+    "recommendation": "Resolve or explicitly de-scope blocker tickets before moving the release forward."
+  },
+  "summary": "Current release confidence is in the red band.",
+  "reasons": [
+    "Open blockers: 1 > 0",
+    "Scope churn: 33.3% > 20%"
+  ],
+  "reason_details": [
+    {
+      "metric_name": "open_blockers",
+      "level": "RED",
+      "value": 1,
+      "comparison": ">",
+      "threshold": 0,
+      "message": "Open blockers: 1 > 0"
+    },
+    {
+      "metric_name": "scope_churn_7d_pct",
+      "level": "RED",
+      "value": 33.33,
+      "comparison": ">",
+      "threshold": 20.0,
+      "message": "Scope churn: 33.3% > 20%"
+    }
+  ],
+  "release_gates": [
+    {
+      "metric_name": "open_blockers",
+      "label": "No blockers",
+      "passed": false,
+      "value": 1,
+      "comparison": "<=",
+      "threshold": 0
+    },
+    {
+      "metric_name": "open_high_severity_bugs",
+      "label": "High severity bugs <= 1",
+      "passed": true,
+      "value": 0,
+      "comparison": "<=",
+      "threshold": 1
+    },
+    {
+      "metric_name": "scope_churn_7d_pct",
+      "label": "Scope churn <= 20%",
+      "passed": false,
+      "value": 33.33,
+      "comparison": "<=",
+      "threshold": 20.0
+    },
+    {
+      "metric_name": "reopen_rate_pct",
+      "label": "Reopen events per 100 eligible tickets <= 15%",
+      "passed": true,
+      "value": 0.0,
+      "comparison": "<=",
+      "threshold": 15.0
+    },
+    {
+      "metric_name": "median_cycle_time_days",
+      "label": "Cycle time <= 7d",
+      "passed": true,
+      "value": 3.5417,
+      "comparison": "<=",
+      "threshold": 7.0
+    }
+  ],
+  "critical_risks": [
+    {
+      "metric_name": "open_blockers",
+      "level": "CRITICAL",
+      "message": "1 blockers remain open",
+      "value": 1,
+      "contribution_pct": 77.8
+    }
+  ],
+  "warnings": [
+    {
+      "metric_name": "scope_churn_7d_pct",
+      "level": "WARNING",
+      "message": "Scope churn increased to 33%",
+      "value": 33.33,
+      "contribution_pct": 22.2
+    }
+  ],
+  "primary_risk": {
+    "metric_name": "open_blockers",
+    "label": "Open blockers",
+    "message": "Open blockers contribute 78% of total release risk.",
+    "contribution_pct": 77.8
+  },
+  "risk_aging": {
+    "blockers": {
+      "count": 1,
+      "known_count": 1,
+      "unknown_count": 0,
+      "oldest_age_days": 11.2,
+      "average_age_days": 11.2,
+      "tickets": [
+        {
+          "key": "LHPM-101",
+          "age_days": 11.2,
+          "issue_age_days": 11.2,
+          "jira_created_at": "2026-07-10T09:00:00Z",
+          "risk_started_at": "2026-07-10T09:00:00Z",
+          "risk_start_source_field": "jira_created_at",
+          "risk_start_source_changed_at": "2026-07-10T09:00:00Z",
+          "history_complete": true,
+          "explanation": null
+        }
+      ]
+    },
+    "high_severity_bugs": {
+      "count": 0,
+      "known_count": 0,
+      "unknown_count": 0,
+      "oldest_age_days": null,
+      "average_age_days": null,
+      "tickets": []
+    },
+    "as_of": "2026-07-21T13:00:00Z"
+  },
+  "last_24_hours": {
+    "as_of": "2026-07-21T13:00:00Z",
+    "baseline_at": "2026-07-20T12:00:00Z",
+    "has_baseline": true,
+    "unavailable_reason": null,
+    "items": [
+      {
+        "metric_name": "open_blockers",
+        "label": "blocker",
+        "delta": -1.0,
+        "value_type": "count",
+        "impact": "positive"
+      },
+      {
+        "metric_name": "open_high_severity_bugs",
+        "label": "high severity bug",
+        "delta": 0.0,
+        "value_type": "count",
+        "impact": "neutral"
+      },
+      {
+        "metric_name": "completed_tickets",
+        "label": "completed ticket",
+        "delta": 1.0,
+        "value_type": "count",
+        "impact": "positive"
+      },
+      {
+        "metric_name": "confidence_score",
+        "label": "Confidence",
+        "delta": 0.0,
+        "value_type": "percentage",
+        "impact": "neutral"
+      }
+    ]
+  },
+  "release_outlook": {
+    "label": "AT RISK",
+    "signal": "RED",
+    "confidence_score": 64.0,
+    "snapshot_at": "2026-07-21T13:00:00Z",
+    "release_date": "2026-07-31T00:00:00Z",
+    "days_remaining": 10,
+    "passed_gate_count": 3,
+    "failed_gate_count": 2,
+    "release_gates": [
+      {
+        "metric_name": "open_blockers",
+        "label": "No blockers",
+        "passed": false,
+        "value": 1,
+        "comparison": "<=",
+        "threshold": 0
+      },
+      {
+        "metric_name": "open_high_severity_bugs",
+        "label": "High severity bugs <= 1",
+        "passed": true,
+        "value": 0,
+        "comparison": "<=",
+        "threshold": 1
+      },
+      {
+        "metric_name": "scope_churn_7d_pct",
+        "label": "Scope churn <= 20%",
+        "passed": false,
+        "value": 33.33,
+        "comparison": "<=",
+        "threshold": 20.0
+      },
+      {
+        "metric_name": "reopen_rate_pct",
+        "label": "Reopen events per 100 eligible tickets <= 15%",
+        "passed": true,
+        "value": 0.0,
+        "comparison": "<=",
+        "threshold": 15.0
+      },
+      {
+        "metric_name": "median_cycle_time_days",
+        "label": "Cycle time <= 7d",
+        "passed": true,
+        "value": 3.5417,
+        "comparison": "<=",
+        "threshold": 7.0
+      }
+    ],
+    "confidence_change_24h": 0.0,
+    "confidence_baseline_at": "2026-07-20T12:00:00Z",
+    "active_conditions": [
+      {
+        "metric_name": "open_blockers",
+        "level": "CRITICAL",
+        "message": "1 blockers remain open",
+        "value": 1,
+        "contribution_pct": 77.8
+      },
+      {
+        "metric_name": "scope_churn_7d_pct",
+        "level": "WARNING",
+        "message": "Scope churn increased to 33%",
+        "value": 33.33,
+        "contribution_pct": 22.2
+      }
+    ],
+    "disclaimer": "This outlook reflects the latest stored snapshot and is not a forecast."
+  },
+  "thresholds": {
+    "open_blockers_red": 0,
+    "open_high_severity_bugs_red": 1,
+    "open_high_severity_bugs_yellow": 0,
+    "scope_churn_7d_pct_red": 20.0,
+    "scope_churn_7d_pct_yellow": 10.0,
+    "reopen_rate_pct_red": 15.0,
+    "reopen_rate_pct_yellow": 10.0,
+    "median_cycle_time_days_yellow": 7.0,
+    "confidence_score_red_max": 60.0,
+    "confidence_score_yellow_min": 61.0,
+    "confidence_score_yellow_max": 90.0,
+    "confidence_score_green_min": 91.0
+  },
+  "calculated_at": "2026-07-21T13:00:00",
+  "updated_at": "2026-07-21T13:00:00"
+}

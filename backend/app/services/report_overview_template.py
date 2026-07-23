@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 
 from app.models import MetricSnapshot, SprintMetricSnapshot
@@ -97,8 +98,10 @@ class OverviewReportTemplate:
             ReportSection(
                 "Executive Summary",
                 lines=[
-                    readiness.get("summary")
-                    or "Overview dashboard exported from deterministic LighthousePM data."
+                    str(
+                        readiness.get("summary")
+                        or "Overview dashboard exported from deterministic LighthousePM data."
+                    )
                 ],
                 rows=[
                     ("Release", release.name),
@@ -217,8 +220,8 @@ class OverviewReportTemplate:
 
     def _overview_charts(
         self,
-        snapshots: list[MetricSnapshot],
-        sprint_snapshots: list[SprintMetricSnapshot],
+        snapshots: Sequence[MetricSnapshot],
+        sprint_snapshots: Sequence[SprintMetricSnapshot],
         sprint_has_story_points: bool = True,
         release_availability: MetricAvailability | None = None,
     ) -> list[ChartSpec]:

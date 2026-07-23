@@ -1,16 +1,20 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 from app.models import MetricSnapshot, SprintMetricSnapshot
 from app.schemas.deltas import SnapshotDeltaComparison, SnapshotDeltaContributor
 
 
+SnapshotT = TypeVar("SnapshotT", MetricSnapshot, SprintMetricSnapshot)
+
+
 @dataclass(frozen=True)
-class MetricDeltaRule:
+class MetricDeltaRule(Generic[SnapshotT]):
     metric: str
-    current_value: Callable[[object], int | float | None]
-    previous_value: Callable[[object], int | float | None]
-    impact: Callable[[object, object], float]
+    current_value: Callable[[SnapshotT], int | float | None]
+    previous_value: Callable[[SnapshotT], int | float | None]
+    impact: Callable[[SnapshotT, SnapshotT], float]
 
 
 class SnapshotComparisonService:
@@ -40,7 +44,7 @@ class SnapshotComparisonService:
     ) -> SnapshotDeltaComparison:
         current_confidence = current_snapshot.confidence_score
         previous_confidence = previous_snapshot.confidence_score
-        rules = [
+        rules: list[MetricDeltaRule[MetricSnapshot]] = [
             MetricDeltaRule(
                 metric="open_blockers",
                 current_value=lambda snapshot: snapshot.open_blockers,
@@ -116,7 +120,7 @@ class SnapshotComparisonService:
     ) -> SnapshotDeltaComparison:
         current_confidence = current_snapshot.delivery_confidence_score
         previous_confidence = previous_snapshot.delivery_confidence_score
-        rules = [
+        rules: list[MetricDeltaRule[SprintMetricSnapshot]] = [
             SnapshotComparisonService._sprint_component_rule("velocity_fit", "velocity_fit"),
             SnapshotComparisonService._sprint_component_rule("scope_stability", "scope_stability"),
             SnapshotComparisonService._sprint_component_rule("progress_alignment", "progress_alignment"),
@@ -153,7 +157,10 @@ class SnapshotComparisonService:
         return "No material change"
 
     @staticmethod
-    def _sprint_component_rule(metric: str, component_key: str) -> MetricDeltaRule:
+    def _sprint_component_rule(
+        metric: str,
+        component_key: str,
+    ) -> MetricDeltaRule[SprintMetricSnapshot]:
         return MetricDeltaRule(
             metric=metric,
             current_value=lambda snapshot: SnapshotComparisonService._sprint_component_value(snapshot, component_key),
@@ -167,9 +174,9 @@ class SnapshotComparisonService:
 
     @staticmethod
     def _build_contributors(
-        current_snapshot: object,
-        previous_snapshot: object,
-        rules: list[MetricDeltaRule],
+        current_snapshot: SnapshotT,
+        previous_snapshot: SnapshotT,
+        rules: list[MetricDeltaRule[SnapshotT]],
     ) -> list[SnapshotDeltaContributor]:
         contributors: list[SnapshotDeltaContributor] = []
         for rule in rules:
