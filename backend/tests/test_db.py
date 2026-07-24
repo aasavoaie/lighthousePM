@@ -67,7 +67,7 @@ def test_migration_graph_has_single_head() -> None:
         str(Path(__file__).resolve().parents[1] / "alembic"),
     )
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260724_0018"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260724_0019"]
 
 
 def test_create_database_engine_supports_file_backed_sqlite(tmp_path: Path) -> None:
@@ -141,7 +141,7 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "sprint_metric_snapshots",
         "sprints",
     }.issubset(table_names)
-    assert current_revision == "20260724_0018"
+    assert current_revision == "20260724_0019"
     assert revision_after_second_start == current_revision
     assert {
         "completed_tickets",
@@ -208,6 +208,10 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "project_key",
         "last_successful_jira_updated_at",
         "last_successful_sync_at",
+        "current_sync_status",
+        "last_failed_sync_at",
+        "last_failure_summary",
+        "latest_sync_result",
     }.issubset(sync_state_columns)
 
 
@@ -521,12 +525,12 @@ def test_migrate_database_upgrades_unversioned_legacy_sqlite_and_preserves_data(
         assert "ruleset_version" in {column["name"] for column in schema.get_columns("metric_snapshots")}
         assert "jira_created_at" in {column["name"] for column in schema.get_columns("issues")}
         with database_engine.connect() as connection:
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260724_0018"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260724_0019"
             assert connection.scalar(
                 text("SELECT name FROM releases WHERE release_id = 'legacy-release'")
             ) == "Legacy release"
 
-        backup_path = tmp_path / "legacy.db.pre-20260724_0018.bak"
+        backup_path = tmp_path / "legacy.db.pre-20260724_0019.bak"
         assert backup_path.is_file()
         backup_mtime = backup_path.stat().st_mtime_ns
 

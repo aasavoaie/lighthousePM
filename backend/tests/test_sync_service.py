@@ -175,10 +175,14 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     sync_state = db_session.scalar(select(JiraProjectSyncState))
     assert sync_state is not None
     assert sync_state.project_key == "LHPM"
+    assert sync_state.current_sync_status == "succeeded"
     assert sync_state.last_successful_jira_updated_at == (
         FakeJiraService.jira_updated_at.replace(tzinfo=None)
     )
     assert sync_state.last_successful_sync_at is not None
+    assert sync_state.last_failure_summary is None
+    assert sync_state.latest_sync_result is not None
+    assert sync_state.latest_sync_result["issues_inserted"] == 1
 
     status = db_session.scalar(select(OperationalStatus))
     assert status is not None
@@ -610,6 +614,68 @@ async def test_sync_from_jira_persists_failed_status(db_session: Session) -> Non
     assert status.last_sync_failed_at is not None
     assert status.last_sync_failure_summary is not None
     assert "verysecret" not in status.last_sync_failure_summary
+    sync_state = db_session.scalar(select(JiraProjectSyncState))
+    assert sync_state is not None
+    assert sync_state.current_sync_status == "failed"
+    assert sync_state.last_failed_sync_at is not None
+    assert sync_state.last_failure_summary is not None
+    assert "verysecret" not in sync_state.last_failure_summary
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_marks_project_status_running_while_active(
+    db_session: Session,
+) -> None:
+    sync_started = asyncio.Event()
+    release_sync = asyncio.Event()
+
+    class SlowJiraService(FakeJiraService):
+        async def validate_auth(self) -> None:
+            sync_started.set()
+            await release_sync.wait()
+
+    service = SyncService(jira_service=SlowJiraService(), settings=_test_settings())
+
+    sync_task = asyncio.create_task(service.sync_from_jira(session=db_session))
+    await sync_started.wait()
+
+    sync_state = db_session.scalar(select(JiraProjectSyncState))
+    assert sync_state is not None
+    assert sync_state.current_sync_status == "running"
+
+    release_sync.set()
+    await sync_task
+
+
+def test_get_jira_sync_status_reports_idle_without_project_state(
+    db_session: Session,
+) -> None:
+    service = SyncService(jira_service=FakeJiraService(), settings=_test_settings())
+
+    status = service.get_jira_sync_status(session=db_session)
+
+    assert status["project_key"] == "LHPM"
+    assert status["current_sync_status"] == "idle"
+    assert status["latest_sync_result"] is None
+
+
+def test_get_jira_sync_status_does_not_report_stale_running_as_active(
+    db_session: Session,
+) -> None:
+    db_session.add(
+        JiraProjectSyncState(
+            project_key="LHPM",
+            current_sync_status="running",
+            last_successful_sync_at=datetime(2026, 4, 1, 10, 5, tzinfo=UTC),
+        )
+    )
+    db_session.flush()
+    service = SyncService(jira_service=FakeJiraService(), settings=_test_settings())
+
+    status = service.get_jira_sync_status(session=db_session)
+
+    assert status["current_sync_status"] == "failed"
+    assert status["last_failure_summary"] == "Previous sync did not finish."
 
 
 @pytest.mark.asyncio

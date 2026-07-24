@@ -139,6 +139,19 @@ POST_LEGACY_REVISION_MARKERS = (
         revision="20260724_0018",
         tables=frozenset({"jira_project_sync_state"}),
     ),
+    LegacyRevisionShape(
+        revision="20260724_0019",
+        columns={
+            "jira_project_sync_state": frozenset(
+                {
+                    "current_sync_status",
+                    "last_failed_sync_at",
+                    "last_failure_summary",
+                    "latest_sync_result",
+                }
+            )
+        },
+    ),
 )
 
 

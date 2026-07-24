@@ -202,6 +202,12 @@ class SyncService:
         logger.info("jira_sync_started project_key=%s", project_key)
 
         try:
+            SyncRepository.mark_project_sync_running(
+                session=session,
+                project_key=project_key,
+            )
+            session.commit()
+
             await self._jira_service.validate_auth()
             versions = [
                 self._sanitize_version(version)
@@ -378,6 +384,7 @@ class SyncService:
             )
 
             OperationalStatusRepository.mark_sync_succeeded(session=session)
+            result_payload = asdict(result)
             SyncRepository.mark_project_sync_succeeded(
                 session=session,
                 project_key=project_key,
@@ -385,24 +392,41 @@ class SyncService:
                     accepted_issue_updated_at,
                     default=self._normalized_jira_datetime(project_cursor),
                 ),
+                latest_sync_result=result_payload,
             )
 
             session.commit()
         except JiraServiceError as exc:
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Jira sync failed: {exc}") from exc
         except ValueError as exc:
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Post-sync recompute failed: {exc}") from exc
         except SQLAlchemyError as exc:
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Database sync failed: {exc}") from exc
         except Exception as exc:  # noqa: BLE001
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Unexpected sync failure: {type(exc).__name__}") from exc
 
         logger.info(
@@ -424,14 +448,56 @@ class SyncService:
             result.history_skipped,
             result.changelogs_skipped_unchanged,
         )
-        return asdict(result)
+        return result_payload
+
+    def get_jira_sync_status(self, session: Session) -> dict[str, object]:
+        project_key = self._settings.jira_project_key.strip()
+        state = SyncRepository.get_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        if state is None:
+            return {
+                "project_key": project_key,
+                "current_sync_status": "idle",
+                "last_successful_sync_at": None,
+                "last_successful_jira_updated_at": None,
+                "last_failed_sync_at": None,
+                "last_failure_summary": None,
+                "latest_sync_result": None,
+            }
+
+        current_status = state.current_sync_status
+        failure_summary = state.last_failure_summary
+        if current_status == "running" and not _sync_lock.locked():
+            current_status = "failed"
+            failure_summary = "Previous sync did not finish."
+
+        return {
+            "project_key": state.project_key,
+            "current_sync_status": current_status,
+            "last_successful_sync_at": state.last_successful_sync_at,
+            "last_successful_jira_updated_at": state.last_successful_jira_updated_at,
+            "last_failed_sync_at": state.last_failed_sync_at,
+            "last_failure_summary": failure_summary,
+            "latest_sync_result": state.latest_sync_result,
+        }
 
     @staticmethod
-    def _persist_sync_failure_status(session: Session, exc: Exception) -> None:
+    def _persist_sync_failure_status(
+        session: Session,
+        project_key: str,
+        exc: Exception,
+    ) -> None:
         failure_summary = sanitize_error_detail(f"{type(exc).__name__}: {exc}")
         try:
             OperationalStatusRepository.mark_sync_failed(
                 session=session,
+                failure_summary=failure_summary,
+            )
+            SyncRepository.mark_project_sync_failed(
+                session=session,
+                project_key=project_key,
                 failure_summary=failure_summary,
             )
             session.commit()

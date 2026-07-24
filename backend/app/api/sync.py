@@ -3,11 +3,26 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
 from app.schemas.errors import ApiErrorResponse
-from app.schemas.sync import SyncJiraResponse
+from app.schemas.sync import JiraSyncStatusResponse, SyncJiraResponse
 from app.services.jira_errors import JiraAuthError
 from app.services.sync_service import SyncAlreadyRunningError, SyncService, SyncServiceError
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+
+
+@router.get(
+    "/jira/status",
+    response_model=JiraSyncStatusResponse,
+    operation_id="get_jira_sync_status",
+    summary="Get Jira synchronization status",
+)
+def get_jira_sync_status(
+    session: Session = Depends(get_db_session),
+) -> JiraSyncStatusResponse:
+    service = SyncService()
+    return JiraSyncStatusResponse.model_validate(
+        service.get_jira_sync_status(session=session)
+    )
 
 
 @router.post(

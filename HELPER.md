@@ -126,6 +126,12 @@ Important behavior:
 - persisted and returned failures are sanitized;
 - this is a privileged operator operation.
 
+### `GET /sync/jira/status`
+
+Returns structured Jira sync visibility for the configured project, including
+current status, last success marker, last failure marker, and latest completed
+sync counters.
+
 ## Releases and issues
 
 ### `GET /releases`

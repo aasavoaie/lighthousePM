@@ -51,10 +51,9 @@ class SyncRepository:
         )
 
     @staticmethod
-    def mark_project_sync_succeeded(
+    def get_or_create_project_sync_state(
         session: Session,
         project_key: str,
-        jira_updated_cursor: datetime | None,
     ) -> JiraProjectSyncState:
         state = SyncRepository.get_project_sync_state(
             session=session,
@@ -63,9 +62,55 @@ class SyncRepository:
         if state is None:
             state = JiraProjectSyncState(project_key=project_key)
             session.add(state)
+            session.flush()
+        return state
 
+    @staticmethod
+    def mark_project_sync_running(
+        session: Session,
+        project_key: str,
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_or_create_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        state.current_sync_status = "running"
+        session.flush()
+        return state
+
+    @staticmethod
+    def mark_project_sync_succeeded(
+        session: Session,
+        project_key: str,
+        jira_updated_cursor: datetime | None,
+        latest_sync_result: dict[str, object],
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_or_create_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+
+        state.current_sync_status = "succeeded"
         state.last_successful_jira_updated_at = jira_updated_cursor
         state.last_successful_sync_at = datetime.now(UTC)
+        state.last_failure_summary = None
+        state.latest_sync_result = latest_sync_result
+        session.flush()
+        return state
+
+    @staticmethod
+    def mark_project_sync_failed(
+        session: Session,
+        project_key: str,
+        failure_summary: str,
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_or_create_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        state.current_sync_status = "failed"
+        state.last_failed_sync_at = datetime.now(UTC)
+        state.last_failure_summary = failure_summary
         session.flush()
         return state
 

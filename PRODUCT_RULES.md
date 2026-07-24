@@ -1171,9 +1171,9 @@ so the runtime `ruleset_version` remains `2`.
 Status: **Approved — Phase 3.3**
 
 Every non-head revision retained in the single Alembic ancestor chain is a
-supported versioned upgrade source. With current head `20260720_0017`, the
+supported versioned upgrade source. With current head `20260724_0019`, the
 supported prior versioned revisions are `20260407_0001` through
-`20260717_0016`. The current head is also a supported startup source and must
+`20260724_0018`. The current head is also a supported startup source and must
 remain idempotent.
 
 Supported unversioned legacy schemas are limited to the explicit deterministic
@@ -2633,6 +2633,37 @@ fallback reason. The project cursor advances only after the successful
 transaction, using the max accepted Jira update timestamp from fetched or
 trusted unchanged issue summaries.
 
+## Jira Sync Visibility
+
+Status: **Approved — Phase 7.3**
+
+LighthousePM exposes per-project sync visibility so users can tell whether Jira
+data is fresh, stale, currently syncing, or failed. Visibility is operational
+state only: it does not change metric formulas, thresholds, evidence rules,
+snapshot interpretation, or `ruleset_version`.
+
+For each configured Jira project, the backend records and exposes:
+
+1. project key;
+2. current sync status: `idle`, `running`, `succeeded`, or `failed`;
+3. last successful sync time;
+4. last successful Jira update cursor;
+5. last failed sync time;
+6. sanitized failure summary; and
+7. issue totals for the latest completed sync, including fetched, inserted,
+   updated, unchanged-skipped, failed-skipped, changelog fetched, inserted,
+   duplicate-skipped, and unchanged-skipped counts.
+
+A running sync may expose coarse progress such as current phase and processed
+issue count. Progress is best-effort and must never be used as metric evidence.
+If process restart loses in-memory running progress, the backend must report a
+clear non-running state from persisted last-success and last-failure markers
+rather than pretending the old sync is still active.
+
+The sync endpoint response and status endpoint must use structured fields. The
+frontend may display these markers near project sync controls, but must not
+infer freshness from local browser time alone.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -2784,6 +2815,6 @@ interpretation unless a later approved product rule explicitly requires it.
 |---|---|---|
 | 7.1 | Persist Jira issue update timestamps and use them to support deterministic incremental synchronization | Approved |
 | 7.2 | Avoid refetching unchanged Jira issue details and changelogs while preserving reproducible stored data | Approved |
-| 7.3 | Add per-project sync progress, last-success markers, and clear failure state visibility | Proposed |
+| 7.3 | Add per-project sync progress, last-success markers, and clear failure state visibility | Approved |
 | 7.4 | Code-split heavy frontend screens such as reporting, charts, settings, and documentation to reduce the production bundle | Proposed |
 | 7.5 | Define snapshot-retention rules only if long-running installations show meaningful storage growth | Proposed |

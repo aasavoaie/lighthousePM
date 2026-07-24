@@ -29,6 +29,7 @@ ROUTES_BY_SECURITY_CLASS: dict[RouteSecurityClass, frozenset[RouteSecurityKey]] 
             ("GET", "/redoc"),
             ("HEAD", "/redoc"),
             ("GET", "/metadata/metrics"),
+            ("GET", "/sync/jira/status"),
             ("GET", "/releases"),
             ("GET", "/releases/{release_id}"),
             ("GET", "/releases/{release_id}/issues"),

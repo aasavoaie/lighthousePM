@@ -287,6 +287,7 @@ Primary tables:
 | `sprint_metric_snapshots` | Immutable sprint metric results and provenance |
 | `release_signals` | Append-only release signals and stored evidence |
 | `operational_status` | Sync and recomputation status markers |
+| `jira_project_sync_state` | Per-project Jira sync cursor, status, failure, and latest result markers |
 
 ## REST API
 
@@ -304,6 +305,7 @@ route modules. OpenAPI provides the runtime mechanical endpoint schema, while
 - `GET /config/jira`
 - `PUT /config/jira`
 - `POST /config/jira/test`
+- `GET /sync/jira/status`
 - `POST /sync/jira`
 
 ### Releases
@@ -451,7 +453,7 @@ still available when Jira sync itself is enabled.
 
 Application startup runs the Alembic migration chain before accepting API
 requests or starting scheduled work. The current single head is
-`20260720_0017`.
+`20260724_0019`.
 
 Alembic is the only runtime schema authority for both PostgreSQL and SQLite.
 Application startup does not use `Base.metadata.create_all()` and does not run
@@ -466,7 +468,7 @@ fixtures.
 - Before migration, a consistent SQLite backup is written to a unique
   temporary file beside the active database, flushed and closed, and then
   atomically published. For the current migration head its canonical suffix is
-  `.pre-20260720_0017.bak`.
+  `.pre-20260724_0019.bak`.
 - Unknown or partially migrated legacy schemas stop startup instead of being
   guessed or silently modified.
 - Repeated startup at the current revision is idempotent.
@@ -475,7 +477,7 @@ fixtures.
 
 Every prior revision retained in the single Alembic chain is a supported
 versioned upgrade source. For the current chain, this is `20260407_0001`
-through `20260717_0016`. Recognized unversioned SQLite sources are limited to
+through `20260724_0018`. Recognized unversioned SQLite sources are limited to
 the explicit legacy-shape registry, currently `20260407_0001` through
 `20260716_0010`; other unversioned shapes fail closed.
 
@@ -542,7 +544,7 @@ Run the packaged validator from the backend executable directory:
 
 ```powershell
 .\lighthousepm-backend.exe --validate-sqlite-backup `
-  "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260720_0017.bak" `
+  "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260724_0019.bak" `
   --migration-backup
 ```
 

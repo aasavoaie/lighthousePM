@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import JSON, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -27,6 +27,27 @@ class JiraProjectSyncState(Base):
     last_successful_sync_at: Mapped[datetime | None] = mapped_column(
         "last_successful_sync_at",
         DateTime(timezone=True),
+        nullable=True,
+    )
+    current_sync_status: Mapped[str] = mapped_column(
+        "current_sync_status",
+        String(32),
+        nullable=False,
+        default="idle",
+    )
+    last_failed_sync_at: Mapped[datetime | None] = mapped_column(
+        "last_failed_sync_at",
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_failure_summary: Mapped[str | None] = mapped_column(
+        "last_failure_summary",
+        String(500),
+        nullable=True,
+    )
+    latest_sync_result: Mapped[dict[str, object] | None] = mapped_column(
+        "latest_sync_result",
+        JSON,
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

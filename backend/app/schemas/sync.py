@@ -1,3 +1,6 @@
+from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -12,6 +15,18 @@ class SyncJiraResponse(BaseModel):
     issues_inserted: int
     issues_updated: int
     issues_skipped: int
+    issue_details_skipped_unchanged: int
     history_fetched: int
     history_inserted: int
     history_skipped: int
+    changelogs_skipped_unchanged: int
+
+
+class JiraSyncStatusResponse(BaseModel):
+    project_key: str
+    current_sync_status: Literal["idle", "running", "succeeded", "failed"]
+    last_successful_sync_at: datetime | None
+    last_successful_jira_updated_at: datetime | None
+    last_failed_sync_at: datetime | None
+    last_failure_summary: str | None
+    latest_sync_result: dict[str, object] | None

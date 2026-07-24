@@ -372,7 +372,7 @@ directly from the local backend to the configured Jira Cloud instance.
 
 The local backend upgrades the database to the single current Alembic head
 before it reports ready and before the desktop workspace opens. The current
-head is `20260720_0017`.
+head is `20260724_0019`.
 
 Electron must create the local backend process before that process can perform
 its startup migration. Process creation is therefore not the readiness
@@ -391,8 +391,8 @@ The health endpoint proves that startup and migration completed; it does not
 perform migration itself.
 
 Every versioned database at a prior revision retained in the current Alembic
-chain is a supported upgrade source. With current head `20260720_0017`, this
-means revisions `20260407_0001` through `20260717_0016`. Supported
+chain is a supported upgrade source. With current head `20260724_0019`, this
+means revisions `20260407_0001` through `20260724_0018`. Supported
 unversioned desktop databases are limited to the deterministic legacy-shape
 registry, currently `20260407_0001` through `20260716_0010`. Other
 unversioned shapes are preserved but rejected rather than guessed.
@@ -438,7 +438,7 @@ Before migrating an existing SQLite application schema, the backend uses
 SQLite's backup operation to create:
 
 ```text
-%APPDATA%\LighthousePM\data\lighthouse.db.pre-20260720_0017.bak
+%APPDATA%\LighthousePM\data\lighthouse.db.pre-20260724_0019.bak
 ```
 
 The revision suffix always identifies the migration target. The backup is
@@ -549,7 +549,7 @@ Preserve the evidence and recover non-destructively:
 
    ```powershell
    .\lighthousepm-backend.exe --validate-sqlite-backup `
-     "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260720_0017.bak" `
+     "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260724_0019.bak" `
      --migration-backup
    ```
 
