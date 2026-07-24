@@ -2711,6 +2711,40 @@ Existing bundle-size warnings may remain visible, but Phase 7.4 should reduce
 the initial application bundle by moving non-initial screens out of the first
 loaded chunk.
 
+## Snapshot Retention Guardrails
+
+Status: **Approved — Phase 7.5**
+
+LighthousePM does not automatically delete metric snapshots by default. Release
+and sprint snapshots are immutable audit records used for trend history,
+reports, provenance, comparisons, and explainable risk signals. Retention
+behavior must not silently remove evidence needed to understand historical
+outputs.
+
+Snapshot retention rules are introduced only when long-running installations
+show meaningful storage growth or operator-managed storage limits require them.
+
+Before any automatic or manual retention feature is implemented, the product
+rule must define:
+
+1. which snapshot tables are eligible;
+2. whether release and sprint snapshots are treated independently or together;
+3. minimum snapshots retained per release and sprint;
+4. minimum time window retained;
+5. preservation of latest snapshot, ruleset-boundary snapshots,
+   report-relevant snapshots, and signal-linked snapshots;
+6. whether deletion is automatic, scheduled, or explicit admin action;
+7. whether deletion creates an audit record;
+8. how APIs report that history was retained, reduced, or unavailable; and
+9. backup/export expectations before destructive pruning.
+
+Until those rules are approved, snapshot history remains append-only. The
+application may expose snapshot counts or storage diagnostics, but must not
+prune snapshots.
+
+This does not change metric formulas, ruleset meaning, API interpretation, or
+`ruleset_version`.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -2864,4 +2898,4 @@ interpretation unless a later approved product rule explicitly requires it.
 | 7.2 | Avoid refetching unchanged Jira issue details and changelogs while preserving reproducible stored data | Approved |
 | 7.3 | Add per-project sync progress, last-success markers, and clear failure state visibility | Approved |
 | 7.4 | Code-split heavy frontend screens such as reporting, charts, settings, and documentation to reduce the production bundle | Approved |
-| 7.5 | Define snapshot-retention rules only if long-running installations show meaningful storage growth | Proposed |
+| 7.5 | Define snapshot-retention rules only if long-running installations show meaningful storage growth | Approved |
