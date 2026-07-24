@@ -4,6 +4,8 @@ from typing import Any, NamedTuple
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
+from app.security import RouteSecurityClass, route_security_class
+
 _fastapi_iter_route_contexts: Callable[[Iterable[Any]], Iterable[Any]] | None
 try:
     from fastapi.routing import iter_route_contexts as _imported_iter_route_contexts
@@ -11,8 +13,6 @@ except ImportError:  # pragma: no cover - exercised by older local FastAPI insta
     _fastapi_iter_route_contexts = None
 else:
     _fastapi_iter_route_contexts = _imported_iter_route_contexts
-
-from app.security import RouteSecurityClass, route_security_class
 
 
 APPLICATION_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
