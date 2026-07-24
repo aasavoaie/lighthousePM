@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -34,6 +35,10 @@ def _parse_jira_datetime(value: str | None) -> datetime | None:
 class SyncRepository:
     """Write-oriented persistence helpers for Jira sync."""
 
+    class IssueSyncFreshness(NamedTuple):
+        jira_updated_at: datetime | None
+        jira_changelog_complete: bool
+
     @staticmethod
     def get_project_sync_state(
         session: Session,
@@ -63,6 +68,23 @@ class SyncRepository:
         state.last_successful_sync_at = datetime.now(UTC)
         session.flush()
         return state
+
+    @staticmethod
+    def get_issue_sync_freshness(
+        session: Session,
+        issue_key: str,
+    ) -> IssueSyncFreshness | None:
+        row = session.execute(
+            select(Issue.jira_updated_at, Issue.jira_changelog_complete).where(
+                Issue.issue_key == issue_key
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return SyncRepository.IssueSyncFreshness(
+            jira_updated_at=row.jira_updated_at,
+            jira_changelog_complete=row.jira_changelog_complete,
+        )
 
     @staticmethod
     def upsert_release(session: Session, version: JiraVersion) -> tuple[Release, bool]:

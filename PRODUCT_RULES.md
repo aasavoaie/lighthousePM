@@ -2605,6 +2605,34 @@ Tests must cover first sync with no marker, successful marker advancement,
 unchanged Jira issues, changed Jira issues, failed sync preserving the previous
 marker, and fallback to full sync when incremental freshness cannot be trusted.
 
+## Jira Unchanged Issue Fetch Avoidance
+
+Status: **Approved — Phase 7.2**
+
+Incremental sync may use the persisted per-project Jira update cursor to avoid
+refetching full issue details and changelogs for issues whose Jira `updated`
+timestamp is not newer than the last successful project cursor. The skip
+decision must be based only on Jira's authoritative `updated` timestamp and the
+persisted cursor from the last successful sync.
+
+Skipping unchanged issue details is allowed only when the issue already exists
+locally and its stored Jira update timestamp is present. If the issue is missing
+locally, has no stored Jira update timestamp, has incomplete changelog data, or
+belongs to a project without a trusted cursor, the service must fetch and
+persist the issue through the full existing path.
+
+Skipped issues count as sync activity but do not alter stored issue fields,
+changelog rows, metric formulas, signal thresholds, evidence requirements,
+ruleset version, or historical snapshot interpretation. Sync results must
+expose how many issue details and changelogs were skipped because Jira reported
+them as unchanged.
+
+If Jira incremental search fails or returns data that cannot be trusted for
+freshness filtering, sync falls back to full fetch behavior and reports the
+fallback reason. The project cursor advances only after the successful
+transaction, using the max accepted Jira update timestamp from fetched or
+trusted unchanged issue summaries.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -2755,7 +2783,7 @@ interpretation unless a later approved product rule explicitly requires it.
 | Point | Decision | Status |
 |---|---|---|
 | 7.1 | Persist Jira issue update timestamps and use them to support deterministic incremental synchronization | Approved |
-| 7.2 | Avoid refetching unchanged Jira issue details and changelogs while preserving reproducible stored data | Proposed |
+| 7.2 | Avoid refetching unchanged Jira issue details and changelogs while preserving reproducible stored data | Approved |
 | 7.3 | Add per-project sync progress, last-success markers, and clear failure state visibility | Proposed |
 | 7.4 | Code-split heavy frontend screens such as reporting, charts, settings, and documentation to reduce the production bundle | Proposed |
 | 7.5 | Define snapshot-retention rules only if long-running installations show meaningful storage growth | Proposed |

@@ -269,9 +269,11 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
 
     assert first["issues_inserted"] == 1
     assert second["issues_inserted"] == 0
-    assert second["issues_updated"] == 1
+    assert second["issues_updated"] == 0
+    assert second["issue_details_skipped_unchanged"] == 1
     assert second["history_inserted"] == 0
-    assert second["history_skipped"] == 1
+    assert second["history_skipped"] == 0
+    assert second["changelogs_skipped_unchanged"] == 1
 
     history = list(db_session.scalars(select(IssueHistory)).all())
     snapshots = list(db_session.scalars(select(MetricSnapshot)).all())
@@ -349,6 +351,247 @@ async def test_sync_from_jira_failure_preserves_project_cursor(db_session: Sessi
     assert sync_state is not None
     assert sync_state.last_successful_jira_updated_at == original_cursor
     assert sync_state.last_successful_sync_at == original_success_time
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_skips_unchanged_existing_issue_detail_and_changelog(
+    db_session: Session,
+) -> None:
+    class CountingJiraService(FakeJiraService):
+        def __init__(self) -> None:
+            self.detail_calls = 0
+            self.changelog_calls = 0
+
+        async def get_issue_details(
+            self,
+            issue_key: str,
+            fields: list[str] | None = None,
+        ) -> JiraIssueDetail:
+            self.detail_calls += 1
+            return await super().get_issue_details(issue_key=issue_key, fields=fields)
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            self.changelog_calls += 1
+            return await super().get_issue_changelog(
+                issue_key=issue_key,
+                start_at=start_at,
+                max_results=max_results,
+            )
+
+    await SyncService(jira_service=FakeJiraService(), settings=_test_settings()).sync_from_jira(
+        session=db_session
+    )
+    jira_service = CountingJiraService()
+    service = SyncService(jira_service=jira_service, settings=_test_settings())
+
+    result = await service.sync_from_jira(session=db_session)
+
+    assert result["issue_details_skipped_unchanged"] == 1
+    assert result["changelogs_skipped_unchanged"] == 1
+    assert result["issues_updated"] == 0
+    assert result["history_fetched"] == 0
+    assert jira_service.detail_calls == 0
+    assert jira_service.changelog_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_fetches_changed_issue_after_cursor(
+    db_session: Session,
+) -> None:
+    class ChangedJiraService(FakeJiraService):
+        jira_updated_at = datetime(2026, 4, 2, 11, 0, tzinfo=UTC)
+
+        def __init__(self) -> None:
+            self.detail_calls = 0
+            self.changelog_calls = 0
+
+        async def get_issue_details(
+            self,
+            issue_key: str,
+            fields: list[str] | None = None,
+        ) -> JiraIssueDetail:
+            self.detail_calls += 1
+            return await super().get_issue_details(issue_key=issue_key, fields=fields)
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            self.changelog_calls += 1
+            return await super().get_issue_changelog(
+                issue_key=issue_key,
+                start_at=start_at,
+                max_results=max_results,
+            )
+
+    await SyncService(jira_service=FakeJiraService(), settings=_test_settings()).sync_from_jira(
+        session=db_session
+    )
+    jira_service = ChangedJiraService()
+    service = SyncService(jira_service=jira_service, settings=_test_settings())
+
+    result = await service.sync_from_jira(session=db_session)
+
+    assert result["issue_details_skipped_unchanged"] == 0
+    assert result["changelogs_skipped_unchanged"] == 0
+    assert result["issues_updated"] == 1
+    assert jira_service.detail_calls == 1
+    assert jira_service.changelog_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_fetches_unchanged_issue_missing_locally(
+    db_session: Session,
+) -> None:
+    class CountingJiraService(FakeJiraService):
+        def __init__(self) -> None:
+            self.detail_calls = 0
+            self.changelog_calls = 0
+
+        async def get_issue_details(
+            self,
+            issue_key: str,
+            fields: list[str] | None = None,
+        ) -> JiraIssueDetail:
+            self.detail_calls += 1
+            return await super().get_issue_details(issue_key=issue_key, fields=fields)
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            self.changelog_calls += 1
+            return await super().get_issue_changelog(
+                issue_key=issue_key,
+                start_at=start_at,
+                max_results=max_results,
+            )
+
+    db_session.add(
+        JiraProjectSyncState(
+            project_key="LHPM",
+            last_successful_jira_updated_at=FakeJiraService.jira_updated_at,
+            last_successful_sync_at=datetime(2026, 4, 1, 10, 5, tzinfo=UTC),
+        )
+    )
+    db_session.flush()
+    jira_service = CountingJiraService()
+    service = SyncService(jira_service=jira_service, settings=_test_settings())
+
+    result = await service.sync_from_jira(session=db_session)
+
+    assert result["issue_details_skipped_unchanged"] == 0
+    assert result["changelogs_skipped_unchanged"] == 0
+    assert result["issues_inserted"] == 1
+    assert jira_service.detail_calls == 1
+    assert jira_service.changelog_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_fetches_when_local_issue_timestamp_missing(
+    db_session: Session,
+) -> None:
+    class CountingJiraService(FakeJiraService):
+        def __init__(self) -> None:
+            self.detail_calls = 0
+            self.changelog_calls = 0
+
+        async def get_issue_details(
+            self,
+            issue_key: str,
+            fields: list[str] | None = None,
+        ) -> JiraIssueDetail:
+            self.detail_calls += 1
+            return await super().get_issue_details(issue_key=issue_key, fields=fields)
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            self.changelog_calls += 1
+            return await super().get_issue_changelog(
+                issue_key=issue_key,
+                start_at=start_at,
+                max_results=max_results,
+            )
+
+    await SyncService(jira_service=FakeJiraService(), settings=_test_settings()).sync_from_jira(
+        session=db_session
+    )
+    issue = db_session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
+    assert issue is not None
+    issue.jira_updated_at = None
+    db_session.flush()
+    jira_service = CountingJiraService()
+    service = SyncService(jira_service=jira_service, settings=_test_settings())
+
+    result = await service.sync_from_jira(session=db_session)
+
+    assert result["issue_details_skipped_unchanged"] == 0
+    assert result["changelogs_skipped_unchanged"] == 0
+    assert result["issues_updated"] == 1
+    assert jira_service.detail_calls == 1
+    assert jira_service.changelog_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_fetches_when_local_changelog_incomplete(
+    db_session: Session,
+) -> None:
+    class CountingJiraService(FakeJiraService):
+        def __init__(self) -> None:
+            self.detail_calls = 0
+            self.changelog_calls = 0
+
+        async def get_issue_details(
+            self,
+            issue_key: str,
+            fields: list[str] | None = None,
+        ) -> JiraIssueDetail:
+            self.detail_calls += 1
+            return await super().get_issue_details(issue_key=issue_key, fields=fields)
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            self.changelog_calls += 1
+            return await super().get_issue_changelog(
+                issue_key=issue_key,
+                start_at=start_at,
+                max_results=max_results,
+            )
+
+    await SyncService(jira_service=FakeJiraService(), settings=_test_settings()).sync_from_jira(
+        session=db_session
+    )
+    issue = db_session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
+    assert issue is not None
+    issue.jira_changelog_complete = False
+    db_session.flush()
+    jira_service = CountingJiraService()
+    service = SyncService(jira_service=jira_service, settings=_test_settings())
+
+    result = await service.sync_from_jira(session=db_session)
+
+    assert result["issue_details_skipped_unchanged"] == 0
+    assert result["changelogs_skipped_unchanged"] == 0
+    assert result["issues_updated"] == 1
+    assert jira_service.detail_calls == 1
+    assert jira_service.changelog_calls == 1
 
 
 @pytest.mark.asyncio
@@ -455,10 +698,29 @@ async def test_sync_from_jira_updates_story_points(db_session: Session) -> None:
     class MutableStoryPointJiraService(FakeJiraService):
         def __init__(self) -> None:
             self.story_points = 3.0
+            self.updated = datetime(2026, 4, 1, 10, 0, tzinfo=UTC)
+
+        async def search_issues(
+            self,
+            jql: str,
+            next_page_token: str | None = None,
+            max_results: int = 50,
+            fields: list[str] | None = None,
+        ) -> tuple[list[JiraIssueSummary], str | None]:
+            issues, token = await super().search_issues(
+                jql=jql,
+                next_page_token=next_page_token,
+                max_results=max_results,
+                fields=fields,
+            )
+            for issue in issues:
+                issue.updated = self.updated
+            return issues, token
 
         async def get_issue_details(self, issue_key: str, fields: list[str] | None = None) -> JiraIssueDetail:
             detail = await super().get_issue_details(issue_key=issue_key, fields=fields)
             detail.story_points = self.story_points
+            detail.updated = self.updated
             return detail
 
     jira_service = MutableStoryPointJiraService()
@@ -466,6 +728,7 @@ async def test_sync_from_jira_updates_story_points(db_session: Session) -> None:
 
     await service.sync_from_jira(session=db_session)
     jira_service.story_points = 8.0
+    jira_service.updated = datetime(2026, 4, 2, 10, 0, tzinfo=UTC)
     await service.sync_from_jira(session=db_session)
 
     stored_issue = db_session.scalar(select(Issue).where(Issue.issue_key == "LHPM-1"))
