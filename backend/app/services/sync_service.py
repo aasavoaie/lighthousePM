@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from dataclasses import asdict, dataclass, replace
+from datetime import UTC, datetime
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -32,9 +33,11 @@ class SyncResult:
     issues_inserted: int = 0
     issues_updated: int = 0
     issues_skipped: int = 0
+    issue_details_skipped_unchanged: int = 0
     history_fetched: int = 0
     history_inserted: int = 0
     history_skipped: int = 0
+    changelogs_skipped_unchanged: int = 0
 
 
 class SyncServiceError(Exception):
@@ -86,16 +89,12 @@ class SyncService:
 
     def _is_blocker(
         self,
-        issue_type: str,
+        issue_type: str | None,
         priority: str | None,
-        status: str,
+        status: str | None,
         blocker_flag: bool | None,
     ) -> bool:
-        """Temporary deterministic blocker heuristic for MVP sync.
-
-        Assumption: blocker-like work is identified by issue type or priority labels
-        because custom Jira fields vary between projects and are not yet standardized.
-        """
+        """Classify a blocker with the effective explicit-field and fallback rules."""
         return self._field_mapper.classify_blocker(
             issue_type=issue_type,
             severity=priority,
@@ -110,11 +109,44 @@ class SyncService:
                 filtered.append(entry)
         return filtered
 
+    @staticmethod
+    def _normalized_jira_datetime(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value
+        return value.astimezone(UTC).replace(tzinfo=None)
+
+    @staticmethod
+    def _can_skip_unchanged_issue(
+        *,
+        issue_summary: JiraIssueSummary,
+        project_cursor: datetime | None,
+        local_freshness: SyncRepository.IssueSyncFreshness | None,
+    ) -> bool:
+        summary_updated_at = SyncService._normalized_jira_datetime(issue_summary.updated)
+        cursor = SyncService._normalized_jira_datetime(project_cursor)
+        local_updated_at = SyncService._normalized_jira_datetime(
+            local_freshness.jira_updated_at if local_freshness is not None else None
+        )
+        return bool(
+            cursor is not None
+            and summary_updated_at is not None
+            and summary_updated_at <= cursor
+            and local_freshness is not None
+            and local_updated_at is not None
+            and local_freshness.jira_changelog_complete
+        )
+
     def _sanitize_persisted_text(self, value: str | None) -> str | None:
         if value is None:
             return None
         sanitized = sanitize_error_detail(value, max_length=max(len(value) + 64, 280))
-        for secret in {self._settings.jira_api_token.strip(), self._settings.lighthouse_api_token.strip()}:
+        for secret in {
+            self._settings.effective_jira_api_token.strip(),
+            self._settings.effective_lighthouse_api_token.strip(),
+            self._settings.effective_postgres_password.strip(),
+        }:
             if secret:
                 sanitized = sanitized.replace(secret, "[REDACTED]")
         return sanitized
@@ -165,12 +197,24 @@ class SyncService:
         result = SyncResult(project_key=project_key)
         recompute_release_count = 0
         sprint_ids_seen: set[str] = set()
+        accepted_issue_updated_at: list[datetime] = []
 
         logger.info("jira_sync_started project_key=%s", project_key)
 
         try:
+            SyncRepository.mark_project_sync_running(
+                session=session,
+                project_key=project_key,
+            )
+            session.commit()
+
             await self._jira_service.validate_auth()
-            versions = [self._sanitize_version(version) for version in await self._jira_service.get_project_versions(project_key=project_key)]
+            versions = [
+                self._sanitize_version(version)
+                for version in await self._jira_service.get_project_versions(
+                    project_key=project_key
+                )
+            ]
             result.releases_fetched = len(versions)
 
             version_name_to_release_id: dict[str, str] = {}
@@ -183,7 +227,8 @@ class SyncService:
                     result.releases_updated += 1
 
             logger.info(
-                "jira_sync_releases_processed project_key=%s releases_fetched=%d releases_inserted=%d releases_updated=%d",
+                "jira_sync_releases_processed project_key=%s releases_fetched=%d "
+                "releases_inserted=%d releases_updated=%d",
                 project_key,
                 result.releases_fetched,
                 result.releases_inserted,
@@ -192,8 +237,34 @@ class SyncService:
 
             issue_summaries = await self._fetch_project_issues(project_key=project_key)
             result.issues_fetched = len(issue_summaries)
+            project_sync_state = SyncRepository.get_project_sync_state(
+                session=session,
+                project_key=project_key,
+            )
+            project_cursor = (
+                project_sync_state.last_successful_jira_updated_at
+                if project_sync_state is not None
+                else None
+            )
 
             for issue_summary in issue_summaries:
+                if self._can_skip_unchanged_issue(
+                    issue_summary=issue_summary,
+                    project_cursor=project_cursor,
+                    local_freshness=SyncRepository.get_issue_sync_freshness(
+                        session=session,
+                        issue_key=issue_summary.key,
+                    ),
+                ):
+                    result.issue_details_skipped_unchanged += 1
+                    result.changelogs_skipped_unchanged += 1
+                    summary_updated_at = self._normalized_jira_datetime(
+                        issue_summary.updated
+                    )
+                    if summary_updated_at is not None:
+                        accepted_issue_updated_at.append(summary_updated_at)
+                    continue
+
                 try:
                     issue_detail = self._sanitize_issue_detail(
                         await self._jira_service.get_issue_details(issue_key=issue_summary.key)
@@ -241,6 +312,11 @@ class SyncService:
                     result.issues_inserted += 1
                 else:
                     result.issues_updated += 1
+                normalized_issue_updated_at = self._normalized_jira_datetime(
+                    issue_detail.updated
+                )
+                if normalized_issue_updated_at is not None:
+                    accepted_issue_updated_at.append(normalized_issue_updated_at)
 
                 SyncRepository.replace_issue_sprints(
                     session=session,
@@ -263,21 +339,31 @@ class SyncService:
                 )
                 result.history_inserted += inserted_count
                 result.history_skipped += skipped_count
+                SyncRepository.mark_issue_changelog_complete(
+                    session=session,
+                    issue_key=issue_detail.key,
+                )
 
             logger.info(
-                "jira_sync_issues_processed project_key=%s issues_fetched=%d issues_inserted=%d issues_updated=%d issues_skipped=%d",
+                "jira_sync_issues_processed project_key=%s issues_fetched=%d "
+                "issues_inserted=%d issues_updated=%d issues_skipped=%d "
+                "issue_details_skipped_unchanged=%d",
                 project_key,
                 result.issues_fetched,
                 result.issues_inserted,
                 result.issues_updated,
                 result.issues_skipped,
+                result.issue_details_skipped_unchanged,
             )
             logger.info(
-                "jira_sync_changelog_processed project_key=%s history_fetched=%d history_inserted=%d history_skipped=%d",
+                "jira_sync_changelog_processed project_key=%s history_fetched=%d "
+                "history_inserted=%d history_skipped=%d "
+                "changelogs_skipped_unchanged=%d",
                 project_key,
                 result.history_fetched,
                 result.history_inserted,
                 result.history_skipped,
+                result.changelogs_skipped_unchanged,
             )
 
             # Keep metrics snapshots in sync with each successful Jira ingestion run.
@@ -298,29 +384,56 @@ class SyncService:
             )
 
             OperationalStatusRepository.mark_sync_succeeded(session=session)
+            result_payload = asdict(result)
+            SyncRepository.mark_project_sync_succeeded(
+                session=session,
+                project_key=project_key,
+                jira_updated_cursor=max(
+                    accepted_issue_updated_at,
+                    default=self._normalized_jira_datetime(project_cursor),
+                ),
+                latest_sync_result=result_payload,
+            )
 
             session.commit()
         except JiraServiceError as exc:
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Jira sync failed: {exc}") from exc
         except ValueError as exc:
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Post-sync recompute failed: {exc}") from exc
         except SQLAlchemyError as exc:
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Database sync failed: {exc}") from exc
         except Exception as exc:  # noqa: BLE001
             session.rollback()
-            self._persist_sync_failure_status(session=session, exc=exc)
+            self._persist_sync_failure_status(
+                session=session,
+                project_key=project_key,
+                exc=exc,
+            )
             raise SyncServiceError(f"Unexpected sync failure: {type(exc).__name__}") from exc
 
         logger.info(
             "jira_sync_completed project_key=%s releases_fetched=%d releases_inserted=%d "
             "releases_updated=%d issues_fetched=%d issues_inserted=%d issues_updated=%d "
-            "issues_skipped=%d history_fetched=%d history_inserted=%d history_skipped=%d",
+            "issues_skipped=%d issue_details_skipped_unchanged=%d history_fetched=%d "
+            "history_inserted=%d history_skipped=%d changelogs_skipped_unchanged=%d",
             result.project_key,
             result.releases_fetched,
             result.releases_inserted,
@@ -329,18 +442,62 @@ class SyncService:
             result.issues_inserted,
             result.issues_updated,
             result.issues_skipped,
+            result.issue_details_skipped_unchanged,
             result.history_fetched,
             result.history_inserted,
             result.history_skipped,
+            result.changelogs_skipped_unchanged,
         )
-        return asdict(result)
+        return result_payload
+
+    def get_jira_sync_status(self, session: Session) -> dict[str, object]:
+        project_key = self._settings.jira_project_key.strip()
+        state = SyncRepository.get_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        if state is None:
+            return {
+                "project_key": project_key,
+                "current_sync_status": "idle",
+                "last_successful_sync_at": None,
+                "last_successful_jira_updated_at": None,
+                "last_failed_sync_at": None,
+                "last_failure_summary": None,
+                "latest_sync_result": None,
+            }
+
+        current_status = state.current_sync_status
+        failure_summary = state.last_failure_summary
+        if current_status == "running" and not _sync_lock.locked():
+            current_status = "failed"
+            failure_summary = "Previous sync did not finish."
+
+        return {
+            "project_key": state.project_key,
+            "current_sync_status": current_status,
+            "last_successful_sync_at": state.last_successful_sync_at,
+            "last_successful_jira_updated_at": state.last_successful_jira_updated_at,
+            "last_failed_sync_at": state.last_failed_sync_at,
+            "last_failure_summary": failure_summary,
+            "latest_sync_result": state.latest_sync_result,
+        }
 
     @staticmethod
-    def _persist_sync_failure_status(session: Session, exc: Exception) -> None:
+    def _persist_sync_failure_status(
+        session: Session,
+        project_key: str,
+        exc: Exception,
+    ) -> None:
         failure_summary = sanitize_error_detail(f"{type(exc).__name__}: {exc}")
         try:
             OperationalStatusRepository.mark_sync_failed(
                 session=session,
+                failure_summary=failure_summary,
+            )
+            SyncRepository.mark_project_sync_failed(
+                session=session,
+                project_key=project_key,
                 failure_summary=failure_summary,
             )
             session.commit()

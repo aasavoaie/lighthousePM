@@ -94,8 +94,8 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
             {exportingDepth === "overview" ? "Exporting..." : "Export Overview PDF"}
           </button>
         </div>
-        {error ? <p className="error-text report-export-error">{error}</p> : null}
-        {status ? <p className="muted report-export-error">{status}</p> : null}
+        {error ? <p className="error-text report-export-error" role="alert">{error}</p> : null}
+        {status ? <p className="muted report-export-error" role="status">{status}</p> : null}
       </div>
     );
   }
@@ -120,8 +120,8 @@ export function ReportExportActions({ entity, entityId, filenameLabel }: ReportE
           {exportingDepth === "full" ? "Exporting..." : "Export Full Report PDF"}
         </button>
       </div>
-      {error ? <p className="error-text report-export-error">{error}</p> : null}
-      {status ? <p className="muted report-export-error">{status}</p> : null}
+      {error ? <p className="error-text report-export-error" role="alert">{error}</p> : null}
+      {status ? <p className="muted report-export-error" role="status">{status}</p> : null}
     </div>
   );
 }

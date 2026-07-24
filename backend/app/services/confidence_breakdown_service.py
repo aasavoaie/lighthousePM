@@ -1,16 +1,31 @@
 from typing import Any
 
+from app.metric_catalog import metric_threshold_value
 from app.schemas.confidence import ConfidenceBreakdown, ConfidenceBreakdownComponent, ConfidenceStatus
 from app.services.signal_service import SignalService
-from app.utils.constants import (
-    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-    HIGH_SEVERITY_BUGS_RED_THRESHOLD,
-    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-    OPEN_BLOCKERS_RED_THRESHOLD,
-    REOPEN_RATE_RED_THRESHOLD,
-    REOPEN_RATE_YELLOW_THRESHOLD,
-    SCOPE_CHURN_RED_THRESHOLD,
-    SCOPE_CHURN_YELLOW_THRESHOLD,
+OPEN_BLOCKERS_RED_THRESHOLD = metric_threshold_value(
+    "release.open_blockers", "critical"
+)
+HIGH_SEVERITY_BUGS_RED_THRESHOLD = metric_threshold_value(
+    "release.open_high_severity_bugs", "critical"
+)
+HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD = metric_threshold_value(
+    "release.open_high_severity_bugs", "watch"
+)
+SCOPE_CHURN_RED_THRESHOLD = (
+    metric_threshold_value("release.scope_churn_7d_pct", "critical") / 100.0
+)
+SCOPE_CHURN_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.scope_churn_7d_pct", "watch") / 100.0
+)
+REOPEN_RATE_RED_THRESHOLD = (
+    metric_threshold_value("release.reopen_rate_pct", "critical") / 100.0
+)
+REOPEN_RATE_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.reopen_rate_pct", "watch") / 100.0
+)
+CYCLE_TIME_YELLOW_THRESHOLD_DAYS = metric_threshold_value(
+    "release.median_cycle_time_days", "watch"
 )
 
 
@@ -173,10 +188,10 @@ class ConfidenceBreakdownService:
         if snapshot.open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
             return f"{snapshot.open_high_severity_bugs} open high-severity bug is reducing quality confidence."
         if snapshot.reopen_rate_pct > reopen_red_pct:
-            return f"Reopen rate is above the red threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_red_pct:.1f}%)."
+            return f"Reopen events per 100 eligible tickets are above the red threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_red_pct:.1f}%)."
         if snapshot.reopen_rate_pct > reopen_yellow_pct:
-            return f"Reopen rate is above the warning threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_yellow_pct:.1f}%)."
-        return "High-severity bugs and reopen rate are within quality confidence thresholds."
+            return f"Reopen events per 100 eligible tickets are above the warning threshold ({snapshot.reopen_rate_pct:.1f}% > {reopen_yellow_pct:.1f}%)."
+        return "High-severity bugs and reopen events per 100 eligible tickets are within quality confidence thresholds."
 
     @staticmethod
     def _release_flow_explanation(snapshot: Any) -> str:

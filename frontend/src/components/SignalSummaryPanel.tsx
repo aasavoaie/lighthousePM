@@ -10,6 +10,8 @@ import type {
   SignalRiskAgingGroup,
   SignalRiskItem,
 } from "../api/types";
+import { useMetricCatalog } from "../MetricCatalogContext";
+import { metricDefinition } from "../metricCatalog";
 import { BiggestDriverCard } from "./BiggestDriverCard";
 import { ConfidenceBreakdownCard } from "./ConfidenceBreakdownCard";
 import { getRecentProjectReleases } from "../releaseScope";
@@ -51,6 +53,9 @@ function signalDescription(signalValue: string | null) {
   }
   if (signalValue === "GREEN") {
     return "Current release confidence is in the green band.";
+  }
+  if (signalValue === "INCONCLUSIVE") {
+    return "Release status is inconclusive because required Jira metric inputs are incomplete.";
   }
   return "Signal not computed yet for this release snapshot.";
 }
@@ -135,6 +140,7 @@ function renderRiskAgingCard(
           </ul>
           <p className="signal-aging-summary">
             Oldest: {formatAgeDays(group.oldest_age_days)}, Average: {formatAgeDays(group.average_age_days)}
+            {group.unknown_count > 0 ? ` · ${group.unknown_count} age${group.unknown_count === 1 ? "" : "s"} unavailable` : ""}
           </p>
         </>
       ) : (
@@ -263,14 +269,19 @@ function renderPrimaryRiskSection(signal: ReleaseSignalResponse) {
   );
 }
 
-function renderRiskAgingSection(signal: ReleaseSignalResponse, issuesByKey: Record<string, Issue>) {
+function renderRiskAgingSection(
+  signal: ReleaseSignalResponse,
+  issuesByKey: Record<string, Issue>,
+  blockerLabel: string,
+  bugLabel: string,
+) {
   return (
     <div className="signal-readiness-section">
       <h3>Risk Aging</h3>
       <div className="signal-aging-grid">
-        {renderRiskAgingCard("Blockers", signal.risk_aging.blockers, "No blockers.", issuesByKey)}
+        {renderRiskAgingCard(blockerLabel, signal.risk_aging.blockers, "No blockers.", issuesByKey)}
         {renderRiskAgingCard(
-          "High-severity bugs",
+          bugLabel,
           signal.risk_aging.high_severity_bugs,
           "No high-severity bugs.",
           issuesByKey
@@ -294,6 +305,7 @@ function renderWarningsSection(signal: ReleaseSignalResponse) {
 }
 
 export function SignalSummaryPanel({ signal, isLoading, releases, selectedProjectKey, refreshNonce }: SignalSummaryPanelProps) {
+  const catalog = useMetricCatalog();
   const recentReleases = useMemo(
     () => getRecentProjectReleases(releases, selectedProjectKey, 3),
     [releases, selectedProjectKey]
@@ -437,7 +449,12 @@ export function SignalSummaryPanel({ signal, isLoading, releases, selectedProjec
           ) : null}
           {!isLoading && signal ? renderCriticalRisksSection(signal) : null}
           {!isLoading && signal ? renderPrimaryRiskSection(signal) : null}
-          {!isLoading && signal ? renderRiskAgingSection(signal, riskAgingIssuesByKey) : null}
+          {!isLoading && signal ? renderRiskAgingSection(
+            signal,
+            riskAgingIssuesByKey,
+            metricDefinition(catalog, "release", "open_blockers").label,
+            metricDefinition(catalog, "release", "open_high_severity_bugs").label,
+          ) : null}
           {!isLoading && signal ? renderWarningsSection(signal) : null}
           {!isLoading && signal && signal.reasons.length === 0 ? (
             <p className="muted">Signal has not been computed yet.</p>

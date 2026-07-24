@@ -10,7 +10,7 @@ Responsibilities:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -63,7 +63,7 @@ def _normalize_changelog_entry(issue_key: str, history: dict[str, Any]) -> list[
         entries.append(
             JiraChangelogEntry(
                 issue_key=issue_key,
-                field_name=item.get("field", ""),
+                field_name=item.get("fieldId") or item.get("field", ""),
                 from_value=item.get("fromString"),
                 to_value=item.get("toString"),
                 changed_at=changed_at,
@@ -101,7 +101,7 @@ class JiraService:
                 base_url=self._settings.jira_base_url,
                 auth=httpx.BasicAuth(
                     self._settings.jira_user_email,
-                    self._settings.jira_api_token,
+                    self._settings.effective_jira_api_token,
                 ),
                 headers={"Accept": "application/json"},
                 timeout=self._settings.jira_timeout_seconds,
@@ -217,6 +217,7 @@ class JiraService:
                 self._field_mapper.normalize_issue_summary(
                     raw=issue,
                     updated=_parse_datetime(issue.get("fields", {}).get("updated")),
+                    created=_parse_datetime(issue.get("fields", {}).get("created")),
                 )
                 for issue in data.get("issues", [])
             ]
@@ -237,6 +238,7 @@ class JiraService:
             return self._field_mapper.normalize_issue_detail(
                 raw=data,
                 updated=_parse_datetime(data.get("fields", {}).get("updated")),
+                created=_parse_datetime(data.get("fields", {}).get("created")),
             )
         except (KeyError, TypeError) as exc:
             raise JiraResponseParseError(
@@ -281,7 +283,13 @@ class JiraService:
 
     async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
         """Return all versions for a Jira project."""
-        data = await self._request("GET", f"/rest/api/3/project/{project_key}/versions")
+        data = cast(
+            list[dict[str, Any]],
+            await self._request(
+                "GET",
+                f"/rest/api/3/project/{project_key}/versions",
+            ),
+        )
         try:
             versions: list[JiraVersion] = []
             for v in data:

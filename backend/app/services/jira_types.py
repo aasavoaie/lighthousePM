@@ -29,11 +29,13 @@ class JiraIssueSummary:
 
     key: str
     summary: str
-    status: str
-    issue_type: str
+    status: str | None
+    issue_type: str | None
     priority: str | None
     assignee: str | None
     updated: datetime | None
+    assignee_id: str | None = None
+    created: datetime | None = None
     fix_versions: list[str] = field(default_factory=list)
     sprints: list[JiraSprintRef] = field(default_factory=list)
 
@@ -44,11 +46,13 @@ class JiraIssueDetail:
 
     key: str
     summary: str
-    status: str
-    issue_type: str
+    status: str | None
+    issue_type: str | None
     priority: str | None
     assignee: str | None
     updated: datetime | None
+    assignee_id: str | None = None
+    created: datetime | None = None
     fix_versions: list[str] = field(default_factory=list)
     sprints: list[JiraSprintRef] = field(default_factory=list)
     story_points: float | None = None

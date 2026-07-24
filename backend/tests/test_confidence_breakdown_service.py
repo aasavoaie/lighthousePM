@@ -15,7 +15,13 @@ def test_release_breakdown_preserves_existing_confidence_score() -> None:
 
     breakdown = ConfidenceBreakdownService.build_release_breakdown(snapshot)
 
-    assert breakdown.totalScore == SignalService._confidence_score_for_snapshot(snapshot)
+    assert breakdown.totalScore == SignalService._compute_release_confidence_score(
+        open_blockers=snapshot.open_blockers,
+        open_high_severity_bugs=snapshot.open_high_severity_bugs,
+        scope_churn_7d_pct=snapshot.scope_churn_7d_pct,
+        reopen_rate_pct=snapshot.reopen_rate_pct,
+        median_cycle_time_days=snapshot.median_cycle_time_days,
+    )
     assert [component.name for component in breakdown.components] == ["Delivery", "Quality", "Flow", "Risk"]
     assert [(component.score, component.maxScore) for component in breakdown.components] == [
         (14.0, 30.0),

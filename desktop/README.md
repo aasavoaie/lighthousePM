@@ -9,8 +9,36 @@ or a separately started server.
 From `desktop/`:
 
 ```bash
-npm install
+npm ci
 ```
+
+## Packaged Backend Smoke Gate
+
+The focused Windows gate validates the actual PyInstaller backend without
+building the React frontend, Electron application, ZIP, or installer. Install
+the locked Python 3.11 development environment, then run:
+
+```bash
+cd backend
+python -m pip install --require-hashes -r requirements/windows-dev.lock
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip check
+
+cd ../desktop
+npm ci
+npm run check:dependencies
+npm run lint
+npm run test:node
+npm run build:backend
+npm run smoke:backend
+```
+
+The smoke command starts `backend/dist/lighthousepm-backend/lighthousepm-backend.exe`
+on a dynamic loopback port with an isolated temporary SQLite database and a
+synthetic API token. It verifies health, anonymous `401` enforcement, and the
+authenticated structured empty releases response. The process must terminate
+and its temporary data must be removed. Diagnostics are bounded and redact the
+synthetic token.
 
 ## Development
 
@@ -198,6 +226,24 @@ For upgrade testing, provide a previous installer:
 npm run acceptance:clean-machine -- -RequireNoDevTools -PreviousSetupPath C:\path\to\old\LighthousePM-Setup.exe
 ```
 
+The script creates a dedicated storage-lifecycle backup root under the
+acceptance report directory. Select that exact folder when the Settings Backup
+prompt appears. To place the evidence elsewhere, pass an explicit folder:
+
+```powershell
+npm run acceptance:clean-machine -- -RequireNoDevTools -BackupRoot C:\acceptance\lighthousepm-backups
+```
+
+The script validates the resulting version-2 manifest, database,
+configuration, and encrypted-token payload hashes. It then records automatic
+migration-backup hashes before and after Clear Data and Factory Reset. Missing,
+skipped, or mismatched evidence leaves the report `NOT APPROVED`.
+
+Clean-install acceptance must run with no existing
+`%APPDATA%\LighthousePM` user-data directory. Upgrade acceptance must start by
+installing the previous build, configuring Jira, and synchronizing visible
+release and sprint data before installing the current build.
+
 To let the script run the Squirrel uninstall check at the end:
 
 ```powershell
@@ -213,6 +259,11 @@ desktop/out/acceptance/clean-machine-acceptance-<timestamp>.md
 A release is approved only when every check is marked `Pass` and the report
 shows `Approval: APPROVED`.
 
+Release evidence requires two approved reports: one clean-install run without
+`-PreviousSetupPath`, and one upgrade run with `-PreviousSetupPath`. Each run
+must start without an existing `%APPDATA%\LighthousePM` directory so its state
+cannot be contaminated by an earlier acceptance run.
+
 Required checks:
 
 - Setup installs from `LighthousePM-Setup.exe`.
@@ -222,11 +273,21 @@ Required checks:
 - Sync Jira completes and release plus sprint information are visible.
 - Offline restart loads the local dashboard from SQLite without Jira access.
 - PDF export uses the native save dialog and produces a readable PDF.
-- Factory Reset removes local app data and returns the app to first-run setup.
-- Upgrade preserves local data across versions.
+- Settings Backup creates a valid version-2 backup after synchronized data is
+  visible. After local data is changed or cleared, Settings Restore returns the
+  release and sprint data and preserves usable configuration and token access.
+- Clear Data produces structured empty release and sprint results while
+  retaining settings, the encrypted token, and automatic migration backups.
+- Factory Reset removes the active database, settings, logs, and encrypted
+  token, retains automatic migration backups, and returns the app to first-run
+  setup.
+- Upgrade preserves the active SQLite database, `backend.env`, and encrypted
+  Jira token, and the preserved release and sprint data remain visible after
+  the current build starts. A running process alone is not sufficient evidence.
 - Uninstall removes the app and shortcuts. User data is intentionally left in
-  `%APPDATA%\LighthousePM` unless the user runs Factory Reset inside the app
-  first.
+  `%APPDATA%\LighthousePM`. Run Factory Reset before uninstall to remove active
+  application data; after the app is closed, remove the remaining directory
+  manually if automatic migration backups must also be deleted.
 
 ### Frontend Project-Scoping Validation
 
@@ -264,8 +325,8 @@ ready for approval only when all of the following are true:
 3. The sprint list and current sprint contain only sprints for the selected
    project key.
 4. Overview never displays release or sprint data from another project.
-5. Recommendations, predictions, trends, and comparisons never use snapshots
-   from another project.
+5. Release Outlook, recommendations, trends, and comparisons never use
+   snapshots from another project.
 6. A new project with no snapshots shows empty or no-data states.
 7. Backend tests pass.
 8. Frontend build passes.
@@ -277,6 +338,7 @@ user's application-data directory:
 
 ```text
 %APPDATA%\LighthousePM\data\lighthouse.db
+%APPDATA%\LighthousePM\data\lighthouse.db.pre-<revision>.bak
 %APPDATA%\LighthousePM\logs\backend.log
 %APPDATA%\LighthousePM\backend.env
 %APPDATA%\LighthousePM\secrets\jira-token.bin
@@ -289,6 +351,8 @@ directly from the local backend to the configured Jira Cloud instance.
 
 - `lighthouse.db`: normalized Jira project, release, sprint, issue, changelog,
   metric, signal, and operational-status data.
+- `lighthouse.db.pre-<revision>.bak`: automatic SQLite safety backup created
+  before an existing database is migrated to a newer Alembic revision.
 - `backend.env`: non-secret Jira connection settings such as base URL, email,
   project key, field mappings, sync limits, and sync interval.
 - `jira-token.bin`: Jira API token encrypted with Electron `safeStorage`.
@@ -304,6 +368,203 @@ directly from the local backend to the configured Jira Cloud instance.
   web SQL, shader cache, and HTTP cache are cleared on app startup and the app
   uses a non-persistent Electron session partition.
 
+### Automatic Database Migration
+
+The local backend upgrades the database to the single current Alembic head
+before it reports ready and before the desktop workspace opens. The current
+head is `20260724_0019`.
+
+Electron must create the local backend process before that process can perform
+its startup migration. Process creation is therefore not the readiness
+boundary. Readiness is reached only after the backend has completed this
+ordered lifecycle:
+
+1. Validate effective startup configuration.
+2. Upgrade the SQLite database to the single current Alembic head.
+3. Start scheduled work.
+4. Complete API startup and return a successful health response.
+5. Allow Electron to replace the startup screen with the workspace.
+
+Initial startup and all desktop-managed restarts use this same health gate.
+This includes restarts after Settings > Restore, Clear Data, and Factory Reset.
+The health endpoint proves that startup and migration completed; it does not
+perform migration itself.
+
+Every versioned database at a prior revision retained in the current Alembic
+chain is a supported upgrade source. With current head `20260724_0019`, this
+means revisions `20260407_0001` through `20260724_0018`. Supported
+unversioned desktop databases are limited to the deterministic legacy-shape
+registry, currently `20260407_0001` through `20260716_0010`. Other
+unversioned shapes are preserved but rejected rather than guessed.
+
+Automated release verification must exercise every supported starting revision
+through the complete remaining migration chain. It verifies the current head,
+representative data preservation, current schema shape, creation of the
+pre-migration SQLite backup, and an idempotent second startup. Downgrading the
+database is not a supported desktop recovery procedure.
+
+Desktop startup acceptance also exercises the real backend entry point with an
+isolated temporary data directory. A clean-start case begins without the data
+directory or database, waits for health, verifies authenticated API access and
+structured empty responses, confirms the current revision without a migration
+backup, and terminates the backend cleanly. Existing-database cases verify a
+current database, a supported older versioned database, and a recognized
+unversioned database through startup and API access rather than only through a
+direct migration call.
+
+Alembic is the only runtime schema authority. Desktop startup does not use an
+ORM `create_all` fallback or run compatibility schema-repair statements outside
+ordered Alembic revisions. If migration cannot reach the single current head,
+the backend does not report ready and the desktop workspace does not open.
+
+Startup handles these database states deterministically:
+
+- A fresh database is migrated through the complete Alembic chain.
+- A database with an Alembic revision is upgraded from that revision.
+- An unversioned database is adopted only when its tables and columns match a
+  recognized historical LighthousePM revision. The inferred revision is
+  stamped before the remaining migrations run.
+- An unknown, incomplete, or inconsistent unversioned schema is not guessed.
+  Startup stops and the desktop shows the backend-error screen. Details are
+  written to `%APPDATA%\LighthousePM\logs\backend.log`.
+
+Configuration-validation or migration failure occurs before scheduled work and
+API readiness. The workspace remains closed, and the desktop does not
+automatically clear, reset, restore, or otherwise modify the database in an
+attempt to recover. Use the logged error and the recovery procedure below to
+choose an explicit action.
+
+Before migrating an existing SQLite application schema, the backend uses
+SQLite's backup operation to create:
+
+```text
+%APPDATA%\LighthousePM\data\lighthouse.db.pre-20260724_0019.bak
+```
+
+The revision suffix always identifies the migration target. The backup is
+first written to a unique temporary file in the same directory, flushed and
+closed, and only then atomically published at the displayed path. Alembic does
+not begin until publication succeeds. The canonical backup is created once for
+that target; a restart reuses it instead of overwriting it. Once the database
+is at the current head, later starts perform no migration.
+
+If copying or publishing the backup fails, startup stops before any schema
+change. No new canonical backup is exposed, the active database remains at its
+original revision, and a later startup can retry. A leftover temporary file is
+not a valid backup and must not be selected for manual recovery.
+
+### Automatic Migration Backup vs Settings Backup
+
+The two backup types serve different purposes:
+
+- An automatic `.pre-<revision>.bak` file is a database-only safety copy from
+  immediately before a schema upgrade. It does not contain settings, the
+  encrypted Jira token, logs, or a backup manifest, so Settings > Restore does
+  not treat it as a selectable LighthousePM backup.
+- Settings > Backup creates a timestamped `lighthousepm-backup-*` directory.
+  Format version 2 contains a completed manifest, a consistent standalone
+  SQLite database, `backend.env`, and the encrypted Jira token when those files
+  exist. It does not contain WAL or SHM files.
+
+Every automatic migration backup is validated read-only before it is published
+or reused. It must be a regular SQLite file, pass `PRAGMA integrity_check`, and
+contain a known Alembic revision or recognized legacy schema matching the
+active database's pre-migration revision. Its source and filename target must
+belong to the installed migration chain. A failure stops startup before schema
+changes, preserves both files, and reports the backup path and failed rule.
+
+The version-2 Settings manifest is written last and atomically. It records the
+application identity, format version, creation time, allowed payload paths,
+exact sizes, SHA-256 digests, and database revision identity. A folder without
+the completed manifest is not selectable. Checksums detect accidental changes;
+they do not authenticate a backup against deliberate coordinated modification.
+
+Settings Restore rejects version-1 backups because they do not contain stored
+checksums. It preserves the selected folder and explains that it is an
+unverifiable legacy format. Missing, malformed, non-positive, unknown, and
+future versions are also rejected.
+
+Before stopping the backend, restore preflight validates the entire selected
+backup: manifest identity and version, the fixed path allowlist, regular files,
+sizes and hashes, SQLite integrity and supported revision, UTF-8 configuration
+structure, and encrypted-token decryptability for the current Windows account.
+Failure leaves the backend running and changes no active file. After successful
+preflight, a restored database replaces the active database, stale active WAL
+and SHM files are removed, included optional files are replaced, and the
+backend must pass its normal migration-readiness gate.
+
+### Transactional Restore, Clear Data, And Factory Reset
+
+Only one desktop-storage operation may run at a time. Before Restore, Clear
+Data, or Factory Reset changes active files, Electron must stop the backend and
+confirm that its process exited. A fixed wait without process confirmation does
+not authorize file mutation.
+
+The app creates a versioned recovery journal under:
+
+```text
+%APPDATA%\LighthousePM\recovery\<operation-id>\
+```
+
+The journal records the operation and state plus the original presence, size,
+and SHA-256 digest of every affected path. It is an internal rollback artifact,
+not a Settings backup, and Settings Restore cannot select it.
+
+After file changes, the operation succeeds only when the backend passes its
+normal migration-readiness gate and the requested state is verified. If file
+replacement, deletion, or restart fails, LighthousePM restores and verifies the
+previous files and backend. The operation reports failure with `previous state
+restored`; it never reports success for an operation that was rolled back.
+
+If rollback or rollback restart fails, the recovery directory and failure
+diagnostics remain and the workspace stays closed. On the next launch,
+Electron processes one valid unfinished journal before starting the backend.
+Multiple, malformed, incomplete, or checksum-invalid journals fail closed.
+This journal recovery never automatically applies an automatic migration
+backup after schema migration failure.
+
+Clear Data removes the active database set, then verifies a fresh empty
+current-head database and structured empty API results. It keeps configuration,
+the encrypted token, logs, and automatic migration backups. Factory Reset also
+removes configuration, token, and previous logs, keeps automatic migration
+backups, and verifies first-run state. Both actions restore their previous state
+if the new backend cannot become ready.
+
+### Migration Failure Recovery
+
+Do not use Clear Data or Factory Reset to investigate a migration failure.
+Preserve the evidence and recover non-destructively:
+
+1. Close LighthousePM completely so the local backend releases SQLite.
+2. Copy the entire `%APPDATA%\LighthousePM` directory to a separate recovery
+   location.
+3. Read `%APPDATA%\LighthousePM\logs\backend.log` and retain the failed active
+   database plus any `lighthouse.db-wal` and `lighthouse.db-shm` files.
+4. Validate the applicable `lighthouse.db.pre-<revision>.bak` with the packaged
+   local backup validator. Continue only when it reports `VALID`, the expected
+   source and target revisions, and compatibility with the installed migration
+   chain.
+
+   From the packaged backend executable directory, run:
+
+   ```powershell
+   .\lighthousepm-backend.exe --validate-sqlite-backup `
+     "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260724_0019.bak" `
+     --migration-backup
+   ```
+
+   The command prints one JSON report and exits nonzero for `INVALID`.
+
+5. If rollback is required, move the three active database files out of the
+   data directory as a set. Copy the validated backup back as `lighthouse.db`;
+   do not copy it over active WAL/SHM files.
+6. Start a LighthousePM build containing the expected migration chain. The
+   backend will retry migration before reporting ready.
+
+Do not edit the `alembic_version` table manually. If no automatic backup exists
+or the log reports an unrecognized schema, keep the preserved files intact for
+diagnosis instead of forcing a revision or resetting the application.
+
 ### Retention And Cleanup
 
 - `backend.log` rotates when it exceeds 1 MB.
@@ -311,10 +572,11 @@ directly from the local backend to the configured Jira Cloud instance.
 - Rotated backend logs older than 14 days are pruned on startup.
 - Synced Jira data is retained locally until the user chooses Clear Data,
   Restore, or Factory Reset from Settings.
-- Clear Data removes the local SQLite database and keeps settings plus the
-  encrypted token.
-- Factory Reset removes local database files, settings, logs, and encrypted
-  token, then restarts the backend.
+- Clear Data removes the active SQLite database, WAL, and SHM files and keeps
+  settings, the encrypted token, and automatic migration backups.
+- Factory Reset removes the active SQLite database, WAL, and SHM files,
+  settings, logs, and encrypted token, then restarts the backend. Automatic
+  `.pre-<revision>.bak` migration backups remain in the data directory.
 
 ## Jira Configuration
 
@@ -337,7 +599,10 @@ read. If it contains `JIRA_API_TOKEN`, Electron encrypts that token into
 `safeStorage` and removes the plaintext token from the env file. During
 repository development, Electron reads `backend/.env` automatically. The
 desktop runtime always supplies its own SQLite database path, loopback port,
-per-launch API token, and CORS settings.
+per-launch API token, and CORS settings. It also sets
+`DEPLOYMENT_MODE=desktop` and makes `APP_HOST` match the selected loopback host;
+an invalid desktop binding, non-SQLite database, or non-empty CORS origin stops
+backend startup before migration and keeps the workspace closed.
 
 ## Security Boundary
 

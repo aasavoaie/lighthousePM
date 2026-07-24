@@ -1,24 +1,68 @@
 const { app, autoUpdater, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 const path = require("node:path");
 
+const {
+  CONFIG_PATH: BACKUP_CONFIG_PATH,
+  DATABASE_PATH: BACKUP_DATABASE_PATH,
+  TOKEN_PATH: BACKUP_TOKEN_PATH,
+  publishValidatedSettingsBackup,
+  validateSettingsBackup,
+} = require("./backup.cjs");
+const { createDesktopOperationLock, stopProcessAndWait } = require("./operation-control.cjs");
+const {
+  registerTrustedIpcHandler,
+  validatedJiraToken,
+  validatedPdfPayload,
+  withoutIpcArguments,
+} = require("./ipc-security.cjs");
+const {
+  attachBackendProcessObservers,
+  createApplicationShutdownCoordinator,
+  focusExistingWindow,
+  runApplicationStartup,
+} = require("./desktop-lifecycle.cjs");
+const { configureDesktopSessionSecurity } = require("./session-security.cjs");
+const {
+  backendErrorScreenUrl,
+  startupScreenUrl,
+} = require("./status-document.cjs");
+const {
+  TARGET_LOCATION_APPLICATION_SIDECAR,
+  TARGET_LOCATION_USER_DATA,
+} = require("./storage-recovery.cjs");
+const {
+  StorageTransactionError,
+  applyFileReplacementPlan,
+  recoverInterruptedStorageOperation,
+  replaceFileAtomically,
+  runStorageTransaction,
+} = require("./storage-transaction.cjs");
+const {
+  configureWindowNavigationGuards,
+  createMainWindowOptions,
+  delegateApprovedExternalUrl,
+} = require("./window-security.cjs");
+
 const LOOPBACK_HOST = "127.0.0.1";
 const DEV_RENDERER_ORIGIN = "http://127.0.0.1:5173";
 const DEV_BACKEND_PORT = 8000;
 const DEV_RENDERER_URL = process.env.ELECTRON_RENDERER_URL;
 const BACKEND_STARTUP_TIMEOUT_MS = 30000;
+const BACKEND_SHUTDOWN_TIMEOUT_MS = 10000;
 const BACKEND_HEALTH_RETRY_MS = 200;
-const BACKUP_VERSION = 1;
 const APP_SESSION_PARTITION = "lighthousepm-ephemeral";
 const BACKEND_LOG_MAX_BYTES = 1024 * 1024;
 const BACKEND_LOG_MAX_FILES = 5;
 const BACKEND_LOG_RETENTION_DAYS = 14;
 const WINDOWS_APP_USER_MODEL_ID = "com.squirrel.lighthousepm.LighthousePM";
 const UPDATE_FEED_URL = process.env.LIGHTHOUSEPM_UPDATE_URL;
+const RECOVERY_DATABASE_WAL_PATH = `${BACKUP_DATABASE_PATH}-wal`;
+const RECOVERY_DATABASE_SHM_PATH = `${BACKUP_DATABASE_PATH}-shm`;
 
 const CONTENT_TYPES = new Map([
   [".css", "text/css; charset=utf-8"],
@@ -42,6 +86,9 @@ let localApiToken = null;
 let rendererServer = null;
 let rendererOrigin = null;
 let isQuitting = false;
+let backendIsReady = false;
+const intentionallyStoppedBackendProcesses = new WeakSet();
+const desktopStorageOperations = createDesktopOperationLock();
 
 app.enableSandbox();
 if (process.platform === "win32") {
@@ -107,13 +154,27 @@ function getBackendExecutable() {
   return path.resolve(__dirname, "../../backend/dist/lighthousepm-backend", executableName);
 }
 
+function getBackendConfigPaths() {
+  const userConfigPath = path.join(app.getPath("userData"), "backend.env");
+  const sidecarConfigPath = app.isPackaged
+    ? path.join(path.dirname(app.getPath("exe")), "backend.env")
+    : path.resolve(__dirname, "../../backend/.env");
+  const configLocation = !app.isPackaged || fs.existsSync(sidecarConfigPath)
+    ? TARGET_LOCATION_APPLICATION_SIDECAR
+    : TARGET_LOCATION_USER_DATA;
+  return {
+    userConfigPath,
+    sidecarConfigPath,
+    configLocation,
+    configPath:
+      configLocation === TARGET_LOCATION_APPLICATION_SIDECAR
+        ? sidecarConfigPath
+        : userConfigPath,
+  };
+}
+
 function getBackendEnvFile() {
-  if (app.isPackaged) {
-    const userConfigPath = path.join(app.getPath("userData"), "backend.env");
-    const sidecarConfigPath = path.join(path.dirname(app.getPath("exe")), "backend.env");
-    return fs.existsSync(sidecarConfigPath) ? sidecarConfigPath : userConfigPath;
-  }
-  return path.resolve(__dirname, "../../backend/.env");
+  return getBackendConfigPaths().configPath;
 }
 
 function getDesktopDataPaths() {
@@ -122,13 +183,14 @@ function getDesktopDataPaths() {
   const logsDirectory = path.join(userDataDirectory, "logs");
   const secretsDirectory = path.join(userDataDirectory, "secrets");
   const databasePath = path.join(dataDirectory, "lighthouse.db");
+  const configPaths = getBackendConfigPaths();
   return {
     userDataDirectory,
     dataDirectory,
     logsDirectory,
     secretsDirectory,
     databasePath,
-    configPath: getBackendEnvFile(),
+    ...configPaths,
     tokenPath: getEncryptedJiraTokenPath(),
   };
 }
@@ -193,10 +255,7 @@ function storeEncryptedJiraToken(token) {
 }
 
 function storeJiraTokenFromRenderer(token) {
-  const normalizedToken = typeof token === "string" ? token.trim() : "";
-  if (!normalizedToken) {
-    throw new Error("Jira API token is required.");
-  }
+  const normalizedToken = validatedJiraToken(token);
   storeEncryptedJiraToken(normalizedToken);
   return { ok: true };
 }
@@ -293,7 +352,101 @@ async function waitForBackend(origin, logPath) {
   throw new Error(`The local backend did not become ready. See ${logPath}`);
 }
 
+function requestBackendJson(backendPath) {
+  if (!backendOrigin || !localApiToken) {
+    return Promise.reject(new Error("The authenticated local backend is unavailable."));
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      callback(value);
+    };
+    const request = http.get(
+      `${backendOrigin}${backendPath}`,
+      { headers: { Authorization: `Bearer ${localApiToken}` } },
+      (response) => {
+        response.setEncoding("utf8");
+        let body = "";
+        response.on("data", (chunk) => {
+          body += chunk;
+          if (body.length > 1024 * 1024) {
+            response.destroy(new Error(`Backend verification response is too large: ${backendPath}`));
+          }
+        });
+        response.on("error", (error) => finish(reject, error));
+        response.on("end", () => {
+          if (response.statusCode !== 200) {
+            finish(reject, new Error(`Backend verification failed for ${backendPath}: HTTP ${response.statusCode}`));
+            return;
+          }
+          try {
+            finish(resolve, JSON.parse(body));
+          } catch {
+            finish(reject, new Error(`Backend verification returned invalid JSON for ${backendPath}`));
+          }
+        });
+      },
+    );
+    request.setTimeout(3000, () => {
+      request.destroy(new Error(`Backend verification timed out for ${backendPath}`));
+    });
+    request.on("error", (error) => finish(reject, error));
+  });
+}
+
+function validateCollectionResponse(collectionName, payload) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !Array.isArray(payload.items) ||
+    !Number.isSafeInteger(payload.total) ||
+    payload.total < 0
+  ) {
+    throw new Error(`${collectionName} API did not return its structured collection contract.`);
+  }
+}
+
+async function getVerifiedCoreCollections() {
+  const releases = await requestBackendJson("/releases?skip=0&limit=1");
+  validateCollectionResponse("Releases", releases);
+  const sprints = await requestBackendJson("/sprints?skip=0&limit=1");
+  validateCollectionResponse("Sprints", sprints);
+  return { releases, sprints };
+}
+
+async function verifyRestoredBackendState() {
+  await getVerifiedCoreCollections();
+}
+
+async function verifyEmptyBackendState() {
+  const { releases, sprints } = await getVerifiedCoreCollections();
+  if (releases.total !== 0 || releases.items.length !== 0) {
+    throw new Error("Releases API is not empty after local data removal.");
+  }
+  if (sprints.total !== 0 || sprints.items.length !== 0) {
+    throw new Error("Sprints API is not empty after local data removal.");
+  }
+}
+
+async function verifyFactoryResetState() {
+  await verifyEmptyBackendState();
+  const configuration = await requestBackendJson("/config/jira");
+  if (
+    !configuration ||
+    typeof configuration !== "object" ||
+    configuration.is_complete !== false ||
+    configuration.jira_api_token_configured !== false
+  ) {
+    throw new Error("Jira configuration did not return to first-run state after Factory Reset.");
+  }
+}
+
 async function startBackend() {
+  backendIsReady = false;
   const executablePath = getBackendExecutable();
   if (!fs.existsSync(executablePath)) {
     throw new Error(`Packaged backend not found at ${executablePath}. Run npm run build:backend first.`);
@@ -350,35 +503,52 @@ async function startBackend() {
     fs.closeSync(logDescriptor);
   }
 
-  backendProcess.once("error", (error) => {
-    if (!isQuitting) {
-      showBackendErrorScreen(`The local backend could not start: ${error.message}`, `Log: ${logPath}`);
-    }
-  });
-  backendProcess.once("exit", (code) => {
-    backendProcess = null;
-    if (!isQuitting) {
-      showBackendErrorScreen(`The local backend exited with code ${code ?? "unknown"}.`, `Log: ${logPath}`);
-    }
+  const spawnedBackendProcess = backendProcess;
+  attachBackendProcessObservers({
+    backendProcess: spawnedBackendProcess,
+    intentionallyStoppedBackendProcesses,
+    isBackendReady: () => backendIsReady,
+    isQuitting: () => isQuitting,
+    clearCurrentBackendProcess: (processToClear) => {
+      if (backendProcess === processToClear) {
+        backendProcess = null;
+        backendIsReady = false;
+      }
+    },
+    showBackendError: showBackendErrorScreen,
+    logPath,
   });
 
   await waitForBackend(backendOrigin, logPath);
+  backendIsReady = true;
 }
 
-function stopBackend() {
-  if (backendProcess && backendProcess.exitCode === null) {
-    backendProcess.kill();
+async function stopBackend() {
+  const processToStop = backendProcess;
+  if (!processToStop || processToStop.exitCode !== null) {
+    if (backendProcess === processToStop) {
+      backendProcess = null;
+      backendIsReady = false;
+    }
+    return;
   }
-  backendProcess = null;
-}
 
-function sleep(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  intentionallyStoppedBackendProcesses.add(processToStop);
+  try {
+    await stopProcessAndWait(processToStop, BACKEND_SHUTDOWN_TIMEOUT_MS);
+  } catch (error) {
+    intentionallyStoppedBackendProcesses.delete(processToStop);
+    throw error;
+  }
+  intentionallyStoppedBackendProcesses.delete(processToStop);
+  if (backendProcess === processToStop) {
+    backendProcess = null;
+    backendIsReady = false;
+  }
 }
 
 async function restartBackend() {
-  stopBackend();
-  await sleep(400);
+  await stopBackend();
   await startBackend();
 }
 
@@ -409,12 +579,6 @@ function directorySize(directoryPath) {
 
 function deleteIfExists(targetPath) {
   fs.rmSync(targetPath, { recursive: true, force: true });
-}
-
-function deleteDatabaseFiles(databasePath) {
-  deleteIfExists(databasePath);
-  deleteIfExists(`${databasePath}-shm`);
-  deleteIfExists(`${databasePath}-wal`);
 }
 
 function rotatedLogName() {
@@ -466,6 +630,242 @@ function copyIfExists(sourcePath, targetPath) {
   return true;
 }
 
+function runBackendUtility(args) {
+  const executablePath = getBackendExecutable();
+  if (!fs.existsSync(executablePath)) {
+    throw new Error(`Packaged backend not found at ${executablePath}. Run npm run build:backend first.`);
+  }
+  const childEnvironment = { ...process.env };
+  delete childEnvironment.ELECTRON_RUN_AS_NODE;
+  const result = spawnSync(executablePath, args, {
+    encoding: "utf8",
+    env: childEnvironment,
+    maxBuffer: 1024 * 1024,
+    windowsHide: true,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  const outputLines = String(result.stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let report;
+  try {
+    report = JSON.parse(outputLines.at(-1) ?? "");
+  } catch {
+    throw new Error(`Backup utility returned an invalid response: ${String(result.stderr ?? "").trim()}`);
+  }
+  if (result.status !== 0 || report.valid !== true) {
+    const pathLabel = report.path ? ` (${report.path})` : "";
+    throw new Error(`${report.rule ?? "backup_validation"}: ${report.detail ?? "validation failed"}${pathLabel}`);
+  }
+  return report;
+}
+
+function validateEncryptedTokenFile(tokenPath) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("Encrypted-token validation is unavailable for the current operating-system account.");
+  }
+  const encodedToken = fs.readFileSync(tokenPath, "utf8").trim();
+  const encryptedToken = Buffer.from(encodedToken, "base64");
+  if (!encodedToken || encryptedToken.length === 0 || encryptedToken.toString("base64") !== encodedToken) {
+    throw new Error("Encrypted token is not valid base64 data.");
+  }
+  const decryptedToken = safeStorage.decryptString(encryptedToken);
+  if (!decryptedToken.trim()) {
+    throw new Error("Encrypted token is empty.");
+  }
+  return { valid: true };
+}
+
+function validateDesktopBackup(backupDirectory) {
+  return validateSettingsBackup(backupDirectory, {
+    validateDatabase: (databasePath) =>
+      runBackendUtility(["--validate-sqlite-backup", databasePath]),
+    validateConfig: (configPath) => runBackendUtility(["--validate-env-file", configPath]),
+    validateToken: (tokenPath) => validateEncryptedTokenFile(tokenPath),
+  });
+}
+
+function buildSettingsRestorePlan(validatedBackup, paths) {
+  const activePathMap = new Map();
+  const deletePaths = [];
+  const replacements = [];
+  const addActivePath = (relativePath, activePath) => {
+    activePathMap.set(relativePath, activePath);
+  };
+
+  if (validatedBackup.payloadPaths[BACKUP_DATABASE_PATH]) {
+    addActivePath(BACKUP_DATABASE_PATH, paths.databasePath);
+    addActivePath(RECOVERY_DATABASE_WAL_PATH, `${paths.databasePath}-wal`);
+    addActivePath(RECOVERY_DATABASE_SHM_PATH, `${paths.databasePath}-shm`);
+    deletePaths.push(paths.databasePath, `${paths.databasePath}-wal`, `${paths.databasePath}-shm`);
+    replacements.push({
+      sourcePath: validatedBackup.payloadPaths[BACKUP_DATABASE_PATH],
+      targetPath: paths.databasePath,
+    });
+  }
+  if (validatedBackup.payloadPaths[BACKUP_CONFIG_PATH]) {
+    addActivePath(BACKUP_CONFIG_PATH, paths.configPath);
+    replacements.push({
+      sourcePath: validatedBackup.payloadPaths[BACKUP_CONFIG_PATH],
+      targetPath: paths.configPath,
+    });
+  }
+  if (validatedBackup.payloadPaths[BACKUP_TOKEN_PATH]) {
+    addActivePath(BACKUP_TOKEN_PATH, paths.tokenPath);
+    replacements.push({
+      sourcePath: validatedBackup.payloadPaths[BACKUP_TOKEN_PATH],
+      targetPath: paths.tokenPath,
+    });
+  }
+
+  return {
+    activePaths: [...activePathMap].map(([relativePath, activePath]) => ({
+      relativePath,
+      activePath,
+      ...(relativePath === BACKUP_CONFIG_PATH
+        ? { targetLocation: paths.configLocation }
+        : {}),
+    })),
+    applyChanges: () => applyFileReplacementPlan({ deletePaths, replacements }),
+    resolveActivePath: (relativePath) => {
+      const activePath = activePathMap.get(relativePath);
+      if (!activePath) {
+        throw new Error(`Restore recovery path is not mapped: ${relativePath}`);
+      }
+      return activePath;
+    },
+  };
+}
+
+function databaseRecoveryPathMap(paths) {
+  return new Map([
+    [BACKUP_DATABASE_PATH, paths.databasePath],
+    [RECOVERY_DATABASE_WAL_PATH, `${paths.databasePath}-wal`],
+    [RECOVERY_DATABASE_SHM_PATH, `${paths.databasePath}-shm`],
+  ]);
+}
+
+function buildClearDataPlan(paths) {
+  const activePathMap = databaseRecoveryPathMap(paths);
+  const deletePaths = [...activePathMap.values()];
+  return {
+    activePaths: [...activePathMap].map(([relativePath, activePath]) => ({ relativePath, activePath })),
+    applyChanges: () => applyFileReplacementPlan({ deletePaths }),
+    resolveActivePath: (relativePath) => {
+      const activePath = activePathMap.get(relativePath);
+      if (!activePath) {
+        throw new Error(`Clear Data recovery path is not mapped: ${relativePath}`);
+      }
+      return activePath;
+    },
+  };
+}
+
+function buildFactoryResetPlan(paths) {
+  const activePathMap = databaseRecoveryPathMap(paths);
+  activePathMap.set(BACKUP_CONFIG_PATH, paths.configPath);
+  activePathMap.set(BACKUP_TOKEN_PATH, paths.tokenPath);
+  activePathMap.set("logs", paths.logsDirectory);
+  const deletePaths = [...activePathMap.values()];
+  return {
+    activePaths: [...activePathMap].map(([relativePath, activePath]) => ({
+      relativePath,
+      activePath,
+      ...(relativePath === BACKUP_CONFIG_PATH
+        ? { targetLocation: paths.configLocation }
+        : {}),
+    })),
+    applyChanges: () => applyFileReplacementPlan({ deletePaths }),
+    resolveActivePath: (relativePath) => {
+      const activePath = activePathMap.get(relativePath);
+      if (activePath) {
+        return activePath;
+      }
+      if (relativePath.startsWith("logs/")) {
+        return path.join(paths.logsDirectory, ...relativePath.slice("logs/".length).split("/"));
+      }
+      throw new Error(`Factory Reset recovery path is not mapped: ${relativePath}`);
+    },
+  };
+}
+
+function resolveStartupRecoveryPath(paths, relativePath, targetLocation) {
+  if (relativePath === BACKUP_CONFIG_PATH) {
+    if (targetLocation === TARGET_LOCATION_USER_DATA) {
+      return paths.userConfigPath;
+    }
+    if (targetLocation === TARGET_LOCATION_APPLICATION_SIDECAR) {
+      return paths.sidecarConfigPath;
+    }
+    throw new Error(`Startup recovery target location is not supported: ${targetLocation}`);
+  }
+  if (targetLocation !== TARGET_LOCATION_USER_DATA) {
+    throw new Error(`Startup recovery target location is invalid for ${relativePath}: ${targetLocation}`);
+  }
+  const activePathMap = databaseRecoveryPathMap(paths);
+  activePathMap.set(BACKUP_TOKEN_PATH, paths.tokenPath);
+  activePathMap.set("logs", paths.logsDirectory);
+  const activePath = activePathMap.get(relativePath);
+  if (activePath) {
+    return activePath;
+  }
+  if (relativePath.startsWith("logs/")) {
+    return path.join(paths.logsDirectory, ...relativePath.slice("logs/".length).split("/"));
+  }
+  throw new Error(`Startup recovery path is not mapped: ${relativePath}`);
+}
+
+async function recoverDesktopStorageAtStartup() {
+  const paths = getDesktopDataPaths();
+  return recoverInterruptedStorageOperation({
+    recoveryRoot: path.join(paths.userDataDirectory, "recovery"),
+    resolveActivePath: (relativePath, targetLocation) =>
+      resolveStartupRecoveryPath(paths, relativePath, targetLocation),
+    startBackend,
+    stopBackend,
+    verifyState: verifyRestoredBackendState,
+  });
+}
+
+function captureFactoryResetFailure(journalDirectory, paths) {
+  const backendLogPath = path.join(paths.logsDirectory, "backend.log");
+  if (fs.existsSync(backendLogPath)) {
+    replaceFileAtomically(backendLogPath, path.join(journalDirectory, "failed-backend.log"));
+  }
+}
+
+function preserveFactoryResetFailure(journalDirectory, operationId, paths) {
+  fs.mkdirSync(paths.logsDirectory, { recursive: true });
+  const diagnosticPrefix = `factory-reset-${operationId}-failure`;
+  replaceFileAtomically(
+    path.join(journalDirectory, "failure.json"),
+    path.join(paths.logsDirectory, `${diagnosticPrefix}.json`),
+  );
+  const failedBackendLog = path.join(journalDirectory, "failed-backend.log");
+  if (fs.existsSync(failedBackendLog)) {
+    replaceFileAtomically(failedBackendLog, path.join(paths.logsDirectory, `${diagnosticPrefix}.log`));
+  }
+}
+
+async function handleStorageTransactionFailure(error, operationLabel) {
+  if (error instanceof StorageTransactionError && error.recoveryRequired) {
+    const recoveryDetail = error.recoveryPath ? `Recovery: ${error.recoveryPath}` : "Recovery requires diagnosis.";
+    showBackendErrorScreen(`LighthousePM could not complete ${operationLabel}.`, `${error.message}\n${recoveryDetail}`);
+  } else if (error instanceof StorageTransactionError && error.previousStateRestored && rendererOrigin && mainWindow) {
+    try {
+      await mainWindow.loadURL(rendererOrigin);
+    } catch (workspaceError) {
+      showBackendErrorScreen(
+        "LighthousePM restored the previous backend but could not reopen the workspace.",
+        workspaceError instanceof Error ? workspaceError.message : "Unknown workspace error",
+      );
+    }
+  }
+}
+
 function timestampForBackup() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
@@ -508,20 +908,33 @@ async function createDesktopBackup() {
   const backupDirectory = path.join(result.filePaths[0], `lighthousepm-backup-${timestampForBackup()}`);
   fs.mkdirSync(backupDirectory, { recursive: true });
 
-  const copied = {
-    database: copyIfExists(paths.databasePath, path.join(backupDirectory, "data", "lighthouse.db")),
-    databaseWal: copyIfExists(`${paths.databasePath}-wal`, path.join(backupDirectory, "data", "lighthouse.db-wal")),
-    databaseShm: copyIfExists(`${paths.databasePath}-shm`, path.join(backupDirectory, "data", "lighthouse.db-shm")),
-    config: copyIfExists(paths.configPath, path.join(backupDirectory, "backend.env")),
-    encryptedToken: copyIfExists(paths.tokenPath, path.join(backupDirectory, "secrets", "jira-token.bin")),
-  };
-  const manifest = {
-    app: "LighthousePM",
-    version: BACKUP_VERSION,
-    createdAt: new Date().toISOString(),
-    copied,
-  };
-  fs.writeFileSync(path.join(backupDirectory, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+  const relativePaths = [];
+  let databaseValidation = null;
+  if (fs.existsSync(paths.databasePath)) {
+    const databaseTarget = path.join(backupDirectory, ...BACKUP_DATABASE_PATH.split("/"));
+    databaseValidation = runBackendUtility([
+      "--create-sqlite-backup",
+      paths.databasePath,
+      "--output-path",
+      databaseTarget,
+    ]);
+    relativePaths.push(BACKUP_DATABASE_PATH);
+  }
+  if (copyIfExists(paths.configPath, path.join(backupDirectory, BACKUP_CONFIG_PATH))) {
+    runBackendUtility(["--validate-env-file", path.join(backupDirectory, BACKUP_CONFIG_PATH)]);
+    relativePaths.push(BACKUP_CONFIG_PATH);
+  }
+  if (copyIfExists(paths.tokenPath, path.join(backupDirectory, ...BACKUP_TOKEN_PATH.split("/")))) {
+    validateEncryptedTokenFile(path.join(backupDirectory, ...BACKUP_TOKEN_PATH.split("/")));
+    relativePaths.push(BACKUP_TOKEN_PATH);
+  }
+
+  publishValidatedSettingsBackup(
+    backupDirectory,
+    relativePaths,
+    databaseValidation,
+    validateDesktopBackup,
+  );
   return { ok: true, message: "Backup created.", path: backupDirectory };
 }
 
@@ -554,36 +967,76 @@ async function restoreDesktopBackup() {
   }
 
   const backupDirectory = resolveBackupDirectory(result.filePaths[0]);
+  const validatedBackup = validateDesktopBackup(backupDirectory);
   const paths = getDesktopDataPaths();
-  stopBackend();
-  await sleep(400);
-  copyIfExists(path.join(backupDirectory, "data", "lighthouse.db"), paths.databasePath);
-  copyIfExists(path.join(backupDirectory, "data", "lighthouse.db-wal"), `${paths.databasePath}-wal`);
-  copyIfExists(path.join(backupDirectory, "data", "lighthouse.db-shm"), `${paths.databasePath}-shm`);
-  copyIfExists(path.join(backupDirectory, "backend.env"), paths.configPath);
-  copyIfExists(path.join(backupDirectory, "secrets", "jira-token.bin"), paths.tokenPath);
-  await startBackend();
+  const restorePlan = buildSettingsRestorePlan(validatedBackup, paths);
+  try {
+    await runStorageTransaction({
+      operation: "restore",
+      operationId: crypto.randomUUID(),
+      operationLabel: "Restore",
+      recoveryRoot: path.join(paths.userDataDirectory, "recovery"),
+      activePaths: restorePlan.activePaths,
+      applyChanges: restorePlan.applyChanges,
+      resolveActivePath: restorePlan.resolveActivePath,
+      startBackend,
+      stopBackend,
+      verifyState: verifyRestoredBackendState,
+    });
+  } catch (error) {
+    await handleStorageTransactionFailure(error, "Settings Restore");
+    throw error;
+  }
   return { ok: true, message: "Backup restored.", path: backupDirectory };
 }
 
 async function clearDesktopData() {
   const paths = getDesktopDataPaths();
-  stopBackend();
-  await sleep(400);
-  deleteDatabaseFiles(paths.databasePath);
-  await startBackend();
+  const clearPlan = buildClearDataPlan(paths);
+  try {
+    await runStorageTransaction({
+      operation: "clear-data",
+      operationId: crypto.randomUUID(),
+      operationLabel: "Clear Data",
+      recoveryRoot: path.join(paths.userDataDirectory, "recovery"),
+      activePaths: clearPlan.activePaths,
+      applyChanges: clearPlan.applyChanges,
+      resolveActivePath: clearPlan.resolveActivePath,
+      startBackend,
+      stopBackend,
+      verifyState: verifyEmptyBackendState,
+    });
+  } catch (error) {
+    await handleStorageTransactionFailure(error, "Clear Data");
+    throw error;
+  }
   return { ok: true, message: "Local synced data cleared." };
 }
 
 async function factoryResetDesktopData() {
   const paths = getDesktopDataPaths();
-  stopBackend();
-  await sleep(400);
-  deleteDatabaseFiles(paths.databasePath);
-  deleteIfExists(paths.configPath);
-  deleteIfExists(paths.tokenPath);
-  deleteIfExists(paths.logsDirectory);
-  await startBackend();
+  const factoryResetPlan = buildFactoryResetPlan(paths);
+  const operationId = crypto.randomUUID();
+  try {
+    await runStorageTransaction({
+      operation: "factory-reset",
+      operationId,
+      operationLabel: "Factory Reset",
+      recoveryRoot: path.join(paths.userDataDirectory, "recovery"),
+      activePaths: factoryResetPlan.activePaths,
+      applyChanges: factoryResetPlan.applyChanges,
+      resolveActivePath: factoryResetPlan.resolveActivePath,
+      startBackend,
+      stopBackend,
+      verifyState: verifyFactoryResetState,
+      captureOperationDiagnostic: (journalDirectory) => captureFactoryResetFailure(journalDirectory, paths),
+      preserveRollbackDiagnostic: (journalDirectory) =>
+        preserveFactoryResetFailure(journalDirectory, operationId, paths),
+    });
+  } catch (error) {
+    await handleStorageTransactionFailure(error, "Factory Reset");
+    throw error;
+  }
   return { ok: true, message: "Factory reset complete." };
 }
 
@@ -607,12 +1060,10 @@ function safePdfFilename(filename) {
   return normalized.toLowerCase().endsWith(".pdf") ? normalized : `${normalized}.pdf`;
 }
 
-async function savePdfFromRenderer({ filename, data }) {
+async function savePdfFromRenderer(payload) {
+  const { filename, data } = validatedPdfPayload(payload);
   const safeFilename = safePdfFilename(filename);
-  const bytes = Buffer.from(data instanceof Uint8Array ? data : new Uint8Array(data));
-  if (bytes.length === 0) {
-    throw new Error("PDF export was empty.");
-  }
+  const bytes = Buffer.from(data);
 
   const result = await dialog.showSaveDialog(mainWindow ?? undefined, {
     title: "Save PDF Report",
@@ -833,155 +1284,65 @@ function getDevRendererOrigin() {
   return parsedUrl.origin;
 }
 
-function isAllowedAppNavigation(targetUrl) {
-  try {
-    return new URL(targetUrl).origin === rendererOrigin;
-  } catch {
-    return false;
-  }
-}
-
 function openExternalUrl(targetUrl) {
-  try {
-    const parsedUrl = new URL(targetUrl);
-    if (parsedUrl.protocol === "https:") {
-      void shell.openExternal(parsedUrl.toString());
-      return { ok: true };
-    }
-  } catch {
-    // Invalid external URLs are ignored.
-  }
-  return { ok: false, message: "Only HTTPS links can be opened externally." };
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function desktopStatusDocument({ title, heading, message, detail }) {
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="color-scheme" content="light" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #f4f7fb;
-        color: #101733;
-        font-family: Inter, Segoe UI, Arial, sans-serif;
-      }
-      main {
-        width: min(560px, calc(100vw - 48px));
-        display: grid;
-        gap: 14px;
-      }
-      h1 {
-        margin: 0;
-        font-size: 1.45rem;
-      }
-      p {
-        margin: 0;
-        color: #52617f;
-        line-height: 1.5;
-      }
-      code {
-        display: block;
-        padding: 12px;
-        border: 1px solid #d9deec;
-        border-radius: 8px;
-        background: #ffffff;
-        color: #344468;
-        overflow-wrap: anywhere;
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1>${escapeHtml(heading)}</h1>
-      <p>${escapeHtml(message)}</p>
-      ${detail ? `<code>${escapeHtml(detail)}</code>` : ""}
-    </main>
-  </body>
-</html>`;
-}
-
-function desktopStatusUrl(options) {
-  return `data:text/html;charset=utf-8,${encodeURIComponent(desktopStatusDocument(options))}`;
-}
-
-function startupScreenUrl() {
-  return desktopStatusUrl({
-    title: "LighthousePM Starting",
-    heading: "Starting LighthousePM",
-    message: "Preparing the local backend and loading your dashboard.",
-  });
-}
-
-function backendErrorScreenUrl(message, detail) {
-  return desktopStatusUrl({
-    title: "LighthousePM Backend Error",
-    heading: "The local backend stopped",
-    message,
-    detail,
-  });
+  return delegateApprovedExternalUrl(targetUrl, (url) => shell.openExternal(url));
 }
 
 async function configureSession() {
-  const appSession = getAppSession();
-  await appSession.clearCache();
-  await appSession.clearStorageData({
-    storages: ["cookies", "localstorage", "indexdb", "cachestorage", "websql", "serviceworkers", "shadercache"],
+  await configureDesktopSessionSecurity({
+    appSession: getAppSession(),
+    devRendererOrigin: DEV_RENDERER_ORIGIN,
+    isDevelopmentRendererConfigured: Boolean(DEV_RENDERER_URL),
+    getLocalApiToken: () => localApiToken,
   });
-  appSession.setPermissionCheckHandler(() => false);
-  appSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
-
-  appSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    if (!localApiToken || !DEV_RENDERER_URL) {
-      callback({ requestHeaders: details.requestHeaders });
-      return;
-    }
-
-    try {
-      const targetUrl = new URL(details.url);
-      if (targetUrl.origin === DEV_RENDERER_ORIGIN && targetUrl.pathname.startsWith("/api")) {
-        callback({
-          requestHeaders: {
-            ...details.requestHeaders,
-            Authorization: `Bearer ${localApiToken}`,
-          },
-        });
-        return;
-      }
-    } catch {
-      // Ignore invalid URLs and keep the request unchanged.
-    }
-    callback({ requestHeaders: details.requestHeaders });
-  });
-
-  if (typeof appSession.setDevicePermissionHandler === "function") {
-    appSession.setDevicePermissionHandler(() => false);
-  }
 }
 
 function configureIpcHandlers() {
-  ipcMain.handle("jira-token:store", (_event, token) => storeJiraTokenFromRenderer(token));
-  ipcMain.handle("desktop-save:pdf", (_event, payload) => savePdfFromRenderer(payload));
-  ipcMain.handle("desktop-open:external", (_event, targetUrl) => openExternalUrl(targetUrl));
-  ipcMain.handle("desktop-storage:info", () => getDesktopStorageInfo());
-  ipcMain.handle("desktop-storage:backup", () => createDesktopBackup());
-  ipcMain.handle("desktop-storage:restore", () => restoreDesktopBackup());
-  ipcMain.handle("desktop-storage:clear-data", () => clearDesktopData());
-  ipcMain.handle("desktop-storage:factory-reset", () => factoryResetDesktopData());
-  ipcMain.handle("desktop-storage:reveal", () => revealDesktopDataFolder());
+  function registerDesktopIpcHandler(channel, handler) {
+    registerTrustedIpcHandler({
+      ipcMain,
+      channel,
+      getMainWindow: () => mainWindow,
+      getRendererOrigin: () => rendererOrigin,
+      handler,
+    });
+  }
+
+  registerDesktopIpcHandler("jira-token:store", (token) => storeJiraTokenFromRenderer(token));
+  registerDesktopIpcHandler("desktop-save:pdf", (payload) => savePdfFromRenderer(payload));
+  registerDesktopIpcHandler("desktop-open:external", (targetUrl) => openExternalUrl(targetUrl));
+  registerDesktopIpcHandler(
+    "desktop-storage:info",
+    withoutIpcArguments("desktop-storage:info", () => getDesktopStorageInfo()),
+  );
+  registerDesktopIpcHandler(
+    "desktop-storage:backup",
+    withoutIpcArguments("desktop-storage:backup", () =>
+      desktopStorageOperations.run("backup", () => createDesktopBackup()),
+    ),
+  );
+  registerDesktopIpcHandler(
+    "desktop-storage:restore",
+    withoutIpcArguments("desktop-storage:restore", () =>
+      desktopStorageOperations.run("restore", () => restoreDesktopBackup()),
+    ),
+  );
+  registerDesktopIpcHandler(
+    "desktop-storage:clear-data",
+    withoutIpcArguments("desktop-storage:clear-data", () =>
+      desktopStorageOperations.run("clear-data", () => clearDesktopData()),
+    ),
+  );
+  registerDesktopIpcHandler(
+    "desktop-storage:factory-reset",
+    withoutIpcArguments("desktop-storage:factory-reset", () =>
+      desktopStorageOperations.run("factory-reset", () => factoryResetDesktopData()),
+    ),
+  );
+  registerDesktopIpcHandler(
+    "desktop-storage:reveal",
+    withoutIpcArguments("desktop-storage:reveal", () => revealDesktopDataFolder()),
+  );
 }
 
 function showBackendErrorScreen(message, detail) {
@@ -1045,46 +1406,21 @@ function configureOptionalUpdates() {
 }
 
 function createMainWindow(initialUrl = startupScreenUrl()) {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    minWidth: 1100,
-    minHeight: 700,
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: "#f4f7fb",
-    title: "LighthousePM",
-    webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
+  mainWindow = new BrowserWindow(
+    createMainWindowOptions({
+      preloadPath: path.join(__dirname, "preload.cjs"),
       partition: APP_SESSION_PARTITION,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      spellcheck: false,
-    },
-  });
+    }),
+  );
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
   });
 
-  mainWindow.webContents.on("will-navigate", (event, targetUrl) => {
-    if (isAllowedAppNavigation(targetUrl)) {
-      return;
-    }
-    event.preventDefault();
-    openExternalUrl(targetUrl);
-  });
-
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
-    return { action: "deny" };
-  });
-
-  mainWindow.webContents.on("will-attach-webview", (event) => {
-    event.preventDefault();
+  configureWindowNavigationGuards({
+    webContents: mainWindow.webContents,
+    getRendererOrigin: () => rendererOrigin,
+    openExternal: (url) => shell.openExternal(url),
   });
 
   mainWindow.on("closed", () => {
@@ -1099,10 +1435,16 @@ async function startApplication() {
   configureIpcHandlers();
   createMainWindow();
   try {
-    await startBackend();
-    rendererOrigin = getDevRendererOrigin() ?? (await startRendererServer());
-    await mainWindow?.loadURL(rendererOrigin);
-    configureOptionalUpdates();
+    await runApplicationStartup({
+      recoverStorage: recoverDesktopStorageAtStartup,
+      startBackend,
+      resolveRendererOrigin: async () => getDevRendererOrigin() ?? (await startRendererServer()),
+      setRendererOrigin: (origin) => {
+        rendererOrigin = origin;
+      },
+      loadRenderer: (origin) => mainWindow?.loadURL(origin),
+      configureUpdates: configureOptionalUpdates,
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Unknown startup error";
     showBackendErrorScreen("LighthousePM could not start the local backend.", detail);
@@ -1111,12 +1453,7 @@ async function startApplication() {
 
 if (hasSingleInstanceLock) {
   app.on("second-instance", () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.focus();
-    }
+    focusExistingWindow(mainWindow);
   });
 
   app.whenReady().then(startApplication).catch((error) => {
@@ -1137,10 +1474,26 @@ if (hasSingleInstanceLock) {
     }
   });
 
-  app.on("before-quit", () => {
-    isQuitting = true;
-    rendererServer?.close();
-    rendererServer = null;
-    stopBackend();
+  const shutdownCoordinator = createApplicationShutdownCoordinator({
+    stopBackend,
+    closeRendererServer: () => {
+      rendererServer?.close();
+      rendererServer = null;
+    },
+    quitApplication: () => app.quit(),
+    setQuitting: (value) => {
+      isQuitting = value;
+    },
+    onShutdownFailure: (error) => {
+      const detail = error instanceof Error ? error.message : "Unknown shutdown error";
+      showBackendErrorScreen(
+        "LighthousePM could not confirm local backend shutdown.",
+        detail,
+      );
+    },
+  });
+
+  app.on("before-quit", (event) => {
+    void shutdownCoordinator.handleBeforeQuit(event);
   });
 }

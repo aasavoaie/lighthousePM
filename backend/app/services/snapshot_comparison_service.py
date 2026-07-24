@@ -1,31 +1,50 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Generic, TypeVar
 
 from app.models import MetricSnapshot, SprintMetricSnapshot
 from app.schemas.deltas import SnapshotDeltaComparison, SnapshotDeltaContributor
-from app.services.analytics_service import DELIVERY_CONFIDENCE_WEIGHTS
-from app.services.signal_service import SignalService
+
+
+SnapshotT = TypeVar("SnapshotT", MetricSnapshot, SprintMetricSnapshot)
 
 
 @dataclass(frozen=True)
-class MetricDeltaRule:
+class MetricDeltaRule(Generic[SnapshotT]):
     metric: str
-    current_value: Callable[[object], int | float | None]
-    previous_value: Callable[[object], int | float | None]
-    impact: Callable[[object, object], float]
+    current_value: Callable[[SnapshotT], int | float | None]
+    previous_value: Callable[[SnapshotT], int | float | None]
+    impact: Callable[[SnapshotT, SnapshotT], float]
 
 
 class SnapshotComparisonService:
     """Compare deterministic metric snapshots and explain confidence movement."""
+
+    CLASSIFICATION_MISMATCH_REASON = (
+        "Snapshot comparison unavailable because Jira classification mappings differ."
+    )
+
+    @staticmethod
+    def classification_unavailable_reason(
+        current_snapshot: MetricSnapshot | SprintMetricSnapshot,
+        previous_snapshot: MetricSnapshot | SprintMetricSnapshot,
+    ) -> str | None:
+        current_classification = (current_snapshot.calculation_provenance or {}).get("classification")
+        previous_classification = (previous_snapshot.calculation_provenance or {}).get("classification")
+        if current_classification is None and previous_classification is None:
+            return None
+        if current_classification != previous_classification:
+            return SnapshotComparisonService.CLASSIFICATION_MISMATCH_REASON
+        return None
 
     @staticmethod
     def compare_release_snapshots(
         current_snapshot: MetricSnapshot,
         previous_snapshot: MetricSnapshot,
     ) -> SnapshotDeltaComparison:
-        current_confidence = SignalService._confidence_score_for_snapshot(current_snapshot)
-        previous_confidence = SignalService._confidence_score_for_snapshot(previous_snapshot)
-        rules = [
+        current_confidence = current_snapshot.confidence_score
+        previous_confidence = previous_snapshot.confidence_score
+        rules: list[MetricDeltaRule[MetricSnapshot]] = [
             MetricDeltaRule(
                 metric="open_blockers",
                 current_value=lambda snapshot: snapshot.open_blockers,
@@ -84,7 +103,9 @@ class SnapshotComparisonService:
             ),
         ]
         return SnapshotDeltaComparison(
-            confidence_delta=SnapshotComparisonService._rounded_delta(current_confidence, previous_confidence) or 0.0,
+            confidence_delta=SnapshotComparisonService._rounded_delta(
+                current_confidence, previous_confidence
+            ),
             contributors=SnapshotComparisonService._build_contributors(
                 current_snapshot=current_snapshot,
                 previous_snapshot=previous_snapshot,
@@ -99,7 +120,7 @@ class SnapshotComparisonService:
     ) -> SnapshotDeltaComparison:
         current_confidence = current_snapshot.delivery_confidence_score
         previous_confidence = previous_snapshot.delivery_confidence_score
-        rules = [
+        rules: list[MetricDeltaRule[SprintMetricSnapshot]] = [
             SnapshotComparisonService._sprint_component_rule("velocity_fit", "velocity_fit"),
             SnapshotComparisonService._sprint_component_rule("scope_stability", "scope_stability"),
             SnapshotComparisonService._sprint_component_rule("progress_alignment", "progress_alignment"),
@@ -136,7 +157,10 @@ class SnapshotComparisonService:
         return "No material change"
 
     @staticmethod
-    def _sprint_component_rule(metric: str, component_key: str) -> MetricDeltaRule:
+    def _sprint_component_rule(
+        metric: str,
+        component_key: str,
+    ) -> MetricDeltaRule[SprintMetricSnapshot]:
         return MetricDeltaRule(
             metric=metric,
             current_value=lambda snapshot: SnapshotComparisonService._sprint_component_value(snapshot, component_key),
@@ -150,9 +174,9 @@ class SnapshotComparisonService:
 
     @staticmethod
     def _build_contributors(
-        current_snapshot: object,
-        previous_snapshot: object,
-        rules: list[MetricDeltaRule],
+        current_snapshot: SnapshotT,
+        previous_snapshot: SnapshotT,
+        rules: list[MetricDeltaRule[SnapshotT]],
     ) -> list[SnapshotDeltaContributor]:
         contributors: list[SnapshotDeltaContributor] = []
         for rule in rules:
@@ -186,20 +210,16 @@ class SnapshotComparisonService:
 
     @staticmethod
     def _release_risk_impact(current: MetricSnapshot, previous: MetricSnapshot, metric: str) -> float:
-        current_points = SignalService._compute_release_risk_points(
-            open_blockers=current.open_blockers,
-            open_high_severity_bugs=current.open_high_severity_bugs,
-            scope_churn_7d_pct=current.scope_churn_7d_pct,
-            reopen_rate_pct=current.reopen_rate_pct,
-            median_cycle_time_days=current.median_cycle_time_days,
+        current_outputs = (current.calculation_provenance or {}).get("component_outputs", {})
+        previous_outputs = (previous.calculation_provenance or {}).get("component_outputs", {})
+        current_points_value = (
+            current_outputs.get("risk_points", {}) if isinstance(current_outputs, dict) else {}
         )
-        previous_points = SignalService._compute_release_risk_points(
-            open_blockers=previous.open_blockers,
-            open_high_severity_bugs=previous.open_high_severity_bugs,
-            scope_churn_7d_pct=previous.scope_churn_7d_pct,
-            reopen_rate_pct=previous.reopen_rate_pct,
-            median_cycle_time_days=previous.median_cycle_time_days,
+        previous_points_value = (
+            previous_outputs.get("risk_points", {}) if isinstance(previous_outputs, dict) else {}
         )
+        current_points = current_points_value if isinstance(current_points_value, dict) else {}
+        previous_points = previous_points_value if isinstance(previous_points_value, dict) else {}
         return round(previous_points.get(metric, 0.0) - current_points.get(metric, 0.0), 2)
 
     @staticmethod
@@ -220,4 +240,10 @@ class SnapshotComparisonService:
         delta = SnapshotComparisonService._rounded_delta(current_value, previous_value)
         if delta is None:
             return 0.0
-        return round(delta * DELIVERY_CONFIDENCE_WEIGHTS[component_key], 2)
+        weights = (current.calculation_provenance or {}).get("weights", {})
+        weight = (
+            float(weights.get(component_key, 0.0))
+            if isinstance(weights, dict)
+            else 0.0
+        )
+        return round(delta * weight, 2)

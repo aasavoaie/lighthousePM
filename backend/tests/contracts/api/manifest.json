@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "contracts": [
+    {
+      "id": "error.authentication.401",
+      "method": "GET",
+      "path": "/config/jira",
+      "status_code": 401,
+      "snapshot": "errors/401-authentication.json"
+    },
+    {
+      "id": "error.release-not-found.404",
+      "method": "GET",
+      "path": "/releases/UNKNOWN/metrics",
+      "status_code": 404,
+      "snapshot": "errors/404-release-not-found.json"
+    },
+    {
+      "id": "error.sync-already-running.409",
+      "method": "POST",
+      "path": "/sync/jira",
+      "status_code": 409,
+      "snapshot": "errors/409-sync-already-running.json"
+    },
+    {
+      "id": "error.privileged-validation.422",
+      "method": "PUT",
+      "path": "/config/jira",
+      "status_code": 422,
+      "snapshot": "errors/422-privileged-validation.json"
+    },
+    {
+      "id": "release.collection.project-scoped.200",
+      "method": "GET",
+      "path": "/releases",
+      "status_code": 200,
+      "snapshot": "releases/collection-project-scoped.json"
+    },
+    {
+      "id": "release.metrics.populated.200",
+      "method": "GET",
+      "path": "/releases/LHPM-REL-ALPHA/metrics",
+      "status_code": 200,
+      "snapshot": "releases/metrics-populated.json"
+    },
+    {
+      "id": "release.metrics.incomplete-evidence.200",
+      "method": "GET",
+      "path": "/releases/LHPM-REL-PARTIAL/metrics",
+      "status_code": 200,
+      "snapshot": "releases/metrics-incomplete-evidence.json"
+    },
+    {
+      "id": "release.signal.stored.200",
+      "method": "GET",
+      "path": "/releases/LHPM-REL-ALPHA/signal",
+      "status_code": 200,
+      "snapshot": "releases/signal-stored.json"
+    },
+    {
+      "id": "release.snapshot-comparison.200",
+      "method": "GET",
+      "path": "/releases/LHPM-REL-ALPHA/snapshot-comparison",
+      "status_code": 200,
+      "snapshot": "releases/snapshot-comparison.json"
+    },
+    {
+      "id": "sprint.collection.project-scoped.200",
+      "method": "GET",
+      "path": "/sprints",
+      "status_code": 200,
+      "snapshot": "sprints/collection-project-scoped.json"
+    },
+    {
+      "id": "sprint.current.project-scoped.200",
+      "method": "GET",
+      "path": "/sprints/current",
+      "status_code": 200,
+      "snapshot": "sprints/current-project-scoped.json"
+    },
+    {
+      "id": "sprint.metrics.complete-reopen-evidence.200",
+      "method": "GET",
+      "path": "/sprints/LHPM-SPRINT-42/metrics",
+      "status_code": 200,
+      "snapshot": "sprints/metrics-complete-reopen-evidence.json"
+    },
+    {
+      "id": "sprint.metrics.partial-coverage.200",
+      "method": "GET",
+      "path": "/sprints/LHPM-SPRINT-41/metrics",
+      "status_code": 200,
+      "snapshot": "sprints/metrics-partial-coverage.json"
+    },
+    {
+      "id": "sprint.metrics.inconclusive-coverage.200",
+      "method": "GET",
+      "path": "/sprints/LHPM-SPRINT-40/metrics",
+      "status_code": 200,
+      "snapshot": "sprints/metrics-inconclusive-coverage.json"
+    },
+    {
+      "id": "sprint.snapshot-comparison.200",
+      "method": "GET",
+      "path": "/sprints/LHPM-SPRINT-42/snapshot-comparison",
+      "status_code": 200,
+      "snapshot": "sprints/snapshot-comparison.json"
+    },
+    {
+      "id": "configuration.jira.redacted.200",
+      "method": "GET",
+      "path": "/config/jira",
+      "status_code": 200,
+      "snapshot": "configuration/jira-redacted.json"
+    },
+    {
+      "id": "sync.jira.success.200",
+      "method": "POST",
+      "path": "/sync/jira",
+      "status_code": 200,
+      "snapshot": "sync/jira-success.json"
+    }
+  ]
+}

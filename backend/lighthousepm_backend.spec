@@ -3,13 +3,17 @@
 from PyInstaller.utils.hooks import collect_submodules
 
 
-hidden_imports = collect_submodules("app") + collect_submodules("uvicorn")
+hidden_imports = (
+    collect_submodules("app")
+    + collect_submodules("uvicorn")
+    + collect_submodules("alembic", filter=lambda name: not name.startswith("alembic.testing"))
+)
 
 a = Analysis(
     ["desktop_entry.py"],
     pathex=["."],
     binaries=[],
-    datas=[("pyproject.toml", "."), ("../ABOUT.md", ".")],
+    datas=[("pyproject.toml", "."), ("../ABOUT.md", "."), ("alembic", "alembic")],
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},

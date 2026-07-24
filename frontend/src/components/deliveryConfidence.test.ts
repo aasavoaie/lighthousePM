@@ -37,6 +37,7 @@ const healthyComponents: DeliveryConfidenceComponents = {
 
 const progressInputs: DeliveryConfidenceInputs = {
   committed_issue_count: 8,
+  pointed_issue_count: 8,
   initial_commitment_count: 8,
   committed_effective_points: 83,
   completed_effective_points: 14,
@@ -45,6 +46,8 @@ const progressInputs: DeliveryConfidenceInputs = {
   time_elapsed_pct: 41,
   historical_velocity: 56,
   baseline_sprint_count: 3,
+  baseline_sprints: [],
+  velocity_status: "COMPUTED",
   remaining_capacity_points: 30,
   blocked_issue_ratio: 0.05,
   scope_change_count: 6,

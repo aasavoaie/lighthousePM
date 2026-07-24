@@ -6,6 +6,8 @@ import type {
   SnapshotComparisonResponse,
   SnapshotDeltaContributor,
 } from "../api/types";
+import { useMetricCatalog } from "../MetricCatalogContext";
+import type { MetricCatalogView } from "../metricCatalog";
 
 type SnapshotContext = "release" | "sprint";
 
@@ -26,12 +28,6 @@ const baselineLabels: Record<SnapshotBaseline, string> = {
 };
 
 const metricLabels: Record<string, string> = {
-  open_blockers: "blockers",
-  open_high_severity_bugs: "high-severity bugs",
-  reopen_rate_pct: "reopen rate",
-  median_cycle_time_days: "cycle time",
-  scope_churn_7d_pct: "scope creep",
-  completed_tickets: "completed work",
   velocity_fit: "velocity fit",
   scope_stability: "scope stability",
   progress_alignment: "progress alignment",
@@ -74,8 +70,16 @@ function formatDeltaValue(contributor: SnapshotDeltaContributor) {
   return Number(absolute.toFixed(2)).toString();
 }
 
-function formatContributorText(contributor: SnapshotDeltaContributor) {
-  const label = metricLabels[contributor.metric] ?? contributor.metric;
+function metricLabel(catalog: MetricCatalogView, context: SnapshotContext, metric: string) {
+  return catalog.byKey[`${context}.${metric}`]?.label ?? metricLabels[metric] ?? metric;
+}
+
+function formatContributorText(
+  contributor: SnapshotDeltaContributor,
+  catalog: MetricCatalogView,
+  context: SnapshotContext,
+) {
+  const label = metricLabel(catalog, context, contributor.metric).toLowerCase();
   const value = formatDeltaValue(contributor);
   const improved = contributor.impact > 0;
 
@@ -94,24 +98,28 @@ function formatContributorText(contributor: SnapshotDeltaContributor) {
   return `${label} ${improved ? "improved" : contributor.impact < 0 ? "worsened" : "changed"}`;
 }
 
-function metricLabel(metric: string) {
-  return metricLabels[metric] ?? metric;
-}
-
-function renderContributor(contributor: SnapshotDeltaContributor) {
+function renderContributor(
+  contributor: SnapshotDeltaContributor,
+  catalog: MetricCatalogView,
+  context: SnapshotContext,
+) {
   const impactClass = contributor.impact > 0 ? "positive" : contributor.impact < 0 ? "negative" : "neutral";
   return (
     <li className={`snapshot-change-item ${impactClass}`} key={`${contributor.metric}-${contributor.delta}`}>
       <span className="snapshot-change-arrow" aria-hidden="true">
         {contributor.impact > 0 ? "↑" : contributor.impact < 0 ? "↓" : "-"}
       </span>
-      <span>{formatContributorText(contributor)}</span>
+      <span>{formatContributorText(contributor, catalog, context)}</span>
       <strong>({formatSigned(contributor.impact)})</strong>
     </li>
   );
 }
 
-function renderHistory(history: SnapshotChangeHistoryResponse | null) {
+function renderHistory(
+  history: SnapshotChangeHistoryResponse | null,
+  catalog: MetricCatalogView,
+  context: SnapshotContext,
+) {
   if (!history || history.items.length === 0) {
     return <p className="muted">No snapshot change history available yet.</p>;
   }
@@ -122,6 +130,7 @@ function renderHistory(history: SnapshotChangeHistoryResponse | null) {
         <thead>
           <tr>
             <th>Date</th>
+            <th>Ruleset</th>
             <th>Confidence</th>
             <th>Delta</th>
             <th>Primary driver</th>
@@ -131,9 +140,12 @@ function renderHistory(history: SnapshotChangeHistoryResponse | null) {
           {history.items.map((item) => (
             <tr key={item.date}>
               <td>{new Date(item.date).toLocaleString()}</td>
+              <td>{`v${item.ruleset_version}${item.version_boundary ? " starts" : ""}`}</td>
               <td>{item.confidence === null ? "N/A" : `${Math.round(item.confidence)}%`}</td>
               <td>{item.delta === null ? "N/A" : `${formatSigned(item.delta)}%`}</td>
-              <td>{metricLabel(item.primary_driver)}</td>
+              <td title={item.comparison_unavailable_reason ?? undefined}>
+                {metricLabel(catalog, context, item.primary_driver)}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -151,6 +163,7 @@ export function SnapshotChangePanel({
   error,
   onBaselineChange,
 }: SnapshotChangePanelProps) {
+  const catalog = useMetricCatalog();
   const contributors = comparison?.comparison.contributors ?? [];
   const hasBaseline = comparison?.has_baseline ?? false;
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
@@ -182,9 +195,12 @@ export function SnapshotChangePanel({
       {!isLoading && !error ? (
         <div className="snapshot-change-summary">
           <strong>{formatConfidenceDelta(comparison?.comparison.confidenceDelta ?? null)}</strong>
+          {comparison?.unavailable_reason ? <p className="muted">{comparison.unavailable_reason}</p> : null}
           {hasBaseline ? (
-            contributors.length > 0 ? (
-              <ul className="snapshot-change-list">{contributors.map(renderContributor)}</ul>
+            comparison?.unavailable_reason ? null : contributors.length > 0 ? (
+              <ul className="snapshot-change-list">
+                {contributors.map((contributor) => renderContributor(contributor, catalog, context))}
+              </ul>
             ) : (
               <p className="muted">No measured contributor changed.</p>
             )
@@ -210,7 +226,7 @@ export function SnapshotChangePanel({
         </button>
       </div>
       {isHistoryExpanded && !isLoading && !error ? (
-        <div id="snapshot-change-history">{renderHistory(history)}</div>
+        <div id="snapshot-change-history">{renderHistory(history, catalog, context)}</div>
       ) : null}
     </section>
   );

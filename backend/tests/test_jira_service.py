@@ -66,6 +66,7 @@ def _issue_raw(key: str = "PROJ-1") -> dict:
             "issuetype": {"name": "Bug"},
             "priority": {"name": "High"},
             "assignee": {"displayName": "Alice"},
+            "created": "2026-03-15T08:00:00.000+0000",
             "updated": "2026-04-01T10:00:00.000+0000",
             "description": "Some description",
             "labels": ["backend"],
@@ -90,6 +91,10 @@ async def test_search_issues_returns_summaries() -> None:
     assert issues[0].key == "PROJ-1"
     assert issues[0].status == "In Progress"
     assert issues[0].assignee == "Alice"
+    assert issues[0].created is not None
+    assert issues[0].created.isoformat() == "2026-03-15T08:00:00+00:00"
+    assert issues[0].updated is not None
+    assert issues[0].updated.isoformat() == "2026-04-01T10:00:00+00:00"
     assert next_token is None
 
 
@@ -117,6 +122,10 @@ async def test_get_issue_details_success() -> None:
 
     assert detail.key == "PROJ-42"
     assert detail.summary == "Test issue"
+    assert detail.created is not None
+    assert detail.created.isoformat() == "2026-03-15T08:00:00+00:00"
+    assert detail.updated is not None
+    assert detail.updated.isoformat() == "2026-04-01T10:00:00+00:00"
 
 
 @pytest.mark.asyncio

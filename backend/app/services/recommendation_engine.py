@@ -1,14 +1,30 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
+from app.metric_catalog import metric_threshold_value
 from app.schemas.availability import MetricAvailability
-from app.schemas.recommendations import RecommendationAction, RecommendationEffort
-from app.utils.constants import (
-    CYCLE_TIME_YELLOW_THRESHOLD_DAYS,
-    HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD,
-    OPEN_BLOCKERS_RED_THRESHOLD,
-    REOPEN_RATE_YELLOW_THRESHOLD,
-    SCOPE_CHURN_YELLOW_THRESHOLD,
+from app.schemas.recommendations import (
+    RecommendationAction,
+    RecommendationDataStatus,
+    RecommendationEffort,
+)
+OPEN_BLOCKERS_RED_THRESHOLD = metric_threshold_value(
+    "release.open_blockers", "critical"
+)
+HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD = metric_threshold_value(
+    "release.open_high_severity_bugs", "watch"
+)
+SCOPE_CHURN_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.scope_churn_7d_pct", "watch") / 100.0
+)
+REOPEN_RATE_YELLOW_THRESHOLD = (
+    metric_threshold_value("release.reopen_rate_pct", "watch") / 100.0
+)
+CYCLE_TIME_YELLOW_THRESHOLD_DAYS = metric_threshold_value(
+    "release.median_cycle_time_days", "watch"
+)
+WORKLOAD_CONCENTRATION_WATCH_MIN_PCT = metric_threshold_value(
+    "sprint.workload_concentration_pct", "watch"
 )
 
 
@@ -52,7 +68,7 @@ class RecommendationEngine:
         ),
         "reopen_rate_pct": _RecommendationRule(
             key="reopen_rate_pct",
-            title="Reduce reopen rate",
+            title="Reduce reopen events",
             description="Review reopened tickets for acceptance or quality gaps and close the loop before release.",
             confidence_impact=6,
             effort="medium",
@@ -143,8 +159,6 @@ class RecommendationEngine:
         "reopen_rate_pct",
     ]
 
-    WORKLOAD_CONCENTRATION_YELLOW_PCT = 35.0
-
     @staticmethod
     def build_release_recommendations(
         snapshot: Any,
@@ -160,11 +174,13 @@ class RecommendationEngine:
             candidates.append(RecommendationEngine.RELEASE_RULES["open_high_severity_bugs"])
         if (
             RecommendationEngine._release_metric_available(metric_availability, "scope_churn_7d_pct")
+            and snapshot.scope_churn_7d_pct is not None
             and snapshot.scope_churn_7d_pct > SCOPE_CHURN_YELLOW_THRESHOLD * 100
         ):
             candidates.append(RecommendationEngine.RELEASE_RULES["scope_churn_7d_pct"])
         if (
             RecommendationEngine._release_metric_available(metric_availability, "reopen_rate_pct")
+            and snapshot.reopen_rate_pct is not None
             and snapshot.reopen_rate_pct > REOPEN_RATE_YELLOW_THRESHOLD * 100
         ):
             candidates.append(RecommendationEngine.RELEASE_RULES["reopen_rate_pct"])
@@ -190,7 +206,14 @@ class RecommendationEngine:
         sprint_issues: list[Any] | None = None,
         include_story_point_rules: bool = True,
     ) -> list[RecommendationAction]:
+        # Retained as a compatibility argument; authoritative workload evidence
+        # comes only from the persisted snapshot fields.
+        _ = sprint_issues
         candidates: list[_RecommendationRule] = []
+        evidence_by_key: dict[
+            str,
+            tuple[RecommendationDataStatus, list[str]],
+        ] = {}
         components = (snapshot.delivery_confidence_components or {}) if include_story_point_rules else {}
         inputs = (snapshot.delivery_confidence_inputs or {}) if include_story_point_rules else {}
 
@@ -201,28 +224,53 @@ class RecommendationEngine:
         if snapshot.open_blockers > OPEN_BLOCKERS_RED_THRESHOLD:
             candidates.append(RecommendationEngine.SPRINT_RULES["open_blockers"])
         if include_story_point_rules and (
-            snapshot.completed_scope_pct < 100.0
+            (
+                snapshot.completed_scope_pct is not None
+                and snapshot.completed_scope_pct < 100.0
+            )
             or float(inputs.get("remaining_effective_points") or 0.0) > 0.0
             or float(components.get("progress_alignment", 100.0)) < 100.0
         ):
             candidates.append(RecommendationEngine.SPRINT_RULES["progress_alignment"])
         if snapshot.open_high_severity_bugs > HIGH_SEVERITY_BUGS_YELLOW_THRESHOLD:
             candidates.append(RecommendationEngine.SPRINT_RULES["open_high_severity_bugs"])
-        if RecommendationEngine._has_workload_concentration_risk(sprint_issues or []):
+        workload_status = getattr(snapshot, "workload_distribution_status", None)
+        workload_pct = getattr(snapshot, "workload_concentration_pct", None)
+        if (
+            workload_status in {"COMPUTED", "PARTIAL"}
+            and workload_pct is not None
+            and float(workload_pct) >= WORKLOAD_CONCENTRATION_WATCH_MIN_PCT
+        ):
             candidates.append(RecommendationEngine.SPRINT_RULES["workload_concentration"])
+            evidence_by_key["workload_concentration"] = (
+                cast(RecommendationDataStatus, workload_status),
+                list(getattr(snapshot, "workload_distribution_explanations", None) or []),
+            )
         if (
             snapshot.median_cycle_time_days is not None
             and snapshot.median_cycle_time_days > CYCLE_TIME_YELLOW_THRESHOLD_DAYS
         ):
             candidates.append(RecommendationEngine.SPRINT_RULES["median_cycle_time_days"])
-        if snapshot.reopen_rate_pct > REOPEN_RATE_YELLOW_THRESHOLD * 100:
+        if (
+            snapshot.reopen_rate_pct is not None
+            and snapshot.reopen_rate_pct > REOPEN_RATE_YELLOW_THRESHOLD * 100
+        ):
             candidates.append(RecommendationEngine.SPRINT_RULES["reopen_rate_pct"])
-        return RecommendationEngine._prioritize(candidates, RecommendationEngine.SPRINT_ORDER)
+        return RecommendationEngine._prioritize(
+            candidates,
+            RecommendationEngine.SPRINT_ORDER,
+            evidence_by_key=evidence_by_key,
+        )
 
     @staticmethod
     def _prioritize(
         candidates: list[_RecommendationRule],
         rule_order: list[str],
+        evidence_by_key: dict[
+            str,
+            tuple[RecommendationDataStatus, list[str]],
+        ]
+        | None = None,
     ) -> list[RecommendationAction]:
         ordered = sorted(
             candidates,
@@ -239,36 +287,10 @@ class RecommendationEngine:
                 confidenceImpact=item.confidence_impact,
                 effort=item.effort,
                 category=item.category,
+                dataStatus=(evidence_by_key or {}).get(item.key, ("COMPUTED", []))[0],
+                explanations=(evidence_by_key or {}).get(item.key, ("COMPUTED", []))[1],
             )
             for index, item in enumerate(ordered)
         ]
 
-    @staticmethod
-    def _has_workload_concentration_risk(sprint_issues: list[Any]) -> bool:
-        active_points_by_assignee: dict[str, float] = {}
-        total_active_points = 0.0
-        for issue in sprint_issues:
-            if RecommendationEngine._is_done_status(str(getattr(issue, "status", ""))):
-                continue
-            points = RecommendationEngine._effective_points(getattr(issue, "story_points", None))
-            if points is None:
-                continue
-            assignee = str(getattr(issue, "assignee", None) or "Unassigned")
-            active_points_by_assignee[assignee] = active_points_by_assignee.get(assignee, 0.0) + points
-            total_active_points += points
 
-        if total_active_points <= 0.0:
-            return False
-        top_assignee_pct = max(active_points_by_assignee.values()) / total_active_points * 100.0
-        return top_assignee_pct >= RecommendationEngine.WORKLOAD_CONCENTRATION_YELLOW_PCT
-
-    @staticmethod
-    def _effective_points(value: float | int | None) -> float | None:
-        if value is None:
-            return None
-        points = float(value)
-        return points if points >= 0 else None
-
-    @staticmethod
-    def _is_done_status(status: str) -> bool:
-        return status.strip().casefold() in {"done", "closed", "resolved"}

@@ -1,0 +1,58 @@
+# Keep repository text canonical and deterministic.
+* text=auto eol=lf
+
+# Windows command and PowerShell scripts use CRLF in the worktree.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.psd1 text eol=crlf
+*.psm1 text eol=crlf
+
+# Images, icons, and fonts.
+*.bmp binary !eol
+*.gif binary !eol
+*.icns binary !eol
+*.ico binary !eol
+*.jpeg binary !eol
+*.jpg binary !eol
+*.png binary !eol
+*.webp binary !eol
+*.eot binary !eol
+*.otf binary !eol
+*.ttf binary !eol
+*.woff binary !eol
+*.woff2 binary !eol
+
+# Documents and archives.
+*.7z binary !eol
+*.bz2 binary !eol
+*.doc binary !eol
+*.docx binary !eol
+*.gz binary !eol
+*.pdf binary !eol
+*.ppt binary !eol
+*.pptx binary !eol
+*.rar binary !eol
+*.tar binary !eol
+*.tgz binary !eol
+*.xz binary !eol
+*.xls binary !eol
+*.xlsx binary !eol
+*.zip binary !eol
+
+# Executables, native libraries, and packaged application payloads.
+*.asar binary !eol
+*.dll binary !eol
+*.dylib binary !eol
+*.exe binary !eol
+*.msi binary !eol
+*.node binary !eol
+*.pyd binary !eol
+*.so binary !eol
+
+# Databases.
+*.db binary !eol
+*.db-shm binary !eol
+*.db-wal binary !eol
+*.sqlite binary !eol
+*.sqlite3 binary !eol

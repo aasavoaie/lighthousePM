@@ -1,6 +1,60 @@
 """Unit tests for SignalService confidence score band logic."""
 
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
+import pytest
+
 from app.services.signal_service import SignalService
+
+
+@pytest.mark.parametrize(
+    ("signal", "expected_label"),
+    [("GREEN", "ON TRACK"), ("YELLOW", "NEEDS ATTENTION"), ("RED", "AT RISK"), (None, "NOT COMPUTED")],
+)
+def test_release_outlook_label_maps_directly_from_final_signal(
+    signal: str | None,
+    expected_label: str,
+) -> None:
+    outlook = SignalService._build_release_outlook(
+        release_date=None,
+        latest_snapshot=None,
+        final_signal=signal,
+        confidence_score=None,
+        release_gates=[],
+        critical_risks=[],
+        warnings=[],
+        last_24_hours={"baseline_at": None, "items": []},
+    )
+
+    assert outlook["label"] == expected_label
+
+
+@pytest.mark.parametrize(
+    ("release_date", "expected_days"),
+    [
+        (datetime(2026, 1, 21, 0, 0, tzinfo=UTC), 1),
+        (datetime(2026, 1, 20, 0, 0, tzinfo=UTC), 0),
+        (datetime(2026, 1, 18, 23, 59, tzinfo=UTC), -2),
+        (None, None),
+    ],
+)
+def test_release_outlook_uses_signed_utc_calendar_days(
+    release_date: datetime | None,
+    expected_days: int | None,
+) -> None:
+    outlook = SignalService._build_release_outlook(
+        release_date=release_date,
+        latest_snapshot=SimpleNamespace(snapshot_at=datetime(2026, 1, 20, 23, 30, tzinfo=UTC)),
+        final_signal="GREEN",
+        confidence_score=100.0,
+        release_gates=[],
+        critical_risks=[],
+        warnings=[],
+        last_24_hours={"baseline_at": None, "items": []},
+    )
+
+    assert outlook["days_remaining"] == expected_days
 
 
 class TestEvaluateSignalScoreBands:
@@ -30,7 +84,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "YELLOW"
+        assert signal == "RED"
         assert any("blocker" in r.lower() for r in reasons)
 
     def test_red_open_blockers_multiple(self) -> None:
@@ -41,7 +95,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "YELLOW"
+        assert signal == "RED"
         assert any("3" in r and "blocker" in r.lower() for r in reasons)
 
     def test_red_high_severity_bugs_exceed_threshold(self) -> None:
@@ -52,7 +106,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "YELLOW"
+        assert signal == "RED"
         assert any("high-severity" in r.lower() for r in reasons)
 
     def test_red_high_severity_bugs_at_threshold(self) -> None:
@@ -64,7 +118,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
 
     def test_red_scope_churn_exceeds_threshold(self) -> None:
         signal, reasons = SignalService._evaluate_signal(
@@ -74,7 +128,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "RED"
         assert any("churn" in r.lower() for r in reasons)
 
     def test_red_scope_churn_at_boundary(self) -> None:
@@ -86,7 +140,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
 
     def test_red_reopen_rate_exceeds_threshold(self) -> None:
         signal, reasons = SignalService._evaluate_signal(
@@ -96,7 +150,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=16.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "RED"
         assert any("reopen" in r.lower() for r in reasons)
 
     def test_red_reopen_rate_at_boundary(self) -> None:
@@ -108,7 +162,7 @@ class TestEvaluateSignalRedConditions:
             reopen_rate_pct=15.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
 
     def test_red_multiple_triggers(self) -> None:
         """Multiple RED conditions should list all reasons."""
@@ -139,7 +193,7 @@ class TestEvaluateSignalYellowConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
         assert any("high-severity" in r.lower() for r in reasons)
 
     def test_yellow_scope_churn_between_thresholds(self) -> None:
@@ -151,7 +205,7 @@ class TestEvaluateSignalYellowConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
         assert any("churn" in r.lower() for r in reasons)
 
     def test_yellow_scope_churn_at_yellow_boundary(self) -> None:
@@ -175,7 +229,7 @@ class TestEvaluateSignalYellowConditions:
             reopen_rate_pct=12.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
         assert any("reopen" in r.lower() for r in reasons)
 
     def test_yellow_reopen_rate_at_boundary(self) -> None:
@@ -198,7 +252,7 @@ class TestEvaluateSignalYellowConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=8.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
         assert any("cycle" in r.lower() for r in reasons)
 
     def test_yellow_high_cycle_time_at_boundary(self) -> None:
@@ -213,7 +267,7 @@ class TestEvaluateSignalYellowConditions:
         assert signal == "GREEN"
 
     def test_yellow_high_cycle_time_with_null(self) -> None:
-        """YELLOW if cycle time is null but other YELLOW triggers present."""
+        """An unavailable cycle-time input prevents a conclusive YELLOW signal."""
         signal, reasons = SignalService._evaluate_signal(
             open_blockers=0,
             open_high_severity_bugs=1,
@@ -221,7 +275,7 @@ class TestEvaluateSignalYellowConditions:
             reopen_rate_pct=0.0,
             median_cycle_time_days=None,
         )
-        assert signal == "GREEN"
+        assert signal == "INCONCLUSIVE"
         assert any("high-severity" in r.lower() for r in reasons)
 
     def test_yellow_multiple_triggers(self) -> None:
@@ -267,7 +321,7 @@ class TestEvaluateSignalGreenConditions:
         assert signal == "GREEN"
 
     def test_green_cycle_time_null(self) -> None:
-        """GREEN when cycle time is null and other metrics healthy."""
+        """An unavailable cycle-time input is not treated as a healthy zero."""
         signal, reasons = SignalService._evaluate_signal(
             open_blockers=0,
             open_high_severity_bugs=0,
@@ -275,7 +329,7 @@ class TestEvaluateSignalGreenConditions:
             reopen_rate_pct=1.0,
             median_cycle_time_days=None,
         )
-        assert signal == "GREEN"
+        assert signal == "INCONCLUSIVE"
         assert reasons == ["No major risk indicators"]
 
 
@@ -291,7 +345,7 @@ class TestEvaluateSignalEdgeCases:
             reopen_rate_pct=50.0,
             median_cycle_time_days=30.0,
         )
-        assert signal == "YELLOW"
+        assert signal == "RED"
         # Should include threshold reasons even though final status is score-based.
         assert any("high-severity" in r.lower() for r in reasons)
 
@@ -350,7 +404,7 @@ class TestEvaluateSignalEdgeCases:
             reopen_rate_pct=0.0,
             median_cycle_time_days=2.0,
         )
-        assert signal == "GREEN"
+        assert signal == "RED"
         assert any("churn" in r.lower() for r in reasons)
 
     def test_cycle_time_high_value(self) -> None:
@@ -362,5 +416,5 @@ class TestEvaluateSignalEdgeCases:
             reopen_rate_pct=0.0,
             median_cycle_time_days=14.0,
         )
-        assert signal == "GREEN"
+        assert signal == "YELLOW"
         assert any("14" in r and "cycle" in r.lower() for r in reasons)

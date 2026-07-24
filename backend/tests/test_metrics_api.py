@@ -13,6 +13,7 @@ from app.db.session import get_db_session
 from app.main import app
 from app.models import Issue, IssueHistory, MetricSnapshot, Release
 from app.services.analytics_service import AnalyticsService
+from app.services.signal_service import SignalService
 
 
 RELEASE_CHART_METRIC_NAMES = [
@@ -83,12 +84,14 @@ def _seed_release(session: Session, release_id: str = "REL-1", name: str = "Rele
 def _seed_issue(
     session: Session,
     issue_key: str,
-    release_id: str,
-    status: str,
+    release_id: str | None,
+    status: str | None,
     is_blocker: bool = False,
-    issue_type: str = "Bug",
+    issue_type: str | None = "Bug",
     priority: str | None = "High",
     story_points: float | None = None,
+    jira_blocker_flag: bool | None = None,
+    jira_changelog_complete: bool = True,
 ) -> None:
     now = datetime.now(UTC)
     session.add(
@@ -101,7 +104,13 @@ def _seed_issue(
             assignee="alice",
             release_id=release_id,
             is_blocker=is_blocker,
+            jira_blocker_flag=(
+                jira_blocker_flag
+                if jira_blocker_flag is not None
+                else True if is_blocker else None
+            ),
             story_points=story_points,
+            jira_changelog_complete=jira_changelog_complete,
             created_at=now,
             updated_at=now,
         )
@@ -133,11 +142,59 @@ def _seed_snapshot(
     snapshot_at: datetime,
     open_blockers: int,
     completed_tickets: int | None = None,
+    ruleset_version: int = 1,
+    classification: dict[str, object] | None = None,
 ) -> None:
+    confidence_score = SignalService._compute_release_confidence_score(
+        open_blockers=open_blockers,
+        open_high_severity_bugs=open_blockers,
+        scope_churn_7d_pct=float(open_blockers),
+        reopen_rate_pct=float(open_blockers),
+        median_cycle_time_days=float(open_blockers),
+    )
+    readiness = SignalService._build_release_readiness_details(
+        signal=None,
+        open_blockers=open_blockers,
+        open_high_severity_bugs=open_blockers,
+        scope_churn_7d_pct=float(open_blockers),
+        reopen_rate_pct=float(open_blockers),
+        median_cycle_time_days=float(open_blockers),
+    )
+    gates = readiness["release_gates"]
+    calculation_provenance: dict[str, object] = {
+        "thresholds": {
+            "open_blockers_red": 0,
+            "open_high_severity_bugs_red": 1,
+            "open_high_severity_bugs_yellow": 0,
+            "scope_churn_7d_pct_red": 20.0,
+            "scope_churn_7d_pct_yellow": 10.0,
+            "reopen_rate_pct_red": 15.0,
+            "reopen_rate_pct_yellow": 10.0,
+            "median_cycle_time_days_yellow": 7.0,
+        },
+        "component_outputs": {
+            "risk_points": SignalService._compute_release_risk_points(
+                open_blockers=open_blockers,
+                open_high_severity_bugs=open_blockers,
+                scope_churn_7d_pct=float(open_blockers),
+                reopen_rate_pct=float(open_blockers),
+                median_cycle_time_days=float(open_blockers),
+            ),
+            "release_gates": gates,
+            "readiness_pct": round(100 * sum(1 for gate in gates if gate["passed"]) / len(gates), 2),
+        },
+    }
+    if classification is not None:
+        calculation_provenance["classification"] = classification
+
     session.add(
         MetricSnapshot(
             release_id=release_id,
             snapshot_at=snapshot_at,
+            ruleset_version=ruleset_version,
+            confidence_score=confidence_score if ruleset_version > 0 else None,
+            confidence_status="COMPUTED" if ruleset_version > 0 else None,
+            calculation_provenance=calculation_provenance,
             open_blockers=open_blockers,
             open_high_severity_bugs=open_blockers,
             scope_completed_pct=float(open_blockers),
@@ -195,18 +252,17 @@ def test_get_release_metrics_returns_empty_state_when_snapshot_missing(client: T
         "has_changelog": False,
     }
     assert payload["metric_availability"]["metrics"]["scope_completed_pct"] == {
+        "status": "NOT_COMPUTED",
         "available": False,
         "reason": "No tickets are available for this scope.",
-        "depends_on": ["ticket_count", "release_assignment"],
-    }
-    assert payload["metric_availability"]["metrics"]["confidence_score"] == {
-        "available": False,
-        "reason": "No tickets are available for this scope.",
+        "explanations": ["No tickets are available for this scope."],
+        "missing_issue_keys": [],
         "depends_on": ["ticket_count", "release_assignment"],
     }
     assert payload["metric_issue_keys"] == {
         "open_blockers": [],
         "open_high_severity_bugs": [],
+        "completed_tickets": [],
     }
     assert payload["metrics"] == {
         "open_blockers": None,
@@ -246,8 +302,11 @@ def test_get_release_metrics_suppresses_confidence_for_zero_ticket_snapshot(clie
     assert payload["recommendations"] == []
     assert payload["metric_availability"]["context"]["has_tickets"] is False
     assert payload["metric_availability"]["metrics"]["confidence_score"] == {
+        "status": "NOT_COMPUTED",
         "available": False,
         "reason": "No tickets are available for this scope.",
+        "explanations": ["No tickets are available for this scope."],
+        "missing_issue_keys": [],
         "depends_on": ["ticket_count", "release_assignment"],
     }
 
@@ -296,7 +355,7 @@ def test_recompute_empty_release_suppresses_confidence_outputs(client: TestClien
     assert metrics["computation_status"] == "NOT_COMPUTED"
     assert metrics["unavailable_reason"] == "No tickets are available for this scope."
     assert metrics["confidence_score"] is None
-    assert metrics["metrics"]["scope_completed_pct"] == 0.0
+    assert metrics["metrics"]["scope_completed_pct"] is None
     assert metrics["metric_availability"]["context"]["has_tickets"] is False
     assert metrics["confidence_breakdown"] is None
     assert metrics["biggest_driver"] is None
@@ -376,14 +435,20 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
         "has_changelog": True,
     }
     assert metrics["metric_availability"]["metrics"]["median_cycle_time_days"] == {
+        "status": "COMPUTED",
         "available": True,
         "reason": None,
+        "explanations": [],
+        "missing_issue_keys": [],
         "depends_on": ["ticket_count", "completed_tickets", "history_changelog", "release_assignment"],
     }
     assert metrics["metric_availability"]["metrics"]["scope_churn_7d_pct"] == {
+        "status": "COMPUTED",
         "available": True,
         "reason": None,
-        "depends_on": ["ticket_count", "history_changelog", "release_assignment"],
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": ["project_changelog_completeness", "observed_release_scope"],
     }
     assert metrics["confidence_breakdown"] == {
         "totalScore": 55.0,
@@ -438,6 +503,8 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
             "confidenceImpact": 10,
             "effort": "high",
             "category": "Risk",
+            "dataStatus": "COMPUTED",
+            "explanations": [],
         },
         {
             "title": "Resolve critical defects",
@@ -446,6 +513,8 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
             "confidenceImpact": 8,
             "effort": "medium",
             "category": "Quality",
+            "dataStatus": "COMPUTED",
+            "explanations": [],
         },
         {
             "title": "Stabilize release scope",
@@ -454,6 +523,8 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
             "confidenceImpact": 7,
             "effort": "medium",
             "category": "Delivery",
+            "dataStatus": "COMPUTED",
+            "explanations": [],
         },
     ]
     assert metrics["metrics"]["open_blockers"] == 1
@@ -467,6 +538,7 @@ def test_recompute_release_metrics_creates_snapshot(client: TestClient) -> None:
     assert metrics["metric_issue_keys"] == {
         "open_blockers": ["LHPM-1"],
         "open_high_severity_bugs": ["LHPM-1"],
+        "completed_tickets": ["LHPM-2"],
     }
 
     charts = client.get("/releases/REL-1/charts")
@@ -522,12 +594,77 @@ def test_release_metrics_returns_metric_issue_keys(client: TestClient) -> None:
     assert recompute.status_code == 200
     assert response.status_code == 200
     payload = response.json()
-    assert payload["metrics"]["open_blockers"] == 1
+    assert payload["metrics"]["open_blockers"] == 2
     assert payload["metrics"]["open_high_severity_bugs"] == 1
     assert payload["metric_issue_keys"] == {
-        "open_blockers": ["LHPM-1"],
-        "open_high_severity_bugs": ["LHPM-2"],
-    }
+            "open_blockers": ["LHPM-1", "LHPM-2"],
+            "open_high_severity_bugs": ["LHPM-2"],
+            "completed_tickets": ["LHPM-3"],
+        }
+
+
+def test_release_metrics_api_exposes_reopen_event_evidence_and_explanation(
+    client: TestClient,
+) -> None:
+    base = datetime(2026, 7, 1, tzinfo=UTC)
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(
+            session,
+            "LHPM-1",
+            "REL-1",
+            "In Progress",
+            issue_type="Story",
+            priority="Medium",
+        )
+        _seed_history(session, "LHPM-1", "status", "To Do", "Done", base)
+        _seed_history(
+            session,
+            "LHPM-1",
+            "status",
+            "Done",
+            "In Progress",
+            base + timedelta(hours=1),
+        )
+        _seed_history(
+            session,
+            "LHPM-1",
+            "status",
+            "In Progress",
+            "Done",
+            base + timedelta(hours=2),
+        )
+        _seed_history(
+            session,
+            "LHPM-1",
+            "status",
+            "Done",
+            "In Progress",
+            base + timedelta(hours=3),
+        )
+        session.commit()
+
+    recompute = client.post("/releases/REL-1/recompute")
+    response = client.get("/releases/REL-1/metrics")
+    charts = client.get("/releases/REL-1/charts")
+
+    assert recompute.status_code == 200
+    assert response.status_code == 200
+    assert charts.status_code == 200
+    payload = response.json()
+    assert payload["metrics"]["reopen_rate_pct"] == 200.0
+    availability = payload["metric_availability"]["metrics"]["reopen_rate_pct"]
+    assert availability["status"] == "COMPUTED"
+    assert availability["available"] is True
+    assert availability["reason"] is None
+    assert availability["explanations"] == [
+        "Ticket LHPM-1 was counted 2 times because it was reopened 2 times."
+    ]
+    evidence = payload["calculation_provenance"]["metric_evidence"]["reopen_rate_pct"]
+    assert evidence["eligible_ticket_count"] == 1
+    assert evidence["reopen_event_count"] == 2
+    assert evidence["multiple_reopen_issue_keys"] == ["LHPM-1"]
+    assert charts.json()["series"]["reopen_rate_pct"][-1]["value"] == 200.0
 
 
 def test_release_metric_availability_flags_missing_story_points(client: TestClient) -> None:
@@ -544,15 +681,106 @@ def test_release_metric_availability_flags_missing_story_points(client: TestClie
     availability = response.json()["metric_availability"]
     payload = response.json()
     assert payload["computation_status"] == "PARTIAL"
-    assert payload["unavailable_reason"] == "No Jira changelog history is available for this scope."
-    assert payload["confidence_score"] == 100.0
+    assert payload["unavailable_reason"] == (
+        "Median cycle time is not computed because complete evidence contains no valid "
+        "in-progress-to-done transition pair."
+    )
+    assert payload["confidence_score"] is None
     assert availability["context"]["has_tickets"] is True
     assert availability["context"]["has_story_points"] is False
     assert availability["context"]["has_completed_tickets"] is False
     assert availability["context"]["has_release_scope"] is True
     assert availability["metrics"]["median_cycle_time_days"]["available"] is False
-    assert availability["metrics"]["median_cycle_time_days"]["reason"] == "No completed tickets are available for this scope."
-    assert availability["metrics"]["confidence_score"]["available"] is True
+    assert availability["metrics"]["median_cycle_time_days"]["reason"] == (
+        "Median cycle time is not computed because complete evidence contains no valid "
+        "in-progress-to-done transition pair."
+    )
+    assert availability["metrics"]["confidence_score"] == {
+        "status": "NOT_COMPUTED",
+        "available": False,
+        "reason": (
+            "Release confidence is unavailable because required metric inputs are unavailable "
+            "for: median_cycle_time_days, reopen_rate_pct."
+        ),
+        "explanations": [
+            "Release confidence is unavailable because required metric inputs are unavailable "
+            "for: median_cycle_time_days, reopen_rate_pct."
+        ],
+        "missing_issue_keys": [],
+        "depends_on": ["ticket_count", "release_assignment"],
+    }
+
+
+def test_release_scope_churn_partial_keeps_confirmed_counts_and_withholds_risk_outputs(
+    client: TestClient,
+) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1", name="Release 1")
+        _seed_issue(
+            session,
+            "LHPM-1",
+            "REL-1",
+            "To Do",
+            issue_type="Story",
+            priority="Medium",
+            jira_blocker_flag=False,
+        )
+        _seed_issue(
+            session,
+            "LHPM-2",
+            None,
+            "To Do",
+            issue_type="Story",
+            priority="Medium",
+            jira_blocker_flag=False,
+            jira_changelog_complete=False,
+        )
+        _seed_history(
+            session,
+            "LHPM-2",
+            "fix version",
+            "Release 0",
+            "Release 1",
+            datetime.now(UTC) - timedelta(days=1),
+        )
+        session.commit()
+
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    metrics = client.get("/releases/REL-1/metrics").json()
+    charts = client.get("/releases/REL-1/charts").json()
+    signal = client.get("/releases/REL-1/signal").json()
+
+    assert metrics["computation_status"] == "PARTIAL"
+    assert metrics["metrics"]["scope_churn_7d_pct"] is None
+    assert metrics["metrics"]["scope_added_7d_count"] == 1
+    assert metrics["metrics"]["scope_removed_7d_count"] == 0
+    assert metrics["confidence_score"] is None
+    churn_availability = metrics["metric_availability"]["metrics"]["scope_churn_7d_pct"]
+    assert churn_availability["status"] == "PARTIAL"
+    assert churn_availability["available"] is False
+    assert churn_availability["missing_issue_keys"] == ["LHPM-2"]
+    assert churn_availability["depends_on"] == [
+        "project_changelog_completeness",
+        "observed_release_scope",
+    ]
+    assert metrics["metric_availability"]["metrics"]["scope_added_7d_count"][
+        "available"
+    ] is True
+    evidence = metrics["calculation_provenance"]["scope_churn_7d"]
+    assert evidence["synchronized_project_issue_keys"] == ["LHPM-1", "LHPM-2"]
+    assert evidence["current_scope_issue_keys"] == ["LHPM-1"]
+    assert evidence["observed_scope_issue_keys"] == ["LHPM-1", "LHPM-2"]
+    assert evidence["observed_scope_denominator"] == 2
+    assert evidence["added_issue_keys"] == ["LHPM-2"]
+    assert evidence["incomplete_project_changelog_issue_keys"] == ["LHPM-2"]
+    assert charts["series"]["scope_churn_7d_pct"][-1]["value"] is None
+    assert charts["series"]["scope_added_7d_count"][-1]["value"] == 1
+    assert signal["signal"] == "INCONCLUSIVE"
+    assert signal["confidence_score"] is None
+    assert all(
+        gate["metric_name"] != "scope_churn_7d_pct" for gate in signal["release_gates"]
+    )
+    assert any("LHPM-2" in reason for reason in signal["reasons"])
 
 
 def test_release_recommendations_skip_unavailable_history_metrics(client: TestClient) -> None:
@@ -632,6 +860,159 @@ def test_get_release_snapshot_comparison_uses_previous_snapshot(client: TestClie
     }
 
 
+def test_release_classification_partial_metrics_store_complete_evidence_and_keep_confirmed_red(
+    client: TestClient,
+) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(
+            session,
+            "LHPM-1",
+            "REL-1",
+            "To Do",
+            issue_type=None,
+            priority="Medium",
+            jira_blocker_flag=False,
+        )
+        _seed_issue(
+            session,
+            "LHPM-2",
+            "REL-1",
+            "To Do",
+            issue_type="Bug",
+            priority=None,
+            jira_blocker_flag=False,
+        )
+        _seed_issue(
+            session,
+            "LHPM-3",
+            "REL-1",
+            None,
+            issue_type="Bug",
+            priority="Critical",
+            jira_blocker_flag=False,
+        )
+        _seed_issue(
+            session,
+            "LHPM-4",
+            "REL-1",
+            "To Do",
+            issue_type="Story",
+            priority=None,
+        )
+        _seed_issue(
+            session,
+            "LHPM-5",
+            "REL-1",
+            "In Progress",
+            is_blocker=True,
+            issue_type="Story",
+            priority="Medium",
+        )
+        session.commit()
+
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    metrics = client.get("/releases/REL-1/metrics").json()
+    signal = client.get("/releases/REL-1/signal").json()
+    charts = client.get("/releases/REL-1/charts").json()
+
+    assert metrics["computation_status"] == "PARTIAL"
+    assert metrics["confidence_score"] is None
+    assert metrics["metrics"]["open_blockers"] == 1
+    assert metrics["metrics"]["open_high_severity_bugs"] == 0
+    assert metrics["metrics"]["scope_completed_pct"] is None
+    assert metrics["metrics"]["completed_tickets"] == 0
+    assert metrics["metric_issue_keys"]["completed_tickets"] == []
+    assert metrics["metric_availability"]["metrics"]["open_blockers"] == {
+        "status": "PARTIAL",
+        "available": True,
+        "reason": (
+            "Open blockers are a confirmed minimum because blocker classification is incomplete "
+            "for 2 ticket(s). Additional blockers may exist."
+        ),
+        "explanations": [
+            "Open blockers are a confirmed minimum because blocker classification is incomplete "
+            "for 2 ticket(s). Additional blockers may exist."
+        ],
+        "missing_issue_keys": ["LHPM-3", "LHPM-4"],
+        "depends_on": ["ticket_count", "release_assignment"],
+    }
+    assert metrics["metric_availability"]["metrics"]["open_high_severity_bugs"][
+        "missing_issue_keys"
+    ] == ["LHPM-1", "LHPM-2", "LHPM-3"]
+    assert metrics["metric_availability"]["metrics"]["scope_completed_pct"]["available"] is False
+    assert metrics["metric_availability"]["metrics"]["completed_tickets"]["available"] is True
+    assert metrics["metric_availability"]["metrics"]["confidence_score"] == {
+        "status": "PARTIAL",
+        "available": False,
+        "reason": (
+            "Release confidence is unavailable because required metric inputs are unavailable "
+            "for: median_cycle_time_days, open_blockers, open_high_severity_bugs, reopen_rate_pct."
+        ),
+        "explanations": [
+            "Release confidence is unavailable because required metric inputs are unavailable "
+            "for: median_cycle_time_days, open_blockers, open_high_severity_bugs, reopen_rate_pct."
+        ],
+        "missing_issue_keys": ["LHPM-1", "LHPM-2", "LHPM-3", "LHPM-4"],
+        "depends_on": ["ticket_count", "release_assignment"],
+    }
+    assert metrics["calculation_provenance"]["metric_evidence"]["open_blockers"] == {
+        "evaluated_issue_keys": ["LHPM-1", "LHPM-2", "LHPM-5"],
+        "matching_issue_keys": ["LHPM-5"],
+        "missing_status_issue_keys": ["LHPM-3"],
+        "missing_issue_type_issue_keys": [],
+        "missing_severity_issue_keys": ["LHPM-4"],
+        "indeterminate_blocker_issue_keys": ["LHPM-3", "LHPM-4"],
+    }
+    assert charts["series"]["open_blockers"][-1]["value"] == 1
+    assert charts["series"]["scope_completed_pct"][-1]["value"] is None
+    assert charts["series"]["completed_tickets"][-1]["value"] == 0
+    assert signal["signal"] == "RED"
+    assert signal["confidence_score"] is None
+    assert signal["release_outlook"]["label"] == "AT RISK"
+    assert any("LHPM-3, LHPM-4" in reason for reason in signal["reasons"])
+
+
+def test_release_signal_is_inconclusive_without_confirmed_hard_red(
+    client: TestClient,
+) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        _seed_issue(
+            session,
+            "LHPM-1",
+            "REL-1",
+            "To Do",
+            issue_type="Story",
+            priority=None,
+        )
+        session.commit()
+
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    assert client.post("/releases/REL-1/recompute").status_code == 200
+    metrics = client.get("/releases/REL-1/metrics").json()
+    signal = client.get("/releases/REL-1/signal").json()
+    comparison = client.get("/releases/REL-1/snapshot-comparison?baseline=previous").json()
+    history = client.get("/releases/REL-1/snapshot-change-history").json()
+
+    assert metrics["computation_status"] == "PARTIAL"
+    assert metrics["metrics"]["open_blockers"] == 0
+    assert metrics["confidence_score"] is None
+    assert signal["signal"] == "INCONCLUSIVE"
+    assert signal["status_label"] == "INCONCLUSIVE"
+    assert signal["confidence_score"] is None
+    assert all(gate["metric_name"] != "open_blockers" for gate in signal["release_gates"])
+    assert signal["release_outlook"]["label"] == "INCONCLUSIVE"
+    assert signal["release_outlook"]["signal"] == "INCONCLUSIVE"
+    assert any("LHPM-1" in reason for reason in signal["reasons"])
+    expected_comparison_reason = (
+        "Snapshot comparison unavailable because release confidence is inconclusive for one or both snapshots."
+    )
+    assert comparison["comparison"]["confidenceDelta"] is None
+    assert comparison["unavailable_reason"] == expected_comparison_reason
+    assert history["items"][1]["comparison_unavailable_reason"] == expected_comparison_reason
+
+
 def test_get_release_snapshot_comparison_supports_24h_baseline(client: TestClient) -> None:
     with app.state.testing_session_local() as session:
         _seed_release(session, release_id="REL-1")
@@ -667,6 +1048,60 @@ def test_get_release_snapshot_change_history_returns_primary_driver(client: Test
     assert payload["items"][0]["primary_driver"] == "Baseline snapshot"
     assert payload["items"][1]["delta"] == 37.0
     assert payload["items"][1]["primary_driver"] == "open_blockers"
+
+
+def test_release_history_marks_ruleset_boundaries_and_blocks_cross_version_delta(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_snapshot(session, "REL-1", base, open_blockers=1, ruleset_version=0)
+        _seed_snapshot(session, "REL-1", base + timedelta(hours=1), open_blockers=0, ruleset_version=1)
+        session.commit()
+
+    comparison = client.get("/releases/REL-1/snapshot-comparison?baseline=previous").json()
+    history = client.get("/releases/REL-1/snapshot-change-history").json()
+    charts = client.get("/releases/REL-1/charts").json()
+
+    assert comparison["comparison"]["confidenceDelta"] is None
+    assert comparison["current_ruleset_version"] == 1
+    assert comparison["baseline_ruleset_version"] == 0
+    assert comparison["unavailable_reason"] == "Snapshot comparison unavailable because ruleset versions differ."
+    assert history["items"][1]["version_boundary"] is True
+    assert history["items"][1]["comparison_unavailable_reason"] == comparison["unavailable_reason"]
+    assert charts["series"]["confidence_score"][0]["ruleset_version"] == 0
+    assert charts["series"]["confidence_score"][0]["value"] is None
+    assert charts["series"]["confidence_score"][1]["ruleset_version"] == 1
+    assert charts["series"]["confidence_score"][1]["version_boundary"] is True
+
+
+def test_release_comparison_is_unavailable_when_classifications_differ(client: TestClient) -> None:
+    with app.state.testing_session_local() as session:
+        _seed_release(session, release_id="REL-1")
+        base = datetime(2026, 4, 1, tzinfo=UTC)
+        _seed_snapshot(
+            session,
+            "REL-1",
+            base,
+            open_blockers=1,
+            classification={"done_statuses": ["done"]},
+        )
+        _seed_snapshot(
+            session,
+            "REL-1",
+            base + timedelta(hours=1),
+            open_blockers=0,
+            classification={"done_statuses": ["released"]},
+        )
+        session.commit()
+
+    comparison = client.get("/releases/REL-1/snapshot-comparison?baseline=previous").json()
+    history = client.get("/releases/REL-1/snapshot-change-history").json()
+
+    expected_reason = "Snapshot comparison unavailable because Jira classification mappings differ."
+    assert comparison["comparison"]["confidenceDelta"] is None
+    assert comparison["unavailable_reason"] == expected_reason
+    assert history["items"][1]["primary_driver"] == "Classification boundary"
+    assert history["items"][1]["comparison_unavailable_reason"] == expected_reason
 
 
 def test_get_release_charts_from_to_params(client: TestClient) -> None:

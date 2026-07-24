@@ -22,6 +22,8 @@ import type {
   SprintMetricsResponse,
 } from "../api/types";
 import { apiClient } from "../api/client";
+import { useMetricCatalog } from "../MetricCatalogContext";
+import { metricDefinition } from "../metricCatalog";
 import { RecommendationsPanel } from "./RecommendationsPanel";
 import { getReleaseScoreDisplay } from "./releaseAvailability";
 
@@ -48,7 +50,7 @@ const riskLabels: Record<string, string> = {
   open_blockers: "Open Blockers",
   open_high_severity_bugs: "High Severity Bugs",
   scope_churn_7d_pct: "Scope Churn",
-  reopen_rate_pct: "Reopen Rate",
+  reopen_rate_pct: "Reopen Events / 100 Eligible Tickets",
   median_cycle_time_days: "Cycle Time",
 };
 
@@ -76,7 +78,7 @@ function buildConfidenceTrendRows(charts: ReleaseChartsResponse | null) {
   return (charts?.series.confidence_score ?? [])
     .filter((point) => point.value !== null)
     .map((point) => ({
-      label: formatDateLabel(point.snapshot_at),
+      label: `${formatDateLabel(point.snapshot_at)}${point.version_boundary ? ` · v${point.ruleset_version}` : ""}`,
       timestamp: point.snapshot_at,
       value: point.value as number,
     }));
@@ -147,50 +149,24 @@ function getSignalTone(signal: ReleaseSignalResponse | null) {
   return "neutral";
 }
 
-function getPredictedConfidence(charts: ReleaseChartsResponse | null, release: Release | null) {
-  const rows = buildConfidenceTrendRows(charts);
-  if (rows.length === 0) {
-    return null;
+function formatOutlookDays(daysRemaining: number | null) {
+  if (daysRemaining === null) {
+    return "Release date timing unavailable";
   }
-  const latest = rows[rows.length - 1];
-  if (rows.length < 2 || !release?.release_date) {
-    return latest.value;
+  if (daysRemaining === 0) {
+    return "Jira release date is today";
   }
-
-  const first = rows[0];
-  const firstTime = Date.parse(first.timestamp);
-  const latestTime = Date.parse(latest.timestamp);
-  const releaseTime = Date.parse(release.release_date);
-  if (!Number.isFinite(firstTime) || !Number.isFinite(latestTime) || !Number.isFinite(releaseTime)) {
-    return latest.value;
-  }
-  if (latestTime <= firstTime || releaseTime <= latestTime) {
-    return latest.value;
-  }
-
-  const slopePerMs = (latest.value - first.value) / (latestTime - firstTime);
-  return clampPercentage(latest.value + slopePerMs * (releaseTime - latestTime));
+  return daysRemaining > 0
+    ? `${daysRemaining} calendar days remaining`
+    : `${Math.abs(daysRemaining)} calendar days past the Jira release date`;
 }
 
-function getReadinessBasis(charts: ReleaseChartsResponse | null, signal: ReleaseSignalResponse | null) {
-  const readiness = latestValue(charts?.series.readiness_pct);
-  if (readiness !== null) {
-    return readiness;
+function formatOutlookConfidenceChange(change: number | null, hasBaseline: boolean) {
+  if (!hasBaseline || change === null) {
+    return "24-hour confidence baseline unavailable";
   }
-  if (signal && signal.release_gates.length > 0) {
-    const passed = signal.release_gates.filter((gate) => gate.passed).length;
-    return (passed / signal.release_gates.length) * 100;
-  }
-  return null;
-}
-
-function getTargetChance(charts: ReleaseChartsResponse | null, signal: ReleaseSignalResponse | null, release: Release | null) {
-  const predicted = getPredictedConfidence(charts, release);
-  const readiness = getReadinessBasis(charts, signal);
-  if (predicted === null || readiness === null) {
-    return null;
-  }
-  return clampPercentage((predicted * readiness) / 100);
+  const prefix = change > 0 ? "+" : "";
+  return `${prefix}${change.toFixed(1)} confidence points against the 24-hour baseline`;
 }
 
 function getMetricValue(metrics: ReleaseMetricsResponse | null, metricName: keyof MetricValues) {
@@ -217,6 +193,7 @@ function renderAgingCard(title: string, group: SignalRiskAgingGroup, noun: strin
         Oldest: {group.oldest_age_days?.toFixed(1) ?? "N/A"} days
         <br />
         Average: {group.average_age_days?.toFixed(1) ?? "N/A"} days
+        {group.unknown_count > 0 ? <><br />Unavailable: {group.unknown_count}</> : null}
       </small>
       <span
         className="overview-aging-meter"
@@ -255,7 +232,6 @@ function sprintSnapshotStatus(sprint: Sprint | null, metrics: SprintMetricsRespo
 
 export function OverviewDashboard({
   projectKey,
-  release,
   metrics,
   charts,
   signal,
@@ -263,18 +239,19 @@ export function OverviewDashboard({
   isLoading,
   onOpenReports,
 }: OverviewDashboardProps) {
+  const catalog = useMetricCatalog();
   const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
   const [currentSprintMetrics, setCurrentSprintMetrics] = useState<SprintMetricsResponse | null>(null);
   const [isLoadingSprint, setIsLoadingSprint] = useState(false);
   const [sprintError, setSprintError] = useState<string | null>(null);
   const confidenceScore = getConfidenceScore(signal, charts);
+  const confidenceDefinition = metricDefinition(catalog, "release", "confidence_score");
   const scoreDisplay = getReleaseScoreDisplay(metrics);
   const tone = getSignalTone(signal);
   const riskDrivers = getRiskDrivers(signal);
   const trendRows = buildConfidenceTrendRows(charts);
   const delta = getConfidenceDelta(charts);
-  const predictedConfidence = getPredictedConfidence(charts, release);
-  const targetChance = getTargetChance(charts, signal, release);
+  const outlook = signal?.release_outlook ?? null;
   const hasReleaseSnapshot = metrics?.is_computed === true;
   const summary = hasReleaseSnapshot
     ? signal?.summary ?? "Signal data has not been computed for this release yet."
@@ -345,7 +322,9 @@ export function OverviewDashboard({
         <strong className={`readiness-score readiness-${scoreDisplay.isAvailable ? tone : "neutral"} ${scoreDisplay.isAvailable ? "" : "readiness-score-unavailable"}`}>
           {scoreDisplay.value ?? formatPercentage(confidenceScore)}
         </strong>
-        <span className="readiness-label">{scoreDisplay.label}</span>
+        <span className="readiness-label">
+          {confidenceDefinition.label}
+        </span>
         <span className={`readiness-pill readiness-${tone}`}>{getStatusLabel(signal)}</span>
         <p className="overview-copy">{readinessSummary}</p>
       </section>
@@ -394,7 +373,7 @@ export function OverviewDashboard({
                   axisLine={false}
                   tick={{ fill: "#3f4d71", fontSize: 12 }}
                 />
-                <Tooltip formatter={(value) => [`${Math.round(Number(value))}%`, "Confidence"]} />
+                <Tooltip formatter={(value) => [`${Math.round(Number(value))}%`, confidenceDefinition.label]} />
                 <Line
                   type="monotone"
                   dataKey="value"
@@ -418,14 +397,28 @@ export function OverviewDashboard({
         )}
       </section>
 
-      <section className="overview-card prediction-card">
-        <p className="overview-card-kicker">Release Prediction</p>
-        <p className="overview-copy">If current trends continue</p>
-        <strong>{formatPercentage(targetChance)}</strong>
-        <span>chance of meeting release targets</span>
-        <p className="overview-copy">Predicted confidence at release: {formatPercentage(predictedConfidence)}</p>
+      <section className="overview-card outlook-card">
+        <p className="overview-card-kicker">Release Outlook</p>
+        <strong>{outlook?.label ?? "NOT COMPUTED"}</strong>
+        <span>Current confidence: {formatPercentage(outlook?.confidence_score)}</span>
+        <p className="overview-copy">{formatOutlookDays(outlook?.days_remaining ?? null)}</p>
+        <p className="overview-copy">
+          {outlook ? `${outlook.passed_gate_count} passed / ${outlook.failed_gate_count} failed release gates` : "Release gates unavailable"}
+        </p>
+        <p className="overview-copy">
+          {formatOutlookConfidenceChange(
+            outlook?.confidence_change_24h ?? null,
+            outlook?.confidence_baseline_at !== null && outlook?.confidence_baseline_at !== undefined
+          )}
+        </p>
+        <p className="overview-copy">
+          {outlook ? `${outlook.active_conditions.length} active RED/YELLOW conditions` : "Active conditions unavailable"}
+        </p>
+        <p className="overview-footnote">
+          {outlook?.disclaimer ?? "This outlook reflects the latest stored snapshot and is not a forecast."}
+        </p>
         <button type="button" className="overview-link-button" onClick={onOpenReports}>
-          View prediction factors
+          View outlook evidence
         </button>
       </section>
 
@@ -448,7 +441,7 @@ export function OverviewDashboard({
             : null}
         </div>
         {!signal ? <p className="muted">No aging data available.</p> : null}
-        <p className="overview-footnote">Aging risks increase the likelihood of release failure.</p>
+        <p className="overview-footnote">Older unresolved risks require attention before release.</p>
       </section>
 
       <section className="overview-card actions-card">

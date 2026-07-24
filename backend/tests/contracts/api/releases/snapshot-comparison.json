@@ -1,0 +1,33 @@
+{
+  "entity_id": "LHPM-REL-ALPHA",
+  "baseline": "previous",
+  "current_snapshot_at": "2026-07-21T13:00:00",
+  "baseline_snapshot_at": "2026-07-20T12:00:00",
+  "has_baseline": true,
+  "current_ruleset_version": 2,
+  "baseline_ruleset_version": 2,
+  "unavailable_reason": null,
+  "comparison": {
+    "confidenceDelta": 0.0,
+    "contributors": [
+      {
+        "metric": "median_cycle_time_days",
+        "delta": 1.54,
+        "impact": 0.0,
+        "direction": "up"
+      },
+      {
+        "metric": "open_blockers",
+        "delta": -1.0,
+        "impact": 0.0,
+        "direction": "down"
+      },
+      {
+        "metric": "completed_tickets",
+        "delta": 1.0,
+        "impact": 0.0,
+        "direction": "up"
+      }
+    ]
+  }
+}

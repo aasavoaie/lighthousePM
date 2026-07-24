@@ -27,6 +27,8 @@ export interface SprintChartHistoryPoint {
   sprint_id: string;
   name: string;
   is_not_closed: boolean;
+  ruleset_version: number;
+  version_boundary: boolean;
   delivery_confidence: number | null;
   confidence_delta: number | null;
   progress_alignment: number | null;
@@ -216,6 +218,8 @@ function baseChartRow(source: SprintChartSource): SprintChartHistoryPoint | null
     sprint_id: source.sprint_id,
     name: source.name,
     is_not_closed: source.is_not_closed,
+    ruleset_version: metrics.ruleset_version ?? 0,
+    version_boundary: false,
     delivery_confidence: confidence ? Number(confidence.score.toFixed(2)) : null,
     confidence_delta: null,
     progress_alignment: confidence ? Number(confidence.components.progress_alignment.toFixed(2)) : null,
@@ -249,10 +253,12 @@ export function buildSprintChartHistory(sources: SprintChartSource[]): SprintCha
 
   return rows.map((row, index) => {
     const previousConfidence = index === 0 ? null : rows[index - 1].delivery_confidence;
+    const versionBoundary = index > 0 && rows[index - 1].ruleset_version !== row.ruleset_version;
     return {
       ...row,
+      version_boundary: versionBoundary,
       confidence_delta:
-        row.delivery_confidence === null || previousConfidence === null
+        versionBoundary || row.delivery_confidence === null || previousConfidence === null
           ? null
           : Number((row.delivery_confidence - previousConfidence).toFixed(2)),
       predictability_avg: (() => {

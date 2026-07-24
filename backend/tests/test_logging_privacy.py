@@ -15,3 +15,15 @@ def test_configured_logging_redacts_token_like_values(capsys) -> None:
     assert "BearerSecret" not in captured.err
     assert "hidden" not in captured.err
     assert "[REDACTED]" in captured.err
+
+
+def test_configured_logging_redacts_opaque_effective_secret_values(capsys) -> None:
+    _configure_logging("INFO", ("opaque-database-credential",))
+    logging.getLogger("privacy-test").warning(
+        "database connection failed with opaque-database-credential"
+    )
+
+    captured = capsys.readouterr()
+
+    assert "opaque-database-credential" not in captured.err
+    assert "[REDACTED]" in captured.err

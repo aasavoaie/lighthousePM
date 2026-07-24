@@ -1,0 +1,249 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-quality:
+    name: backend-quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements/linux-dev.lock
+
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --require-hashes -r requirements/linux-dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
+
+      - name: Verify Linux Python locks are reproducible
+        working-directory: backend
+        run: |
+          python scripts/compile_python_locks.py
+          git diff --exit-code -- requirements/linux-runtime.lock requirements/linux-dev.lock
+
+      - name: Run backend quality gates and API contracts read-only
+        working-directory: backend
+        run: make quality
+
+      - name: Verify repository hygiene after backend quality
+        if: always()
+        working-directory: backend
+        run: python scripts/check_repository_hygiene.py --verification-clean
+
+  desktop:
+    name: desktop
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      LIGHTHOUSE_PYTHON: python
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements/windows-dev.lock
+
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --require-hashes -r requirements/windows-dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
+
+      - name: Verify Windows Python lock is reproducible
+        working-directory: backend
+        run: |
+          python scripts/compile_python_locks.py
+          git diff --exit-code -- requirements/windows-dev.lock
+
+      - name: Install locked desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Verify desktop dependency inventory
+        working-directory: desktop
+        run: npm run check:dependencies
+
+      - name: Lint desktop sources and scripts
+        working-directory: desktop
+        run: npm run lint
+
+      - name: Run desktop Node tests
+        working-directory: desktop
+        run: npm run test:node
+
+      - name: Build packaged Windows backend
+        working-directory: desktop
+        run: npm run build:backend
+
+      - name: Smoke-test packaged Windows backend
+        working-directory: desktop
+        run: npm run smoke:backend
+
+      - name: Verify verification left generated content unchanged
+        if: always()
+        run: python backend/scripts/check_repository_hygiene.py --verification-clean
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Set up Python 3.11 for repository hygiene
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Verify frontend dependency inventory
+        working-directory: frontend
+        run: npm run check:dependencies
+
+      - name: Run frontend logic and component tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build production frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify verification left generated content unchanged
+        if: always()
+        run: python backend/scripts/check_repository_hygiene.py --verification-clean
+
+  postgres-integration:
+    name: postgres-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LIGHTHOUSE_REQUIRE_POSTGRES_INTEGRATION: "1"
+      MIGRATION_TEST_POSTGRES_ADMIN_URL: postgresql+psycopg://postgres:synthetic-postgres-ci@127.0.0.1:5432/postgres
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: synthetic-postgres-ci
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements/linux-dev.lock
+
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --require-hashes -r requirements/linux-dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
+
+      - name: Run required PostgreSQL integration gate
+        working-directory: backend
+        run: python scripts/run_postgres_integration.py
+
+      - name: Verify repository hygiene after PostgreSQL acceptance
+        if: always()
+        working-directory: backend
+        run: python scripts/check_repository_hygiene.py --verification-clean
+
+  docker-security:
+    name: docker-security
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LIGHTHOUSE_REQUIRE_DOCKER_SECURITY: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements/linux-dev.lock
+
+      - name: Install locked backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --require-hashes -r requirements/linux-dev.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+          python -m pip check
+
+      - name: Run required Docker security acceptance
+        working-directory: backend
+        run: python scripts/run_docker_security.py
+
+      - name: Verify repository hygiene after Docker acceptance
+        if: always()
+        working-directory: backend
+        run: python scripts/check_repository_hygiene.py --verification-clean

@@ -39,7 +39,7 @@ def test_release_recommendations_are_generated_and_prioritized() -> None:
     assert [item.title for item in recommendations] == [
         "Resolve blockers",
         "Resolve critical defects",
-        "Reduce reopen rate",
+        "Reduce reopen events",
     ]
     assert [item.confidenceImpact for item in recommendations] == [10, 8, 6]
     assert [item.priority for item in recommendations] == [1, 2, 3]
@@ -130,17 +130,11 @@ def test_sprint_recommendations_include_scope_work_and_concentration() -> None:
             "remaining_effective_points": 8.0,
             "scope_change_count": 3,
         },
+        workload_distribution_status="COMPUTED",
+        workload_concentration_pct=80.0,
+        workload_distribution_explanations=[],
     )
-    sprint_issues = [
-        SimpleNamespace(assignee="Ava", story_points=8.0, status="In Progress"),
-        SimpleNamespace(assignee="Noah", story_points=2.0, status="To Do"),
-        SimpleNamespace(assignee="Mira", story_points=13.0, status="Done"),
-    ]
-
-    recommendations = RecommendationEngine.build_sprint_recommendations(
-        snapshot,
-        sprint_issues=sprint_issues,
-    )
+    recommendations = RecommendationEngine.build_sprint_recommendations(snapshot)
 
     assert [item.title for item in recommendations] == [
         "Reduce scope changes",
@@ -195,7 +189,7 @@ def test_sprint_recommendations_can_skip_story_point_rules() -> None:
     assert [item.title for item in recommendations] == ["Resolve sprint blockers"]
 
 
-def test_sprint_workload_concentration_ignores_unpointed_issues() -> None:
+def test_sprint_workload_concentration_uses_stored_partial_result() -> None:
     snapshot = SimpleNamespace(
         completed_scope_pct=100.0,
         open_blockers=0,
@@ -204,6 +198,12 @@ def test_sprint_workload_concentration_ignores_unpointed_issues() -> None:
         reopen_rate_pct=0.0,
         delivery_confidence_components={},
         delivery_confidence_inputs={},
+        workload_distribution_status="PARTIAL",
+        workload_concentration_pct=60.0,
+        workload_distribution_explanations=[
+            "Workload distribution is partial because current-sprint story-point coverage is 50.0%, below 100%.",
+            "Unpointed active tickets are excluded: LHPM-1.",
+        ],
     )
     sprint_issues = [
         SimpleNamespace(assignee="Ava", story_points=None, status="In Progress"),
@@ -217,6 +217,8 @@ def test_sprint_workload_concentration_ignores_unpointed_issues() -> None:
     )
 
     assert [item.title for item in recommendations] == ["Reduce workload concentration"]
+    assert recommendations[0].dataStatus == "PARTIAL"
+    assert recommendations[0].explanations == snapshot.workload_distribution_explanations
 
 
 def test_sprint_recommendations_sort_ties_by_rule_order() -> None:
@@ -239,3 +241,37 @@ def test_sprint_recommendations_sort_ties_by_rule_order() -> None:
     ]
     assert [item.confidenceImpact for item in recommendations] == [5, 4, 4]
     assert [item.priority for item in recommendations] == [1, 2, 3]
+
+
+def test_sprint_recommendations_skip_unavailable_flow_metrics() -> None:
+    snapshot = SimpleNamespace(
+        completed_scope_pct=100.0,
+        open_blockers=0,
+        open_high_severity_bugs=0,
+        median_cycle_time_days=None,
+        reopen_rate_pct=None,
+        delivery_confidence_components={},
+        delivery_confidence_inputs={},
+    )
+
+    assert RecommendationEngine.build_sprint_recommendations(snapshot) == []
+
+
+def test_sprint_recommendations_do_not_treat_unavailable_completed_scope_as_zero() -> None:
+    snapshot = SimpleNamespace(
+        completed_scope_pct=None,
+        open_blockers=0,
+        open_high_severity_bugs=0,
+        median_cycle_time_days=None,
+        reopen_rate_pct=None,
+        delivery_confidence_components={
+            "progress_alignment": 100.0,
+            "scope_stability": 100.0,
+        },
+        delivery_confidence_inputs={
+            "remaining_effective_points": 0.0,
+            "scope_change_count": 0,
+        },
+    )
+
+    assert RecommendationEngine.build_sprint_recommendations(snapshot) == []

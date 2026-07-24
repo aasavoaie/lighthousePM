@@ -1,0 +1,10 @@
+services:
+  backend:
+    environment:
+      JIRA_API_TOKEN_FILE: /run/secrets/jira_api_token
+    secrets:
+      - jira_api_token
+
+secrets:
+  jira_api_token:
+    file: ${JIRA_API_TOKEN_FILE:?Set JIRA_API_TOKEN_FILE to a protected host token file}

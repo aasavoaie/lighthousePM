@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -26,6 +26,7 @@ class MetricValues(BaseModel):
 class MetricIssueKeys(BaseModel):
     open_blockers: list[str]
     open_high_severity_bugs: list[str]
+    completed_tickets: list[str]
 
 
 class MetricThresholds(BaseModel):
@@ -41,6 +42,9 @@ class MetricThresholds(BaseModel):
 
 class ReleaseMetricsResponse(BaseModel):
     release_id: str
+    ruleset_version: int | None
+    ruleset_label: str | None
+    calculation_provenance: dict[str, Any] | None
     snapshot_at: datetime | None
     computation_status: ComputationStatus
     unavailable_reason: str | None
@@ -60,6 +64,8 @@ class ReleaseMetricsResponse(BaseModel):
 class ChartPoint(BaseModel):
     snapshot_at: datetime
     value: int | float | None
+    ruleset_version: int
+    version_boundary: bool = False
 
 
 class MetricSeries(BaseModel):
@@ -88,6 +94,7 @@ class ReleaseChartsResponse(BaseModel):
 class RecomputeMetricsResponse(BaseModel):
     release_id: str
     snapshot_at: datetime
+    ruleset_version: int
     status: str
 
 

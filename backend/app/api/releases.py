@@ -3,13 +3,19 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
 from app.repositories.release_repository import ReleaseRepository
+from app.schemas.errors import ApiErrorResponse
 from app.schemas.issues import IssueListResponse, IssueResponse
 from app.schemas.releases import ReleaseListResponse, ReleaseResponse
 
 router = APIRouter(prefix="/releases", tags=["releases"])
 
 
-@router.get("", response_model=ReleaseListResponse)
+@router.get(
+    "",
+    response_model=ReleaseListResponse,
+    operation_id="get_releases",
+    summary="List releases",
+)
 def get_releases(
     project_key: str | None = Query(default=None, min_length=1),
     skip: int = Query(default=0, ge=0),
@@ -30,7 +36,18 @@ def get_releases(
     )
 
 
-@router.get("/{release_id}", response_model=ReleaseResponse)
+@router.get(
+    "/{release_id}",
+    response_model=ReleaseResponse,
+    operation_id="get_release",
+    summary="Get release",
+    responses={
+        404: {
+            "model": ApiErrorResponse,
+            "description": "The release was not found.",
+        }
+    },
+)
 def get_release(release_id: str, session: Session = Depends(get_db_session)) -> ReleaseResponse:
     release = ReleaseRepository.get_release_by_id(session=session, release_id=release_id)
     if release is None:
@@ -38,7 +55,18 @@ def get_release(release_id: str, session: Session = Depends(get_db_session)) -> 
     return ReleaseResponse.model_validate(release, from_attributes=True)
 
 
-@router.get("/{release_id}/issues", response_model=IssueListResponse)
+@router.get(
+    "/{release_id}/issues",
+    response_model=IssueListResponse,
+    operation_id="get_release_issues",
+    summary="List release issues",
+    responses={
+        404: {
+            "model": ApiErrorResponse,
+            "description": "The release was not found.",
+        }
+    },
+)
 def get_release_issues(
     release_id: str,
     skip: int = Query(default=0, ge=0),

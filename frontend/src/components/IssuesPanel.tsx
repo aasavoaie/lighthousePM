@@ -6,8 +6,8 @@ import type { Issue, IssueListResponse } from "../api/types";
 const doneStatuses = new Set(["done", "closed", "resolved"]);
 const pageSize = 100;
 
-function isDoneStatus(status: string) {
-  return doneStatuses.has(status.trim().toLowerCase());
+function isDoneStatus(status: string | null) {
+  return doneStatuses.has((status ?? "").trim().toLowerCase());
 }
 
 type TicketFilterMode = "not_done" | "done_only";
@@ -170,8 +170,8 @@ export function IssuesPanel({ releaseId, refreshNonce, onSelectIssue }: IssuesPa
                         </button>
                       </td>
                       <td>{issue.summary}</td>
-                      <td>{issue.status}</td>
-                      <td>{issue.issue_type}</td>
+                      <td>{issue.status ?? "Unavailable"}</td>
+                      <td>{issue.issue_type ?? "Unavailable"}</td>
                       <td>{issue.priority ?? "N/A"}</td>
                       <td>{issue.assignee ?? "Unassigned"}</td>
                     </tr>

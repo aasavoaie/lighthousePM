@@ -35,6 +35,7 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
       open_blockers: [],
       open_high_severity_bugs: [],
       bugs_created_during_sprint: [],
+      bugs_created_during_sprint_missing_created_at: [],
     },
     metric_availability: {
       context: {
@@ -47,6 +48,15 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
       },
       metrics: {},
     },
+    story_point_coverage: {
+      total_ticket_count: 10,
+      pointed_ticket_count: 10,
+      unpointed_ticket_count: 0,
+      coverage_pct: 100,
+      unpointed_issue_keys: [],
+    },
+    delivery_confidence_status: "COMPUTED",
+    delivery_confidence_explanations: [],
     metrics: {
       committed_scope: 10,
       completed_scope_pct: 70,
@@ -58,6 +68,7 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
       rollover_count: 0,
       median_cycle_time_days: 6,
       reopen_rate_pct: 12,
+      workload_concentration_pct: null,
       delivery_confidence_score: 72,
     },
     confidence_breakdown: null,
@@ -79,6 +90,7 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
       },
       inputs: {
         committed_issue_count: 10,
+        pointed_issue_count: 10,
         initial_commitment_count: 8,
         committed_effective_points: 20,
         completed_effective_points: 14,
@@ -87,6 +99,8 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
         time_elapsed_pct: 60,
         historical_velocity: 18,
         baseline_sprint_count: 3,
+        baseline_sprints: [],
+        velocity_status: "COMPUTED",
         remaining_capacity_points: 8,
         blocked_issue_ratio: 0,
         scope_change_count: 3,
@@ -98,7 +112,12 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
         scope_removed_issue_keys: [],
       },
     },
+    workload_distribution: null,
     ...overrides,
+    ruleset_version: overrides.ruleset_version ?? 1,
+    ruleset_label: overrides.ruleset_label ?? "Ruleset v1",
+    calculation_provenance: overrides.calculation_provenance ?? {},
+    bugs_created_during_sprint_status: overrides.bugs_created_during_sprint_status ?? "COMPUTED",
   };
 }
 
@@ -194,6 +213,23 @@ assertEqual(history[0].blocker_health, 100, "blocker penalty is exposed as block
 assertEqual(hasChartData(history, ["median_cycle_time_days"]), true, "chart data detector finds available fields");
 assertEqual(hasChartData([{ median_cycle_time_days: null }], ["median_cycle_time_days"]), false, "chart data detector rejects all-empty fields");
 
+const crossVersionHistory = buildSprintChartHistory([
+  {
+    sprint_id: "legacy",
+    name: "Legacy",
+    is_not_closed: false,
+    metrics: metricsResponse({ sprint_id: "legacy", ruleset_version: 0, ruleset_label: "Unversioned legacy result" }),
+  },
+  {
+    sprint_id: "versioned",
+    name: "Versioned",
+    is_not_closed: false,
+    metrics: metricsResponse({ sprint_id: "versioned", ruleset_version: 1, ruleset_label: "Ruleset v1" }),
+  },
+]);
+assertEqual(crossVersionHistory[1].version_boundary, true, "ruleset changes create a visible chart boundary");
+assertEqual(crossVersionHistory[1].confidence_delta, null, "confidence delta is unavailable across ruleset versions");
+
 const heatmap = buildRiskHeatmapRows(history);
 assertEqual(heatmap.length, 16, "heatmap produces one cell per group per sprint");
 assertEqual(getRiskHeatmapCellStatus("Quality", history[0]), "watch", "quality heatmap status is deterministic");
@@ -221,6 +257,16 @@ const unavailableStoryPointHistory = buildSprintChartHistory([
     is_not_closed: false,
     metrics: metricsResponse({
       sprint_id: "no-points",
+      delivery_confidence_status: "INCONCLUSIVE",
+      delivery_confidence_explanations: ["Insufficient story-point coverage."],
+      delivery_confidence: null,
+      story_point_coverage: {
+        total_ticket_count: 2,
+        pointed_ticket_count: 0,
+        unpointed_ticket_count: 2,
+        coverage_pct: 0,
+        unpointed_issue_keys: ["LHPM-1", "LHPM-2"],
+      },
       metric_availability: {
         context: {
           has_tickets: true,

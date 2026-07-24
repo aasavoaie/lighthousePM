@@ -45,6 +45,63 @@ export interface CurrentSprintResponse {
 export type ReportDepth = "summary" | "full";
 export type ComputationStatus = "COMPUTED" | "PARTIAL" | "NOT_COMPUTED";
 
+export type MetricScope = "release" | "sprint";
+export type MetricCategory = "delivery" | "quality" | "flow" | "risk" | "snapshot";
+export type MetricUnit = "tickets" | "percent" | "days" | "score" | "gates";
+export type MetricFormat = "integer" | "decimal_1" | "decimal_2" | "decimal_4" | "percent_2";
+export type MetricSeverity = "watch" | "critical";
+export type MetricComparison = "gt" | "gte" | "lt" | "lte";
+export type MetricApiLocation = "metric_values" | "response_field" | "chart_only";
+export type MetricPartialValuePolicy =
+  | "confirmed_minimum"
+  | "calculated_from_available_data"
+  | "unavailable"
+  | "not_supported";
+
+export interface MetricThresholdMetadata {
+  severity: MetricSeverity;
+  comparison: MetricComparison;
+  value: number;
+  meaning: string;
+}
+
+export interface MetricAvailabilityMetadata {
+  dependencies: string[];
+  partial_value_policy: MetricPartialValuePolicy;
+  supports_not_applicable: boolean;
+  evidence_fields: string[];
+  minimum_coverage_pct: number | null;
+}
+
+export interface MetricDefinitionMetadata {
+  key: string;
+  scope: MetricScope;
+  api_field: string;
+  api_location: MetricApiLocation;
+  label: string;
+  description: string;
+  category: MetricCategory;
+  unit: MetricUnit;
+  formatting: MetricFormat;
+  display_order: number;
+  thresholds: MetricThresholdMetadata[];
+  severity_meaning: string;
+  availability: MetricAvailabilityMetadata;
+  historical_series: boolean;
+  signal_participation: boolean;
+  confidence_participation: boolean;
+  chart_participation: boolean;
+  report_participation: boolean;
+  ruleset_version: number;
+}
+
+export interface MetricCatalogResponse {
+  catalog_version: number;
+  ruleset_version: number;
+  release: MetricDefinitionMetadata[];
+  sprint: MetricDefinitionMetadata[];
+}
+
 export interface SprintMetricValues {
   committed_scope: number | null;
   completed_scope_pct: number | null;
@@ -56,13 +113,16 @@ export interface SprintMetricValues {
   rollover_count: number | null;
   median_cycle_time_days: number | null;
   reopen_rate_pct: number | null;
+  workload_concentration_pct: number | null;
   delivery_confidence_score: number | null;
 }
 
 export interface MetricIssueKeys {
   open_blockers: string[];
   open_high_severity_bugs: string[];
+  completed_tickets?: string[];
   bugs_created_during_sprint?: string[];
+  bugs_created_during_sprint_missing_created_at?: string[];
 }
 
 export interface DeliveryConfidenceWeights {
@@ -81,6 +141,7 @@ export interface DeliveryConfidenceComponents {
 
 export interface DeliveryConfidenceInputs {
   committed_issue_count: number;
+  pointed_issue_count: number;
   initial_commitment_count: number | null;
   committed_effective_points: number;
   completed_effective_points: number;
@@ -89,6 +150,13 @@ export interface DeliveryConfidenceInputs {
   time_elapsed_pct: number | null;
   historical_velocity: number | null;
   baseline_sprint_count: number;
+  baseline_sprints: Array<{
+    sprint_id: string;
+    coverage_pct: number;
+    status: DeliveryConfidenceStatus;
+    completed_points: number;
+  }>;
+  velocity_status: DeliveryConfidenceStatus;
   remaining_capacity_points: number | null;
   blocked_issue_ratio: number;
   scope_change_count: number;
@@ -141,6 +209,8 @@ export interface RecommendationAction {
   confidenceImpact: number;
   effort: RecommendationEffort;
   category: string;
+  dataStatus: "COMPUTED" | "PARTIAL";
+  explanations: string[];
 }
 
 export interface MetricAvailabilityContext {
@@ -153,8 +223,11 @@ export interface MetricAvailabilityContext {
 }
 
 export interface MetricAvailabilityItem {
+  status: "COMPUTED" | "PARTIAL" | "NOT_COMPUTED" | "NOT_APPLICABLE";
   available: boolean;
   reason: string | null;
+  explanations: string[];
+  missing_issue_keys: string[];
   depends_on: string[];
 }
 
@@ -163,16 +236,73 @@ export interface MetricAvailability {
   metrics: Record<string, MetricAvailabilityItem>;
 }
 
+export type DeliveryConfidenceStatus = "COMPUTED" | "PARTIAL" | "INCONCLUSIVE" | "NOT_COMPUTED";
+
+export interface StoryPointCoverage {
+  total_ticket_count: number;
+  pointed_ticket_count: number;
+  unpointed_ticket_count: number;
+  coverage_pct: number;
+  unpointed_issue_keys: string[];
+}
+
+export type WorkloadDistributionStatus =
+  | "COMPUTED"
+  | "PARTIAL"
+  | "INCONCLUSIVE"
+  | "NOT_COMPUTED"
+  | "NOT_APPLICABLE";
+
+export type WorkloadRiskBand = "healthy" | "watch" | "critical";
+
+export interface WorkloadAssigneeTotal {
+  assignee_key: string;
+  assignee: string;
+  story_points: number;
+  issue_keys: string[];
+}
+
+export interface WorkloadDistributionEvidence {
+  calculation_status: WorkloadDistributionStatus;
+  workload_concentration_pct: number | null;
+  current_scope_issue_keys: string[];
+  active_issue_keys: string[];
+  included_active_issue_keys: string[];
+  excluded_active_issue_keys: string[];
+  missing_status_issue_keys: string[];
+  assignee_identity_fallback_issue_keys: string[];
+  assignee_totals: WorkloadAssigneeTotal[];
+  total_active_points: number | null;
+  top_assignee: WorkloadAssigneeTotal | null;
+  risk_band: WorkloadRiskBand | null;
+  story_point_coverage: StoryPointCoverage;
+}
+
+export interface WorkloadDistributionDetail {
+  status: WorkloadDistributionStatus;
+  percentage: number | null;
+  explanations: string[];
+  evidence: WorkloadDistributionEvidence;
+}
+
 export interface SprintMetricsResponse {
   sprint_id: string;
+  ruleset_version: number | null;
+  ruleset_label: string | null;
+  calculation_provenance: Record<string, unknown> | null;
   snapshot_at: string | null;
   computation_status: ComputationStatus;
   unavailable_reason: string | null;
   metrics: SprintMetricValues;
   metric_issue_keys: MetricIssueKeys;
+  bugs_created_during_sprint_status: ComputationStatus;
   metric_names: string[];
   metric_availability?: MetricAvailability;
+  story_point_coverage: StoryPointCoverage;
+  delivery_confidence_status: DeliveryConfidenceStatus;
+  delivery_confidence_explanations: string[];
   delivery_confidence: DeliveryConfidenceDetail | null;
+  workload_distribution: WorkloadDistributionDetail | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;
   recommendations: RecommendationAction[];
@@ -183,6 +313,7 @@ export interface SprintMetricsResponse {
 export interface RecomputeSprintMetricsResponse {
   sprint_id: string;
   snapshot_at: string;
+  ruleset_version: number;
   status: string;
 }
 
@@ -211,6 +342,9 @@ export interface MetricThresholds {
 
 export interface ReleaseMetricsResponse {
   release_id: string;
+  ruleset_version: number | null;
+  ruleset_label: string | null;
+  calculation_provenance: Record<string, unknown> | null;
   snapshot_at: string | null;
   computation_status: ComputationStatus;
   unavailable_reason: string | null;
@@ -230,6 +364,8 @@ export interface ReleaseMetricsResponse {
 export interface ChartPoint {
   snapshot_at: string;
   value: number | null;
+  ruleset_version: number;
+  version_boundary: boolean;
 }
 
 export interface MetricSeries {
@@ -275,14 +411,20 @@ export interface SnapshotComparisonResponse {
   current_snapshot_at: string | null;
   baseline_snapshot_at: string | null;
   has_baseline: boolean;
+  current_ruleset_version: number | null;
+  baseline_ruleset_version: number | null;
+  unavailable_reason: string | null;
   comparison: SnapshotDeltaComparison;
 }
 
 export interface SnapshotChangeHistoryItem {
   date: string;
+  ruleset_version: number;
+  version_boundary: boolean;
   confidence: number | null;
   delta: number | null;
   primary_driver: string;
+  comparison_unavailable_reason: string | null;
 }
 
 export interface SnapshotChangeHistoryResponse {
@@ -338,11 +480,25 @@ export interface SignalPrimaryRisk {
   contribution_pct: number;
 }
 
+export interface SignalRiskAgingTicket {
+  key: string;
+  age_days: number | null;
+  issue_age_days: number | null;
+  jira_created_at: string | null;
+  risk_started_at: string | null;
+  risk_start_source_field: string | null;
+  risk_start_source_changed_at: string | null;
+  history_complete: boolean;
+  explanation: string | null;
+}
+
 export interface SignalRiskAgingGroup {
   count: number;
+  known_count: number;
+  unknown_count: number;
   oldest_age_days: number | null;
   average_age_days: number | null;
-  tickets?: Array<{ key: string; age_days: number }>;
+  tickets?: SignalRiskAgingTicket[];
 }
 
 export interface SignalRiskAging {
@@ -363,11 +519,30 @@ export interface SignalLast24Hours {
   as_of: string | null;
   baseline_at: string | null;
   has_baseline: boolean;
+  unavailable_reason: string | null;
   items: SignalLast24HoursItem[];
+}
+
+export interface ReleaseOutlook {
+  label: "ON TRACK" | "NEEDS ATTENTION" | "AT RISK" | "NOT COMPUTED";
+  signal: string | null;
+  confidence_score: number | null;
+  snapshot_at: string | null;
+  release_date: string | null;
+  days_remaining: number | null;
+  passed_gate_count: number;
+  failed_gate_count: number;
+  release_gates: SignalGate[];
+  confidence_change_24h: number | null;
+  confidence_baseline_at: string | null;
+  active_conditions: SignalRiskItem[];
+  disclaimer: string;
 }
 
 export interface ReleaseSignalResponse {
   release_id: string;
+  metric_snapshot_id: number | null;
+  ruleset_version: number;
   signal: string | null;
   status_label: string | null;
   confidence_score: number | null;
@@ -382,13 +557,16 @@ export interface ReleaseSignalResponse {
   primary_risk: SignalPrimaryRisk | null;
   risk_aging: SignalRiskAging;
   last_24_hours: SignalLast24Hours;
-  thresholds: SignalThresholds;
+  release_outlook: ReleaseOutlook;
+  thresholds: SignalThresholds | null;
+  calculated_at: string | null;
   updated_at: string | null;
 }
 
 export interface RecomputeMetricsResponse {
   release_id: string;
   snapshot_at: string;
+  ruleset_version: number;
   status: string;
 }
 
@@ -408,13 +586,15 @@ export interface RecomputeAllMetricsResponse {
 export interface Issue {
   issue_key: string;
   summary: string;
-  issue_type: string;
-  status: string;
+  issue_type: string | null;
+  status: string | null;
   priority: string | null;
   assignee: string | null;
   story_points: number | null;
   release_id: string | null;
   is_blocker: boolean;
+  jira_created_at: string | null;
+  jira_updated_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -464,6 +644,13 @@ export interface JiraConfigurationResponse {
   jira_field_blocker: string;
   jira_changelog_fix_version_fields: string;
   jira_changelog_sprint_fields: string;
+  jira_done_statuses: string;
+  jira_in_progress_statuses: string;
+  jira_high_severity_values: string;
+  jira_bug_issue_types: string;
+  jira_blocker_issue_types: string;
+  jira_blocker_severity_values: string;
+  jira_blocked_statuses: string;
   is_complete: boolean;
 }
 
@@ -483,6 +670,13 @@ export interface JiraConfigurationUpdate {
   jira_field_blocker: string;
   jira_changelog_fix_version_fields: string;
   jira_changelog_sprint_fields: string;
+  jira_done_statuses: string;
+  jira_in_progress_statuses: string;
+  jira_high_severity_values: string;
+  jira_bug_issue_types: string;
+  jira_blocker_issue_types: string;
+  jira_blocker_severity_values: string;
+  jira_blocked_statuses: string;
 }
 
 export interface JiraConnectionTestResponse {

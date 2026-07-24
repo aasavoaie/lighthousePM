@@ -1,0 +1,842 @@
+{
+  "release_id": "LHPM-REL-ALPHA",
+  "ruleset_version": 2,
+  "ruleset_label": "Ruleset v2",
+  "calculation_provenance": {
+    "source_calculated_at": "2026-07-21T13:00:00+00:00",
+    "thresholds": {
+      "open_blockers_red": 0,
+      "open_high_severity_bugs_red": 1,
+      "open_high_severity_bugs_yellow": 0,
+      "scope_churn_7d_pct_red": 20.0,
+      "scope_churn_7d_pct_yellow": 10.0,
+      "reopen_rate_pct_red": 15.0,
+      "reopen_rate_pct_yellow": 10.0,
+      "median_cycle_time_days_yellow": 7.0,
+      "confidence_score_red_max": 60.0,
+      "confidence_score_yellow_min": 61.0,
+      "confidence_score_yellow_max": 90.0,
+      "confidence_score_green_min": 91.0
+    },
+    "weights": {
+      "open_blockers": 28.0,
+      "open_high_severity_bugs_red": 18.0,
+      "open_high_severity_bugs_yellow": 9.0,
+      "scope_churn_7d_pct_red": 8.0,
+      "scope_churn_7d_pct_yellow": 4.0,
+      "reopen_rate_pct_red": 6.0,
+      "reopen_rate_pct_yellow": 3.0,
+      "median_cycle_time_days_yellow": 4.0
+    },
+    "classification": {
+      "done_statuses": [
+        "closed",
+        "done",
+        "resolved"
+      ],
+      "in_progress_statuses": [
+        "in development",
+        "in progress",
+        "in review",
+        "in testing"
+      ],
+      "high_severity_values": [
+        "critical",
+        "high",
+        "highest"
+      ],
+      "bug_issue_types": [
+        "bug"
+      ],
+      "blocker_issue_types": [
+        "blocker",
+        "incident"
+      ],
+      "blocker_severity_values": [
+        "blocker",
+        "critical",
+        "highest"
+      ],
+      "blocked_statuses": [
+        "blocked"
+      ],
+      "severity_field": "priority",
+      "story_points_field": "",
+      "release_field": "fixVersions",
+      "sprint_field": "",
+      "blocker_field": "",
+      "blocker_true_values": [
+        "1",
+        "blocker",
+        "true",
+        "yes"
+      ]
+    },
+    "availability": {
+      "context": {
+        "has_tickets": true,
+        "has_story_points": true,
+        "has_completed_tickets": true,
+        "has_release_scope": true,
+        "has_sprint_scope": false,
+        "has_changelog": true
+      },
+      "metrics": {
+        "open_blockers": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "release_assignment"
+          ]
+        },
+        "open_high_severity_bugs": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "release_assignment"
+          ]
+        },
+        "scope_completed_pct": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "release_assignment"
+          ]
+        },
+        "completed_tickets": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "release_assignment"
+          ]
+        },
+        "scope_churn_7d_pct": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "project_changelog_completeness",
+            "observed_release_scope"
+          ]
+        },
+        "scope_added_7d_count": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "project_changelog_completeness",
+            "observed_release_scope"
+          ]
+        },
+        "scope_removed_7d_count": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "project_changelog_completeness",
+            "observed_release_scope"
+          ]
+        },
+        "median_cycle_time_days": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "completed_tickets",
+            "history_changelog",
+            "release_assignment"
+          ]
+        },
+        "reopen_rate_pct": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "history_changelog",
+            "release_assignment"
+          ]
+        },
+        "confidence_score": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "release_assignment"
+          ]
+        },
+        "gates_passed_count": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "release_assignment"
+          ]
+        },
+        "readiness_pct": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "release_assignment"
+          ]
+        }
+      }
+    },
+    "computation_status": "COMPUTED",
+    "unavailable_reason": null,
+    "story_point_coverage": null,
+    "scope_churn_7d": {
+      "window_start": "2026-07-14T13:00:00+00:00",
+      "window_end": "2026-07-21T13:00:00+00:00",
+      "synchronized_project_issue_keys": [
+        "LHPM-101",
+        "LHPM-102",
+        "LHPM-103"
+      ],
+      "current_scope_issue_keys": [
+        "LHPM-101",
+        "LHPM-102",
+        "LHPM-103"
+      ],
+      "observed_scope_issue_keys": [
+        "LHPM-101",
+        "LHPM-102",
+        "LHPM-103"
+      ],
+      "observed_scope_denominator": 3,
+      "churned_issue_keys": [
+        "LHPM-103"
+      ],
+      "added_issue_keys": [
+        "LHPM-103"
+      ],
+      "removed_issue_keys": [],
+      "incomplete_project_changelog_issue_keys": [],
+      "configured_changelog_aliases": [
+        "fix version",
+        "fixversion"
+      ],
+      "normalized_release_value": "alpha release"
+    },
+    "history_completeness": {
+      "complete_issue_keys": [
+        "LHPM-101",
+        "LHPM-102",
+        "LHPM-103"
+      ],
+      "incomplete_issue_keys": [],
+      "complete_count": 3,
+      "incomplete_count": 0
+    },
+    "component_inputs": {
+      "open_blockers": 1,
+      "open_high_severity_bugs": 0,
+      "scope_churn_7d_pct": 33.33,
+      "reopen_rate_pct": 0.0,
+      "median_cycle_time_days": 3.5417
+    },
+    "component_outputs": {
+      "risk_points": {
+        "open_blockers": 28.0,
+        "scope_churn_7d_pct": 8.0
+      },
+      "confidence_breakdown": {
+        "totalScore": 64.0,
+        "components": [
+          {
+            "id": "delivery",
+            "name": "Delivery",
+            "score": 14.0,
+            "maxScore": 30.0,
+            "status": "critical",
+            "explanation": "Open blockers and Scope churn above the red threshold are reducing delivery confidence."
+          },
+          {
+            "id": "quality",
+            "name": "Quality",
+            "score": 30.0,
+            "maxScore": 30.0,
+            "status": "good",
+            "explanation": "High-severity bugs and reopen events per 100 eligible tickets are within quality confidence thresholds."
+          },
+          {
+            "id": "flow",
+            "name": "Flow",
+            "score": 20.0,
+            "maxScore": 20.0,
+            "status": "good",
+            "explanation": "Median cycle time is within the flow confidence threshold."
+          },
+          {
+            "id": "risk",
+            "name": "Risk",
+            "score": 0.0,
+            "maxScore": 20.0,
+            "status": "critical",
+            "explanation": "1 open blocker issue is consuming release risk capacity."
+          }
+        ]
+      },
+      "biggest_driver": {
+        "title": "Open Blockers",
+        "category": "Risk",
+        "impact": -28.0,
+        "contributionPercent": 77.8,
+        "explanation": "Open blockers are consuming the largest share of release confidence.",
+        "recommendation": "Resolve or explicitly de-scope blocker tickets before moving the release forward."
+      },
+      "release_gates": [
+        {
+          "metric_name": "open_blockers",
+          "label": "No blockers",
+          "passed": false,
+          "value": 1,
+          "comparison": "<=",
+          "threshold": 0
+        },
+        {
+          "metric_name": "open_high_severity_bugs",
+          "label": "High severity bugs <= 1",
+          "passed": true,
+          "value": 0,
+          "comparison": "<=",
+          "threshold": 1
+        },
+        {
+          "metric_name": "scope_churn_7d_pct",
+          "label": "Scope churn <= 20%",
+          "passed": false,
+          "value": 33.33,
+          "comparison": "<=",
+          "threshold": 20.0
+        },
+        {
+          "metric_name": "reopen_rate_pct",
+          "label": "Reopen events per 100 eligible tickets <= 15%",
+          "passed": true,
+          "value": 0.0,
+          "comparison": "<=",
+          "threshold": 15.0
+        },
+        {
+          "metric_name": "median_cycle_time_days",
+          "label": "Cycle time <= 7d",
+          "passed": true,
+          "value": 3.5417,
+          "comparison": "<=",
+          "threshold": 7.0
+        }
+      ],
+      "readiness_pct": 60.0
+    },
+    "issue_key_evidence": {
+      "open_blockers": [
+        "LHPM-101"
+      ],
+      "open_high_severity_bugs": [],
+      "completed_tickets": [
+        "LHPM-102",
+        "LHPM-103"
+      ],
+      "scope_added_7d": [
+        "LHPM-103"
+      ],
+      "scope_removed_7d": []
+    },
+    "metric_evidence": {
+      "open_blockers": {
+        "evaluated_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "matching_issue_keys": [
+          "LHPM-101"
+        ],
+        "missing_status_issue_keys": [],
+        "missing_issue_type_issue_keys": [],
+        "missing_severity_issue_keys": [],
+        "indeterminate_blocker_issue_keys": []
+      },
+      "open_high_severity_bugs": {
+        "evaluated_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "matching_issue_keys": [],
+        "missing_status_issue_keys": [],
+        "missing_issue_type_issue_keys": [],
+        "missing_severity_issue_keys": []
+      },
+      "scope_completed_pct": {
+        "evaluated_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "matching_issue_keys": [
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "missing_status_issue_keys": []
+      },
+      "completed_tickets": {
+        "evaluated_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "matching_issue_keys": [
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "missing_status_issue_keys": []
+      },
+      "scope_churn_7d_pct": {
+        "window_start": "2026-07-14T13:00:00+00:00",
+        "window_end": "2026-07-21T13:00:00+00:00",
+        "synchronized_project_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "current_scope_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "observed_scope_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "observed_scope_denominator": 3,
+        "churned_issue_keys": [
+          "LHPM-103"
+        ],
+        "added_issue_keys": [
+          "LHPM-103"
+        ],
+        "removed_issue_keys": [],
+        "incomplete_project_changelog_issue_keys": [],
+        "configured_changelog_aliases": [
+          "fix version",
+          "fixversion"
+        ],
+        "normalized_release_value": "alpha release"
+      },
+      "scope_added_7d_count": {
+        "window_start": "2026-07-14T13:00:00+00:00",
+        "window_end": "2026-07-21T13:00:00+00:00",
+        "synchronized_project_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "current_scope_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "observed_scope_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "observed_scope_denominator": 3,
+        "churned_issue_keys": [
+          "LHPM-103"
+        ],
+        "added_issue_keys": [
+          "LHPM-103"
+        ],
+        "removed_issue_keys": [],
+        "incomplete_project_changelog_issue_keys": [],
+        "configured_changelog_aliases": [
+          "fix version",
+          "fixversion"
+        ],
+        "normalized_release_value": "alpha release"
+      },
+      "scope_removed_7d_count": {
+        "window_start": "2026-07-14T13:00:00+00:00",
+        "window_end": "2026-07-21T13:00:00+00:00",
+        "synchronized_project_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "current_scope_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "observed_scope_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "observed_scope_denominator": 3,
+        "churned_issue_keys": [
+          "LHPM-103"
+        ],
+        "added_issue_keys": [
+          "LHPM-103"
+        ],
+        "removed_issue_keys": [],
+        "incomplete_project_changelog_issue_keys": [],
+        "configured_changelog_aliases": [
+          "fix version",
+          "fixversion"
+        ],
+        "normalized_release_value": "alpha release"
+      },
+      "median_cycle_time_days": {
+        "scoped_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "included_issues": [
+          {
+            "issue_key": "LHPM-102",
+            "start_at": "2026-07-16T10:00:00+00:00",
+            "end_at": "2026-07-21T12:00:00+00:00",
+            "duration_days": 5.0833
+          },
+          {
+            "issue_key": "LHPM-103",
+            "start_at": "2026-07-16T11:00:00+00:00",
+            "end_at": "2026-07-18T11:00:00+00:00",
+            "duration_days": 2.0
+          }
+        ],
+        "missing_status_issue_keys": [],
+        "incomplete_history_issue_keys": [],
+        "no_in_progress_issue_keys": [],
+        "no_later_done_issue_keys": [],
+        "invalid_timestamp_issue_keys": []
+      },
+      "reopen_rate_pct": {
+        "scoped_issue_keys": [
+          "LHPM-101",
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "eligible_issue_keys": [
+          "LHPM-102",
+          "LHPM-103"
+        ],
+        "eligible_ticket_count": 2,
+        "reopen_events": [],
+        "reopen_event_count": 0,
+        "event_count_by_issue": {},
+        "multiple_reopen_issue_keys": [],
+        "repeated_event_explanations": [],
+        "missing_status_issue_keys": [],
+        "missing_status_affecting_issue_keys": [],
+        "incomplete_history_issue_keys": []
+      }
+    }
+  },
+  "snapshot_at": "2026-07-21T13:00:00",
+  "computation_status": "COMPUTED",
+  "unavailable_reason": null,
+  "metrics": {
+    "open_blockers": 1,
+    "open_high_severity_bugs": 0,
+    "scope_completed_pct": 66.67,
+    "completed_tickets": 2,
+    "scope_churn_7d_pct": 33.33,
+    "scope_added_7d_count": 1,
+    "scope_removed_7d_count": 0,
+    "median_cycle_time_days": 3.5417,
+    "reopen_rate_pct": 0.0
+  },
+  "metric_issue_keys": {
+    "open_blockers": [
+      "LHPM-101"
+    ],
+    "open_high_severity_bugs": [],
+    "completed_tickets": [
+      "LHPM-102",
+      "LHPM-103"
+    ]
+  },
+  "metric_names": [
+    "open_blockers",
+    "open_high_severity_bugs",
+    "scope_completed_pct",
+    "completed_tickets",
+    "scope_churn_7d_pct",
+    "scope_added_7d_count",
+    "scope_removed_7d_count",
+    "median_cycle_time_days",
+    "reopen_rate_pct"
+  ],
+  "metric_availability": {
+    "context": {
+      "has_tickets": true,
+      "has_story_points": true,
+      "has_completed_tickets": true,
+      "has_release_scope": true,
+      "has_sprint_scope": false,
+      "has_changelog": true
+    },
+    "metrics": {
+      "open_blockers": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "release_assignment"
+        ]
+      },
+      "open_high_severity_bugs": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "release_assignment"
+        ]
+      },
+      "scope_completed_pct": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "release_assignment"
+        ]
+      },
+      "completed_tickets": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "release_assignment"
+        ]
+      },
+      "scope_churn_7d_pct": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "project_changelog_completeness",
+          "observed_release_scope"
+        ]
+      },
+      "scope_added_7d_count": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "project_changelog_completeness",
+          "observed_release_scope"
+        ]
+      },
+      "scope_removed_7d_count": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "project_changelog_completeness",
+          "observed_release_scope"
+        ]
+      },
+      "median_cycle_time_days": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "completed_tickets",
+          "history_changelog",
+          "release_assignment"
+        ]
+      },
+      "reopen_rate_pct": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "history_changelog",
+          "release_assignment"
+        ]
+      },
+      "confidence_score": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "release_assignment"
+        ]
+      },
+      "gates_passed_count": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "release_assignment"
+        ]
+      },
+      "readiness_pct": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "release_assignment"
+        ]
+      }
+    }
+  },
+  "metric_thresholds": {
+    "open_blockers_red": 0,
+    "open_high_severity_bugs_red": 1,
+    "open_high_severity_bugs_yellow": 0,
+    "scope_churn_7d_pct_red": 20.0,
+    "scope_churn_7d_pct_yellow": 10.0,
+    "reopen_rate_pct_red": 15.0,
+    "reopen_rate_pct_yellow": 10.0,
+    "median_cycle_time_days_yellow": 7.0
+  },
+  "confidence_score": 64.0,
+  "confidence_breakdown": {
+    "totalScore": 64.0,
+    "components": [
+      {
+        "id": "delivery",
+        "name": "Delivery",
+        "score": 14.0,
+        "maxScore": 30.0,
+        "status": "critical",
+        "explanation": "Open blockers and Scope churn above the red threshold are reducing delivery confidence."
+      },
+      {
+        "id": "quality",
+        "name": "Quality",
+        "score": 30.0,
+        "maxScore": 30.0,
+        "status": "good",
+        "explanation": "High-severity bugs and reopen events per 100 eligible tickets are within quality confidence thresholds."
+      },
+      {
+        "id": "flow",
+        "name": "Flow",
+        "score": 20.0,
+        "maxScore": 20.0,
+        "status": "good",
+        "explanation": "Median cycle time is within the flow confidence threshold."
+      },
+      {
+        "id": "risk",
+        "name": "Risk",
+        "score": 0.0,
+        "maxScore": 20.0,
+        "status": "critical",
+        "explanation": "1 open blocker issue is consuming release risk capacity."
+      }
+    ]
+  },
+  "biggest_driver": {
+    "title": "Open Blockers",
+    "category": "Risk",
+    "impact": -28.0,
+    "contributionPercent": 77.8,
+    "explanation": "Open blockers are consuming the largest share of release confidence.",
+    "recommendation": "Resolve or explicitly de-scope blocker tickets before moving the release forward."
+  },
+  "recommendations": [
+    {
+      "title": "Resolve blockers",
+      "description": "Resolve or explicitly de-scope open blocker tickets before moving the release forward.",
+      "priority": 1,
+      "confidenceImpact": 10,
+      "effort": "high",
+      "category": "Risk",
+      "dataStatus": "COMPUTED",
+      "explanations": []
+    },
+    {
+      "title": "Stabilize release scope",
+      "description": "Stop non-critical fix-version movement and defer new scope to a later release.",
+      "priority": 2,
+      "confidenceImpact": 7,
+      "effort": "medium",
+      "category": "Delivery",
+      "dataStatus": "COMPUTED",
+      "explanations": []
+    }
+  ],
+  "is_computed": true,
+  "snapshot_age_hours": 6.0
+}

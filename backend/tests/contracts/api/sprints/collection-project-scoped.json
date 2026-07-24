@@ -1,0 +1,20 @@
+{
+  "items": [
+    {
+      "sprint_id": "LHPM-SPRINT-41",
+      "name": "Sprint 41 Partial",
+      "state": "future",
+      "project_key": "LHPM",
+      "board_id": "board-7",
+      "start_date": "2026-07-22T00:00:00",
+      "end_date": "2026-08-05T00:00:00",
+      "complete_date": null,
+      "goal": "Show partial story-point coverage honestly.",
+      "created_at": "2026-05-20T10:00:00",
+      "updated_at": "2026-07-10T10:00:00"
+    }
+  ],
+  "skip": 0,
+  "limit": 1,
+  "total": 2
+}

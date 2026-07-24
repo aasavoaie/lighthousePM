@@ -56,9 +56,11 @@ def test_post_sync_jira_returns_sync_counts(client: TestClient, monkeypatch: pyt
             "issues_inserted": 3,
             "issues_updated": 1,
             "issues_skipped": 0,
+            "issue_details_skipped_unchanged": 2,
             "history_fetched": 6,
             "history_inserted": 5,
             "history_skipped": 1,
+            "changelogs_skipped_unchanged": 2,
         }
 
     monkeypatch.setattr("app.services.sync_service.SyncService.sync_from_jira", fake_sync)
@@ -69,7 +71,42 @@ def test_post_sync_jira_returns_sync_counts(client: TestClient, monkeypatch: pyt
     payload = response.json()
     assert payload["project_key"] == "LHPM"
     assert payload["issues_inserted"] == 3
+    assert payload["issue_details_skipped_unchanged"] == 2
     assert payload["history_inserted"] == 5
+    assert payload["changelogs_skipped_unchanged"] == 2
+
+
+def test_get_sync_jira_status_returns_structured_state(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_status(self, session: Session) -> dict[str, object]:
+        return {
+            "project_key": "LHPM",
+            "current_sync_status": "succeeded",
+            "last_successful_sync_at": "2026-04-01T10:05:00",
+            "last_successful_jira_updated_at": "2026-04-01T10:00:00",
+            "last_failed_sync_at": None,
+            "last_failure_summary": None,
+            "latest_sync_result": {
+                "project_key": "LHPM",
+                "issues_fetched": 4,
+                "issue_details_skipped_unchanged": 2,
+            },
+        }
+
+    monkeypatch.setattr(
+        "app.services.sync_service.SyncService.get_jira_sync_status",
+        fake_status,
+    )
+
+    response = client.get("/sync/jira/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project_key"] == "LHPM"
+    assert payload["current_sync_status"] == "succeeded"
+    assert payload["latest_sync_result"]["issue_details_skipped_unchanged"] == 2
 
 
 def test_post_sync_jira_returns_400_for_sync_service_error(

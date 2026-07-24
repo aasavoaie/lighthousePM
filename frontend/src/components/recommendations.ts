@@ -4,6 +4,17 @@ export const recommendationCategories = ["All", "Delivery", "Quality", "Flow", "
 
 export type RecommendationFilter = (typeof recommendationCategories)[number];
 
+export function getRecommendationDataDisplay(recommendation: RecommendationAction) {
+  const isPartial = recommendation.dataStatus === "PARTIAL";
+  return {
+    badge: isPartial ? "Partial" : null,
+    badgeTitle: isPartial
+      ? recommendation.explanations.join(" ") || "This recommendation uses partial metric evidence."
+      : null,
+    explanations: isPartial ? recommendation.explanations : [],
+  };
+}
+
 export function sortRecommendations(recommendations: RecommendationAction[]) {
   return [...recommendations].sort(
     (left, right) =>

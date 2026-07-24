@@ -1,10 +1,16 @@
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import NamedTuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Issue, IssueHistory, IssueSprint, Release, Sprint
-from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraSprintRef, JiraVersion
+from app.models import Issue, IssueHistory, IssueSprint, JiraProjectSyncState, Release, Sprint
+from app.services.jira_types import (
+    JiraChangelogEntry,
+    JiraIssueDetail,
+    JiraSprintRef,
+    JiraVersion,
+)
 
 
 def _parse_iso_date(value: str | None) -> datetime | None:
@@ -28,6 +34,102 @@ def _parse_jira_datetime(value: str | None) -> datetime | None:
 
 class SyncRepository:
     """Write-oriented persistence helpers for Jira sync."""
+
+    class IssueSyncFreshness(NamedTuple):
+        jira_updated_at: datetime | None
+        jira_changelog_complete: bool
+
+    @staticmethod
+    def get_project_sync_state(
+        session: Session,
+        project_key: str,
+    ) -> JiraProjectSyncState | None:
+        return session.scalar(
+            select(JiraProjectSyncState).where(
+                JiraProjectSyncState.project_key == project_key
+            )
+        )
+
+    @staticmethod
+    def get_or_create_project_sync_state(
+        session: Session,
+        project_key: str,
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        if state is None:
+            state = JiraProjectSyncState(project_key=project_key)
+            session.add(state)
+            session.flush()
+        return state
+
+    @staticmethod
+    def mark_project_sync_running(
+        session: Session,
+        project_key: str,
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_or_create_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        state.current_sync_status = "running"
+        session.flush()
+        return state
+
+    @staticmethod
+    def mark_project_sync_succeeded(
+        session: Session,
+        project_key: str,
+        jira_updated_cursor: datetime | None,
+        latest_sync_result: dict[str, object],
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_or_create_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+
+        state.current_sync_status = "succeeded"
+        state.last_successful_jira_updated_at = jira_updated_cursor
+        state.last_successful_sync_at = datetime.now(UTC)
+        state.last_failure_summary = None
+        state.latest_sync_result = latest_sync_result
+        session.flush()
+        return state
+
+    @staticmethod
+    def mark_project_sync_failed(
+        session: Session,
+        project_key: str,
+        failure_summary: str,
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_or_create_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        state.current_sync_status = "failed"
+        state.last_failed_sync_at = datetime.now(UTC)
+        state.last_failure_summary = failure_summary
+        session.flush()
+        return state
+
+    @staticmethod
+    def get_issue_sync_freshness(
+        session: Session,
+        issue_key: str,
+    ) -> IssueSyncFreshness | None:
+        row = session.execute(
+            select(Issue.jira_updated_at, Issue.jira_changelog_complete).where(
+                Issue.issue_key == issue_key
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return SyncRepository.IssueSyncFreshness(
+            jira_updated_at=row.jira_updated_at,
+            jira_changelog_complete=row.jira_changelog_complete,
+        )
 
     @staticmethod
     def upsert_release(session: Session, version: JiraVersion) -> tuple[Release, bool]:
@@ -72,9 +174,13 @@ class SyncRepository:
                 status=issue_detail.status,
                 priority=issue_detail.priority,
                 assignee=issue_detail.assignee,
+                jira_assignee_id=issue_detail.assignee_id,
                 story_points=issue_detail.story_points,
                 release_id=release_id,
                 is_blocker=is_blocker,
+                jira_created_at=issue_detail.created,
+                jira_updated_at=issue_detail.updated,
+                jira_blocker_flag=issue_detail.blocker_flag,
             )
             session.add(issue)
             session.flush()
@@ -85,11 +191,23 @@ class SyncRepository:
         existing.status = issue_detail.status
         existing.priority = issue_detail.priority
         existing.assignee = issue_detail.assignee
+        existing.jira_assignee_id = issue_detail.assignee_id
         existing.story_points = issue_detail.story_points
         existing.release_id = release_id
         existing.is_blocker = is_blocker
+        existing.jira_created_at = issue_detail.created
+        existing.jira_updated_at = issue_detail.updated
+        existing.jira_blocker_flag = issue_detail.blocker_flag
         session.flush()
         return existing, False
+
+    @staticmethod
+    def mark_issue_changelog_complete(session: Session, issue_key: str) -> None:
+        issue = session.scalar(select(Issue).where(Issue.issue_key == issue_key))
+        if issue is None:
+            raise ValueError(f"Issue not found: {issue_key!r}")
+        issue.jira_changelog_complete = True
+        session.flush()
 
     @staticmethod
     def upsert_sprint(session: Session, sprint_ref: JiraSprintRef, project_key: str) -> tuple[Sprint, bool]:

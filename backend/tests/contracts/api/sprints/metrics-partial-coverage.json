@@ -1,0 +1,907 @@
+{
+  "sprint_id": "LHPM-SPRINT-41",
+  "ruleset_version": 2,
+  "ruleset_label": "Ruleset v2",
+  "calculation_provenance": {
+    "source_calculated_at": "2026-07-21T13:00:00+00:00",
+    "thresholds": {
+      "minimum_story_point_coverage_pct": 50.0
+    },
+    "weights": {
+      "progress_alignment": 0.4,
+      "velocity_fit": 0.3,
+      "blocker_penalty": 0.2,
+      "scope_stability": 0.1
+    },
+    "classification": {
+      "done_statuses": [
+        "closed",
+        "done",
+        "resolved"
+      ],
+      "in_progress_statuses": [
+        "in development",
+        "in progress",
+        "in review",
+        "in testing"
+      ],
+      "high_severity_values": [
+        "critical",
+        "high",
+        "highest"
+      ],
+      "bug_issue_types": [
+        "bug"
+      ],
+      "blocker_issue_types": [
+        "blocker",
+        "incident"
+      ],
+      "blocker_severity_values": [
+        "blocker",
+        "critical",
+        "highest"
+      ],
+      "blocked_statuses": [
+        "blocked"
+      ],
+      "severity_field": "priority",
+      "story_points_field": "",
+      "release_field": "fixVersions",
+      "sprint_field": "",
+      "blocker_field": "",
+      "blocker_true_values": [
+        "1",
+        "blocker",
+        "true",
+        "yes"
+      ]
+    },
+    "availability": {
+      "context": {
+        "has_tickets": true,
+        "has_story_points": true,
+        "has_completed_tickets": true,
+        "has_release_scope": false,
+        "has_sprint_scope": true,
+        "has_changelog": true
+      },
+      "metrics": {
+        "committed_scope": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "sprint_assignment"
+          ]
+        },
+        "completed_scope_pct": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "ticket_status",
+            "sprint_assignment"
+          ]
+        },
+        "open_blockers": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "sprint_assignment"
+          ]
+        },
+        "open_high_severity_bugs": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "sprint_assignment"
+          ]
+        },
+        "bugs_created_during_sprint": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "sprint_assignment"
+          ]
+        },
+        "in_progress_count": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "ticket_status",
+            "sprint_assignment"
+          ]
+        },
+        "not_started_count": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "ticket_status",
+            "sprint_assignment"
+          ]
+        },
+        "rollover_count": {
+          "status": "NOT_APPLICABLE",
+          "available": false,
+          "reason": "Unfinished closed-sprint scope applies only to closed sprints.",
+          "explanations": [
+            "Unfinished closed-sprint scope applies only to closed sprints."
+          ],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "ticket_status",
+            "sprint_assignment"
+          ]
+        },
+        "median_cycle_time_days": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "completed_tickets",
+            "history_changelog",
+            "sprint_assignment"
+          ]
+        },
+        "reopen_rate_pct": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "history_changelog",
+            "sprint_assignment"
+          ]
+        },
+        "workload_concentration_pct": {
+          "status": "NOT_COMPUTED",
+          "available": false,
+          "reason": "Workload distribution is not computed because included active story points sum to zero.",
+          "explanations": [
+            "Workload distribution is not computed because included active story points sum to zero."
+          ],
+          "missing_issue_keys": [
+            "LHPM-4102"
+          ],
+          "depends_on": [
+            "ticket_count",
+            "ticket_status",
+            "story_points",
+            "assignee_identity",
+            "sprint_assignment"
+          ]
+        },
+        "delivery_confidence_score": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "ticket_count",
+            "story_points",
+            "ticket_status",
+            "blocker_classification",
+            "sprint_duration",
+            "project_changelog_completeness",
+            "sprint_assignment"
+          ]
+        }
+      }
+    },
+    "computation_status": "PARTIAL",
+    "unavailable_reason": "Workload distribution is not computed because included active story points sum to zero.",
+    "story_point_coverage": {
+      "total_ticket_count": 2,
+      "pointed_ticket_count": 1,
+      "unpointed_ticket_count": 1,
+      "coverage_pct": 50.0,
+      "unpointed_issue_keys": [
+        "LHPM-4102"
+      ]
+    },
+    "delivery_confidence_prerequisites": {
+      "status": "COMPUTED",
+      "available": true,
+      "explanations": [],
+      "missing_issue_keys": [],
+      "evidence": {
+        "pointed_missing_status_issue_keys": [],
+        "incomplete_blocker_classification_issue_keys": [],
+        "sprint_start_at": "2026-07-22T00:00:00+00:00",
+        "sprint_end_at": "2026-08-05T00:00:00+00:00",
+        "sprint_duration_valid": true,
+        "project_issue_keys": [
+          "LHPM-3901",
+          "LHPM-3902",
+          "LHPM-4001",
+          "LHPM-4002",
+          "LHPM-4003",
+          "LHPM-4101",
+          "LHPM-4102",
+          "LHPM-4201",
+          "LHPM-4202",
+          "LHPM-4203"
+        ],
+        "incomplete_project_sprint_history_issue_keys": []
+      }
+    },
+    "workload_distribution": {
+      "status": "NOT_COMPUTED",
+      "value": null,
+      "explanations": [
+        "Workload distribution is not computed because included active story points sum to zero."
+      ],
+      "missing_issue_keys": [
+        "LHPM-4102"
+      ],
+      "evidence": {
+        "calculation_status": "NOT_COMPUTED",
+        "workload_concentration_pct": null,
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "active_issue_keys": [
+          "LHPM-4102"
+        ],
+        "included_active_issue_keys": [],
+        "excluded_active_issue_keys": [
+          "LHPM-4102"
+        ],
+        "missing_status_issue_keys": [],
+        "assignee_identity_fallback_issue_keys": [],
+        "assignee_totals": [],
+        "total_active_points": 0,
+        "top_assignee": null,
+        "risk_band": null,
+        "story_point_coverage": {
+          "total_ticket_count": 2,
+          "pointed_ticket_count": 1,
+          "unpointed_ticket_count": 1,
+          "coverage_pct": 50.0,
+          "unpointed_issue_keys": [
+            "LHPM-4102"
+          ]
+        }
+      }
+    },
+    "history_completeness": {
+      "complete_issue_keys": [
+        "LHPM-4101",
+        "LHPM-4102"
+      ],
+      "incomplete_issue_keys": [],
+      "complete_count": 2,
+      "incomplete_count": 0
+    },
+    "component_inputs": {
+      "committed_issue_count": 2,
+      "pointed_issue_count": 1,
+      "committed_effective_points": 5.0,
+      "completed_effective_points": 5.0,
+      "remaining_effective_points": 0.0,
+      "completed_scope_pct": 100.0,
+      "time_elapsed_pct": 0.0,
+      "historical_velocity": 8.0,
+      "baseline_sprint_count": 1,
+      "baseline_sprints": [
+        {
+          "sprint_id": "LHPM-SPRINT-39",
+          "coverage_pct": 100.0,
+          "status": "COMPUTED",
+          "completed_points": 8.0
+        }
+      ],
+      "velocity_status": "COMPUTED",
+      "remaining_capacity_points": 8.0,
+      "blocked_issue_ratio": 0.0,
+      "initial_commitment_count": 2,
+      "scope_change_count": 0,
+      "scope_added_count": 0,
+      "scope_removed_count": 0,
+      "scope_stability_index": 0.0,
+      "scope_change_issue_keys": [],
+      "scope_added_issue_keys": [],
+      "scope_removed_issue_keys": []
+    },
+    "component_outputs": {
+      "components": {
+        "progress_alignment": 100.0,
+        "velocity_fit": 100.0,
+        "blocker_penalty": 100.0,
+        "scope_stability": 100.0
+      },
+      "confidence_breakdown": {
+        "totalScore": 100.0,
+        "components": [
+          {
+            "id": "progress_alignment",
+            "name": "Progress Alignment",
+            "score": 100.0,
+            "maxScore": 100.0,
+            "status": "good",
+            "explanation": "Completed scope is aligned with elapsed sprint time (100.0% done vs 0.0% elapsed)."
+          },
+          {
+            "id": "velocity_fit",
+            "name": "Velocity Fit",
+            "score": 100.0,
+            "maxScore": 100.0,
+            "status": "good",
+            "explanation": "Remaining work fits within the historical velocity baseline."
+          },
+          {
+            "id": "scope_stability",
+            "name": "Scope Stability",
+            "score": 100.0,
+            "maxScore": 100.0,
+            "status": "good",
+            "explanation": "No post-start sprint scope changes were detected."
+          },
+          {
+            "id": "blocker_health",
+            "name": "Blocker Health",
+            "score": 100.0,
+            "maxScore": 100.0,
+            "status": "good",
+            "explanation": "No open blockers are affecting sprint blocker health."
+          }
+        ]
+      },
+      "biggest_driver": {
+        "title": "No Delivery Drag",
+        "category": "None",
+        "impact": 0.0,
+        "contributionPercent": 0.0,
+        "explanation": "No delivery confidence component is currently reducing the sprint score.",
+        "recommendation": "Maintain the current delivery posture and continue monitoring progress, velocity, blockers, and scope stability."
+      }
+    },
+    "issue_key_evidence": {
+      "open_blockers": [],
+      "open_high_severity_bugs": [],
+      "bugs_created_during_sprint": [],
+      "bugs_missing_jira_created_at": []
+    },
+    "metric_evidence": {
+      "open_blockers": {
+        "evaluated_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "matching_issue_keys": [],
+        "missing_status_issue_keys": [],
+        "missing_issue_type_issue_keys": [],
+        "missing_severity_issue_keys": [],
+        "indeterminate_blocker_issue_keys": []
+      },
+      "open_high_severity_bugs": {
+        "evaluated_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "matching_issue_keys": [],
+        "missing_status_issue_keys": [],
+        "missing_issue_type_issue_keys": [],
+        "missing_severity_issue_keys": []
+      },
+      "median_cycle_time_days": {
+        "scoped_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "included_issues": [
+          {
+            "issue_key": "LHPM-4101",
+            "start_at": "2026-07-17T12:00:00+00:00",
+            "end_at": "2026-07-19T12:00:00+00:00",
+            "duration_days": 2.0
+          }
+        ],
+        "missing_status_issue_keys": [],
+        "incomplete_history_issue_keys": [],
+        "no_in_progress_issue_keys": [],
+        "no_later_done_issue_keys": [],
+        "invalid_timestamp_issue_keys": []
+      },
+      "reopen_rate_pct": {
+        "scoped_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "eligible_issue_keys": [
+          "LHPM-4101"
+        ],
+        "eligible_ticket_count": 1,
+        "reopen_events": [],
+        "reopen_event_count": 0,
+        "event_count_by_issue": {},
+        "multiple_reopen_issue_keys": [],
+        "repeated_event_explanations": [],
+        "missing_status_issue_keys": [],
+        "missing_status_affecting_issue_keys": [],
+        "incomplete_history_issue_keys": []
+      },
+      "committed_scope": {
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "current_scope_count": 2
+      },
+      "completed_scope_pct": {
+        "evaluated_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "matching_issue_keys": [
+          "LHPM-4101"
+        ],
+        "missing_status_issue_keys": [],
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "current_scope_count": 2,
+        "completed_issue_keys": [
+          "LHPM-4101"
+        ]
+      },
+      "in_progress_count": {
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "current_scope_count": 2,
+        "missing_status_issue_keys": [],
+        "matching_issue_keys": []
+      },
+      "not_started_count": {
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "current_scope_count": 2,
+        "missing_status_issue_keys": [],
+        "matching_issue_keys": [
+          "LHPM-4102"
+        ]
+      },
+      "rollover_count": {
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "current_scope_count": 2,
+        "missing_status_issue_keys": [],
+        "sprint_state": "future",
+        "applicable": false,
+        "unfinished_issue_keys": [
+          "LHPM-4102"
+        ]
+      },
+      "workload_concentration_pct": {
+        "calculation_status": "NOT_COMPUTED",
+        "workload_concentration_pct": null,
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "active_issue_keys": [
+          "LHPM-4102"
+        ],
+        "included_active_issue_keys": [],
+        "excluded_active_issue_keys": [
+          "LHPM-4102"
+        ],
+        "missing_status_issue_keys": [],
+        "assignee_identity_fallback_issue_keys": [],
+        "assignee_totals": [],
+        "total_active_points": 0,
+        "top_assignee": null,
+        "risk_band": null,
+        "story_point_coverage": {
+          "total_ticket_count": 2,
+          "pointed_ticket_count": 1,
+          "unpointed_ticket_count": 1,
+          "coverage_pct": 50.0,
+          "unpointed_issue_keys": [
+            "LHPM-4102"
+          ]
+        }
+      }
+    }
+  },
+  "snapshot_at": "2026-07-21T13:00:00",
+  "computation_status": "PARTIAL",
+  "unavailable_reason": "Workload distribution is not computed because included active story points sum to zero.",
+  "metrics": {
+    "committed_scope": 2,
+    "completed_scope_pct": 50.0,
+    "open_blockers": 0,
+    "open_high_severity_bugs": 0,
+    "bugs_created_during_sprint": 0,
+    "in_progress_count": 0,
+    "not_started_count": 1,
+    "rollover_count": null,
+    "median_cycle_time_days": 2.0,
+    "reopen_rate_pct": 0.0,
+    "workload_concentration_pct": null,
+    "delivery_confidence_score": 100.0
+  },
+  "metric_issue_keys": {
+    "open_blockers": [],
+    "open_high_severity_bugs": [],
+    "bugs_created_during_sprint": [],
+    "bugs_created_during_sprint_missing_created_at": []
+  },
+  "bugs_created_during_sprint_status": "COMPUTED",
+  "metric_names": [
+    "committed_scope",
+    "completed_scope_pct",
+    "open_blockers",
+    "open_high_severity_bugs",
+    "bugs_created_during_sprint",
+    "in_progress_count",
+    "not_started_count",
+    "rollover_count",
+    "median_cycle_time_days",
+    "reopen_rate_pct",
+    "workload_concentration_pct",
+    "delivery_confidence_score"
+  ],
+  "metric_availability": {
+    "context": {
+      "has_tickets": true,
+      "has_story_points": true,
+      "has_completed_tickets": true,
+      "has_release_scope": false,
+      "has_sprint_scope": true,
+      "has_changelog": true
+    },
+    "metrics": {
+      "committed_scope": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "sprint_assignment"
+        ]
+      },
+      "completed_scope_pct": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "ticket_status",
+          "sprint_assignment"
+        ]
+      },
+      "open_blockers": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "sprint_assignment"
+        ]
+      },
+      "open_high_severity_bugs": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "sprint_assignment"
+        ]
+      },
+      "bugs_created_during_sprint": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "sprint_assignment"
+        ]
+      },
+      "in_progress_count": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "ticket_status",
+          "sprint_assignment"
+        ]
+      },
+      "not_started_count": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "ticket_status",
+          "sprint_assignment"
+        ]
+      },
+      "rollover_count": {
+        "status": "NOT_APPLICABLE",
+        "available": false,
+        "reason": "Unfinished closed-sprint scope applies only to closed sprints.",
+        "explanations": [
+          "Unfinished closed-sprint scope applies only to closed sprints."
+        ],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "ticket_status",
+          "sprint_assignment"
+        ]
+      },
+      "median_cycle_time_days": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "completed_tickets",
+          "history_changelog",
+          "sprint_assignment"
+        ]
+      },
+      "reopen_rate_pct": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "history_changelog",
+          "sprint_assignment"
+        ]
+      },
+      "workload_concentration_pct": {
+        "status": "NOT_COMPUTED",
+        "available": false,
+        "reason": "Workload distribution is not computed because included active story points sum to zero.",
+        "explanations": [
+          "Workload distribution is not computed because included active story points sum to zero."
+        ],
+        "missing_issue_keys": [
+          "LHPM-4102"
+        ],
+        "depends_on": [
+          "ticket_count",
+          "ticket_status",
+          "story_points",
+          "assignee_identity",
+          "sprint_assignment"
+        ]
+      },
+      "delivery_confidence_score": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "ticket_count",
+          "story_points",
+          "ticket_status",
+          "blocker_classification",
+          "sprint_duration",
+          "project_changelog_completeness",
+          "sprint_assignment"
+        ]
+      }
+    }
+  },
+  "story_point_coverage": {
+    "total_ticket_count": 2,
+    "pointed_ticket_count": 1,
+    "unpointed_ticket_count": 1,
+    "coverage_pct": 50.0,
+    "unpointed_issue_keys": [
+      "LHPM-4102"
+    ]
+  },
+  "delivery_confidence_status": "PARTIAL",
+  "delivery_confidence_explanations": [
+    "Delivery confidence is partial because 1 of 2 sprint tickets have story points. Point-based calculations use tickets with available story points, while blocker and scope calculations use the complete sprint scope.",
+    "When all sprint tickets have story points, delivery confidence uses the complete sprint scope and returns the accurate value for the documented model. The PARTIAL label and these remarks are then removed."
+  ],
+  "delivery_confidence": {
+    "score": 100.0,
+    "weights": {
+      "progress_alignment": 0.4,
+      "velocity_fit": 0.3,
+      "blocker_penalty": 0.2,
+      "scope_stability": 0.1
+    },
+    "components": {
+      "progress_alignment": 100.0,
+      "velocity_fit": 100.0,
+      "blocker_penalty": 100.0,
+      "scope_stability": 100.0
+    },
+    "inputs": {
+      "committed_issue_count": 2,
+      "pointed_issue_count": 1,
+      "initial_commitment_count": 2,
+      "committed_effective_points": 5.0,
+      "completed_effective_points": 5.0,
+      "remaining_effective_points": 0.0,
+      "completed_scope_pct": 100.0,
+      "time_elapsed_pct": 0.0,
+      "historical_velocity": 8.0,
+      "baseline_sprint_count": 1,
+      "baseline_sprints": [
+        {
+          "sprint_id": "LHPM-SPRINT-39",
+          "coverage_pct": 100.0,
+          "status": "COMPUTED",
+          "completed_points": 8.0
+        }
+      ],
+      "velocity_status": "COMPUTED",
+      "remaining_capacity_points": 8.0,
+      "blocked_issue_ratio": 0.0,
+      "scope_change_count": 0,
+      "scope_added_count": 0,
+      "scope_removed_count": 0,
+      "scope_stability_index": 0.0,
+      "scope_change_issue_keys": [],
+      "scope_added_issue_keys": [],
+      "scope_removed_issue_keys": []
+    }
+  },
+  "workload_distribution": {
+    "status": "NOT_COMPUTED",
+    "percentage": null,
+    "explanations": [
+      "Workload distribution is not computed because included active story points sum to zero."
+    ],
+    "evidence": {
+      "calculation_status": "NOT_COMPUTED",
+      "workload_concentration_pct": null,
+      "current_scope_issue_keys": [
+        "LHPM-4101",
+        "LHPM-4102"
+      ],
+      "active_issue_keys": [
+        "LHPM-4102"
+      ],
+      "included_active_issue_keys": [],
+      "excluded_active_issue_keys": [
+        "LHPM-4102"
+      ],
+      "missing_status_issue_keys": [],
+      "assignee_identity_fallback_issue_keys": [],
+      "assignee_totals": [],
+      "total_active_points": 0.0,
+      "top_assignee": null,
+      "risk_band": null,
+      "story_point_coverage": {
+        "total_ticket_count": 2,
+        "pointed_ticket_count": 1,
+        "unpointed_ticket_count": 1,
+        "coverage_pct": 50.0,
+        "unpointed_issue_keys": [
+          "LHPM-4102"
+        ]
+      }
+    }
+  },
+  "confidence_breakdown": {
+    "totalScore": 100.0,
+    "components": [
+      {
+        "id": "progress_alignment",
+        "name": "Progress Alignment",
+        "score": 100.0,
+        "maxScore": 100.0,
+        "status": "good",
+        "explanation": "Completed scope is aligned with elapsed sprint time (100.0% done vs 0.0% elapsed)."
+      },
+      {
+        "id": "velocity_fit",
+        "name": "Velocity Fit",
+        "score": 100.0,
+        "maxScore": 100.0,
+        "status": "good",
+        "explanation": "Remaining work fits within the historical velocity baseline."
+      },
+      {
+        "id": "scope_stability",
+        "name": "Scope Stability",
+        "score": 100.0,
+        "maxScore": 100.0,
+        "status": "good",
+        "explanation": "No post-start sprint scope changes were detected."
+      },
+      {
+        "id": "blocker_health",
+        "name": "Blocker Health",
+        "score": 100.0,
+        "maxScore": 100.0,
+        "status": "good",
+        "explanation": "No open blockers are affecting sprint blocker health."
+      }
+    ]
+  },
+  "biggest_driver": {
+    "title": "No Delivery Drag",
+    "category": "None",
+    "impact": 0.0,
+    "contributionPercent": 0.0,
+    "explanation": "No delivery confidence component is currently reducing the sprint score.",
+    "recommendation": "Maintain the current delivery posture and continue monitoring progress, velocity, blockers, and scope stability."
+  },
+  "recommendations": [
+    {
+      "title": "Complete committed work",
+      "description": "Refocus on finishing committed work that is closest to done.",
+      "priority": 1,
+      "confidenceImpact": 5,
+      "effort": "medium",
+      "category": "Delivery",
+      "dataStatus": "COMPUTED",
+      "explanations": []
+    }
+  ],
+  "is_computed": true,
+  "snapshot_age_hours": 6.0
+}

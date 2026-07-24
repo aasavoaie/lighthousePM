@@ -27,6 +27,7 @@ export function IssueDetailModal({ issueKey, onClose }: IssueDetailModalProps) {
     async function loadIssue() {
       setIsLoading(true);
       setErrorMessage(null);
+      setIssue(null);
       try {
         const response = await apiClient.getIssue(currentIssueKey);
         if (!isActive) {
@@ -53,31 +54,46 @@ export function IssueDetailModal({ issueKey, onClose }: IssueDetailModalProps) {
     };
   }, [issueKey]);
 
+  useEffect(() => {
+    if (!issueKey) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [issueKey, onClose]);
+
   if (!issueKey) {
     return null;
   }
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Issue details">
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="issue-detail-title">
       <div className="modal-content">
         <div className="panel-heading">
-          <h2>Issue {issueKey}</h2>
+          <h2 id="issue-detail-title">Issue {issueKey}</h2>
           <button type="button" className="secondary-button" onClick={onClose}>
             Close
           </button>
         </div>
 
-        {isLoading ? <p className="muted">Loading issue...</p> : null}
-        {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+        {isLoading ? <p className="muted" role="status">Loading issue...</p> : null}
+        {errorMessage ? <p className="error-text" role="alert">{errorMessage}</p> : null}
 
         {!isLoading && !errorMessage && issue ? (
           <dl className="issue-detail-grid">
             <dt>Summary</dt>
             <dd>{issue.summary}</dd>
             <dt>Type</dt>
-            <dd>{issue.issue_type}</dd>
+            <dd>{issue.issue_type ?? "Unavailable"}</dd>
             <dt>Status</dt>
-            <dd>{issue.status}</dd>
+            <dd>{issue.status ?? "Unavailable"}</dd>
             <dt>Priority</dt>
             <dd>{issue.priority ?? "N/A"}</dd>
             <dt>Assignee</dt>
@@ -88,8 +104,8 @@ export function IssueDetailModal({ issueKey, onClose }: IssueDetailModalProps) {
             <dd>{issue.release_id ?? "None"}</dd>
             <dt>Blocker</dt>
             <dd>{issue.is_blocker ? "Yes" : "No"}</dd>
-            <dt>Created</dt>
-            <dd>{new Date(issue.created_at).toLocaleString()}</dd>
+            <dt>Jira created</dt>
+            <dd>{issue.jira_created_at ? new Date(issue.jira_created_at).toLocaleString() : "Unavailable"}</dd>
             <dt>Updated</dt>
             <dd>{new Date(issue.updated_at).toLocaleString()}</dd>
           </dl>

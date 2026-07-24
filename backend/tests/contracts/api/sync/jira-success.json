@@ -1,0 +1,17 @@
+{
+  "project_key": "LHPM",
+  "releases_fetched": 3,
+  "releases_inserted": 2,
+  "releases_updated": 1,
+  "sprints_inserted": 4,
+  "sprints_updated": 2,
+  "issues_fetched": 27,
+  "issues_inserted": 20,
+  "issues_updated": 5,
+  "issues_skipped": 2,
+  "issue_details_skipped_unchanged": 2,
+  "history_fetched": 41,
+  "history_inserted": 38,
+  "history_skipped": 3,
+  "changelogs_skipped_unchanged": 2
+}

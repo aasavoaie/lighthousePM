@@ -1,0 +1,15 @@
+{
+  "item": {
+    "sprint_id": "LHPM-SPRINT-42",
+    "name": "Sprint 42 Complete",
+    "state": "active",
+    "project_key": "LHPM",
+    "board_id": "board-7",
+    "start_date": "2026-07-14T00:00:00",
+    "end_date": "2026-07-28T00:00:00",
+    "complete_date": null,
+    "goal": "Protect complete delivery and reopen evidence.",
+    "created_at": "2026-05-20T11:00:00",
+    "updated_at": "2026-07-14T08:00:00"
+  }
+}

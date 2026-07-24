@@ -9,7 +9,12 @@ from app.schemas.admin import AdminStatusResponse
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/status", response_model=AdminStatusResponse)
+@router.get(
+    "/status",
+    response_model=AdminStatusResponse,
+    operation_id="get_admin_status",
+    summary="Get administration status",
+)
 def get_admin_status(session: Session = Depends(get_db_session)) -> AdminStatusResponse:
     settings = get_settings()
     status = OperationalStatusRepository.get_status_or_none(session=session)
