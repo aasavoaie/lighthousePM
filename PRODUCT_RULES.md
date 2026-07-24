@@ -2664,6 +2664,53 @@ The sync endpoint response and status endpoint must use structured fields. The
 frontend may display these markers near project sync controls, but must not
 infer freshness from local browser time alone.
 
+## Code-Split Heavy Frontend Screens
+
+Status: **Approved — Phase 7.4**
+
+LighthousePM reduces the initial frontend bundle by loading heavy, non-default
+screens only when they are needed. This is a performance and UX improvement
+only; it must not change metric formulas, API contracts, stored data,
+authentication rules, or `ruleset_version`.
+
+The frontend keeps the current single React application structure. It must not
+add a router, global state framework, or generic component-loading abstraction
+for this phase.
+
+The application shell remains eagerly loaded, including:
+
+1. top-level authentication and workspace state;
+2. navigation;
+3. active project and release selection;
+4. overview entry screen; and
+5. shared layout components.
+
+The following heavier screens should be split behind lazy-loaded boundaries:
+
+1. release reports and report export UI;
+2. chart-heavy release/sprint views where they are not part of the initial
+   overview path;
+3. settings/configuration screen;
+4. admin/operational screen; and
+5. documentation/about knowledge screens.
+
+Lazy loading must preserve existing behavior:
+
+1. no duplicate API requests caused only by loading a chunk;
+2. no loss of selected project, release, sprint, issue, or focused metric
+   state;
+3. navigation remains locked while Jira sync is running;
+4. loading fallbacks are accessible and user-visible;
+5. failed dynamic imports show a clear error instead of a blank screen; and
+6. presentational components remain free of API ownership unless already
+   approved.
+
+Verification must include frontend assertions and production build evidence.
+The build should show separate chunks for the lazy-loaded heavy screens.
+Existing bundle-size warnings may remain visible, but Phase 7.4 should reduce
+the initial application bundle by moving non-initial screens out of the first
+loaded chunk.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -2816,5 +2863,5 @@ interpretation unless a later approved product rule explicitly requires it.
 | 7.1 | Persist Jira issue update timestamps and use them to support deterministic incremental synchronization | Approved |
 | 7.2 | Avoid refetching unchanged Jira issue details and changelogs while preserving reproducible stored data | Approved |
 | 7.3 | Add per-project sync progress, last-success markers, and clear failure state visibility | Approved |
-| 7.4 | Code-split heavy frontend screens such as reporting, charts, settings, and documentation to reduce the production bundle | Proposed |
+| 7.4 | Code-split heavy frontend screens such as reporting, charts, settings, and documentation to reduce the production bundle | Approved |
 | 7.5 | Define snapshot-retention rules only if long-running installations show meaningful storage growth | Proposed |

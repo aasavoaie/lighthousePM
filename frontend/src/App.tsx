@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 
 import type { MetricValues, JiraConfigurationResponse } from "./api/types";
 import {
@@ -7,19 +7,78 @@ import {
   shouldShowDetailHeader,
   type AppTab,
 } from "./appNavigation";
-import { AdminPanel } from "./components/AdminPanel";
 import { AppSidebar } from "./components/AppSidebar";
 import { DetailHeader } from "./components/DetailHeader";
 import { IssueDetailModal } from "./components/IssueDetailModal";
 import { ReleaseWorkspaceControls } from "./components/ReleaseWorkspaceControls";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { SprintsPanel } from "./components/SprintsPanel";
 import { WorkspaceHeader } from "./components/WorkspaceHeader";
 import { useReleaseWorkspace } from "./hooks/useReleaseWorkspace";
-import { AboutKnowledgePanel } from "./pages/AboutKnowledgePanel";
 import { OverviewPage } from "./pages/OverviewPage";
-import { ReleaseCommandPage } from "./pages/ReleaseCommandPage";
-import { ReleaseReportsPage } from "./pages/ReleaseReportsPage";
+
+const AdminPanel = lazy(() =>
+  import("./components/AdminPanel").then(({ AdminPanel }) => ({ default: AdminPanel }))
+);
+const SettingsPanel = lazy(() =>
+  import("./components/SettingsPanel").then(({ SettingsPanel }) => ({ default: SettingsPanel }))
+);
+const SprintsPanel = lazy(() =>
+  import("./components/SprintsPanel").then(({ SprintsPanel }) => ({ default: SprintsPanel }))
+);
+const AboutKnowledgePanel = lazy(() =>
+  import("./pages/AboutKnowledgePanel").then(({ AboutKnowledgePanel }) => ({ default: AboutKnowledgePanel }))
+);
+const ReleaseCommandPage = lazy(() =>
+  import("./pages/ReleaseCommandPage").then(({ ReleaseCommandPage }) => ({ default: ReleaseCommandPage }))
+);
+const ReleaseReportsPage = lazy(() =>
+  import("./pages/ReleaseReportsPage").then(({ ReleaseReportsPage }) => ({ default: ReleaseReportsPage }))
+);
+
+type LazyScreenErrorBoundaryProps = {
+  children: ReactNode;
+  screenKey: AppTab;
+};
+
+type LazyScreenErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class LazyScreenErrorBoundary extends Component<
+  LazyScreenErrorBoundaryProps,
+  LazyScreenErrorBoundaryState
+> {
+  state: LazyScreenErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): LazyScreenErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidUpdate(previousProps: LazyScreenErrorBoundaryProps) {
+    if (previousProps.screenKey !== this.props.screenKey && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="panel error-panel" role="alert">
+          This screen could not be loaded. Try another section, then return here.
+        </section>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function LazyScreenFallback() {
+  return (
+    <section className="panel" role="status" aria-live="polite">
+      Loading workspace screen...
+    </section>
+  );
+}
 
 export default function App() {
   const {
@@ -127,7 +186,11 @@ export default function App() {
         />
 
         <main className={selectedTab === "overview" ? "overview-grid" : "dashboard-grid detail-dashboard-grid"}>
-          {errorMessage && selectedTab !== "admin" ? <div className="panel error-panel" role="alert">{errorMessage}</div> : null}
+          {errorMessage && selectedTab !== "admin" ? (
+            <div className="panel error-panel" role="alert">
+              {errorMessage}
+            </div>
+          ) : null}
 
           {shouldShowDetailHeader(selectedTab) ? (
             <DetailHeader
@@ -161,67 +224,71 @@ export default function App() {
             />
           ) : null}
 
-          {selectedTab === "release-command" ? (
-            <ReleaseCommandPage
-              releases={workspaceReleases}
-              selectedProjectKey={activeProjectKey}
-              selectedReleaseId={selectedWorkspaceReleaseId}
-              selectedRelease={selectedRelease}
-              metrics={metrics}
-              charts={charts}
-              signal={signal}
-              refreshNonce={dashboardRefreshNonce}
-              isLoadingReleases={isLoadingReleases}
-              isLoadingDetails={isLoadingDetails}
-              isRecomputingRelease={isRecomputingRelease}
-              focusedMetricName={focusedReleaseMetricName}
-              onSelectRelease={setSelectedReleaseId}
-              onRecomputeRelease={handleRecomputeRelease}
-              onSelectIssue={setSelectedIssueKey}
-            />
-          ) : null}
+          <LazyScreenErrorBoundary screenKey={selectedTab}>
+            <Suspense fallback={<LazyScreenFallback />}>
+              {selectedTab === "release-command" ? (
+                <ReleaseCommandPage
+                  releases={workspaceReleases}
+                  selectedProjectKey={activeProjectKey}
+                  selectedReleaseId={selectedWorkspaceReleaseId}
+                  selectedRelease={selectedRelease}
+                  metrics={metrics}
+                  charts={charts}
+                  signal={signal}
+                  refreshNonce={dashboardRefreshNonce}
+                  isLoadingReleases={isLoadingReleases}
+                  isLoadingDetails={isLoadingDetails}
+                  isRecomputingRelease={isRecomputingRelease}
+                  focusedMetricName={focusedReleaseMetricName}
+                  onSelectRelease={setSelectedReleaseId}
+                  onRecomputeRelease={handleRecomputeRelease}
+                  onSelectIssue={setSelectedIssueKey}
+                />
+              ) : null}
 
-          {selectedWorkspaceReleaseId && selectedTab === "release-reports" ? (
-            <ReleaseReportsPage
-              releases={workspaceReleases}
-              selectedProjectKey={activeProjectKey}
-              selectedReleaseId={selectedWorkspaceReleaseId}
-              selectedRelease={selectedRelease}
-              metrics={metrics}
-              charts={charts}
-              signal={signal}
-              refreshNonce={dashboardRefreshNonce}
-              isLoading={isLoadingDetails}
-              onSelectIssue={setSelectedIssueKey}
-            />
-          ) : null}
+              {selectedWorkspaceReleaseId && selectedTab === "release-reports" ? (
+                <ReleaseReportsPage
+                  releases={workspaceReleases}
+                  selectedProjectKey={activeProjectKey}
+                  selectedReleaseId={selectedWorkspaceReleaseId}
+                  selectedRelease={selectedRelease}
+                  metrics={metrics}
+                  charts={charts}
+                  signal={signal}
+                  refreshNonce={dashboardRefreshNonce}
+                  isLoading={isLoadingDetails}
+                  onSelectIssue={setSelectedIssueKey}
+                />
+              ) : null}
 
-          {sprintWorkspaceMode ? (
-            <SprintsPanel
-              refreshNonce={dashboardRefreshNonce}
-              onSelectIssue={setSelectedIssueKey}
-              mode={sprintWorkspaceMode}
-              projectKey={activeProjectKey}
-            />
-          ) : null}
+              {sprintWorkspaceMode ? (
+                <SprintsPanel
+                  refreshNonce={dashboardRefreshNonce}
+                  onSelectIssue={setSelectedIssueKey}
+                  mode={sprintWorkspaceMode}
+                  projectKey={activeProjectKey}
+                />
+              ) : null}
 
-          {selectedTab === "admin" ? (
-            <AdminPanel
-              onRecomputeAll={handleRecomputeAll}
-              isRecomputingAll={isRecomputingAll}
-              recomputeMessage={recomputeMessage}
-              onOperationalDataChanged={handleOperationalDataChanged}
-              onSyncStateChange={setIsSyncingJira}
-            />
-          ) : null}
+              {selectedTab === "admin" ? (
+                <AdminPanel
+                  onRecomputeAll={handleRecomputeAll}
+                  isRecomputingAll={isRecomputingAll}
+                  recomputeMessage={recomputeMessage}
+                  onOperationalDataChanged={handleOperationalDataChanged}
+                  onSyncStateChange={setIsSyncingJira}
+                />
+              ) : null}
 
-          {selectedTab === "settings" ? (
-            <SettingsPanel onConfigurationSaved={handleConfigurationSaved} />
-          ) : null}
+              {selectedTab === "settings" ? (
+                <SettingsPanel onConfigurationSaved={handleConfigurationSaved} />
+              ) : null}
 
-          {selectedTab === "about-overview" ? <AboutKnowledgePanel page="overview" /> : null}
-          {selectedTab === "about-releases" ? <AboutKnowledgePanel page="releases" /> : null}
-          {selectedTab === "about-sprints" ? <AboutKnowledgePanel page="sprints" /> : null}
+              {selectedTab === "about-overview" ? <AboutKnowledgePanel page="overview" /> : null}
+              {selectedTab === "about-releases" ? <AboutKnowledgePanel page="releases" /> : null}
+              {selectedTab === "about-sprints" ? <AboutKnowledgePanel page="sprints" /> : null}
+            </Suspense>
+          </LazyScreenErrorBoundary>
         </main>
 
         {selectedTab === "overview" ? (
