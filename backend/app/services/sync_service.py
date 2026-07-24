@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -165,6 +166,7 @@ class SyncService:
         result = SyncResult(project_key=project_key)
         recompute_release_count = 0
         sprint_ids_seen: set[str] = set()
+        accepted_issue_updated_at: list[datetime] = []
 
         logger.info("jira_sync_started project_key=%s", project_key)
 
@@ -241,6 +243,8 @@ class SyncService:
                     result.issues_inserted += 1
                 else:
                     result.issues_updated += 1
+                if issue_detail.updated is not None:
+                    accepted_issue_updated_at.append(issue_detail.updated)
 
                 SyncRepository.replace_issue_sprints(
                     session=session,
@@ -302,6 +306,11 @@ class SyncService:
             )
 
             OperationalStatusRepository.mark_sync_succeeded(session=session)
+            SyncRepository.mark_project_sync_succeeded(
+                session=session,
+                project_key=project_key,
+                jira_updated_cursor=max(accepted_issue_updated_at, default=None),
+            )
 
             session.commit()
         except JiraServiceError as exc:

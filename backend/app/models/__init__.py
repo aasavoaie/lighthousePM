@@ -3,6 +3,7 @@
 from app.models.issue_history import IssueHistory
 from app.models.issue_sprints import IssueSprint
 from app.models.issues import Issue
+from app.models.jira_project_sync_state import JiraProjectSyncState
 from app.models.metric_snapshots import MetricSnapshot
 from app.models.operational_status import OperationalStatus
 from app.models.release_signals import ReleaseSignal
@@ -14,6 +15,7 @@ __all__ = [
 	"Issue",
 	"IssueHistory",
 	"IssueSprint",
+	"JiraProjectSyncState",
 	"MetricSnapshot",
 	"OperationalStatus",
 	"Release",

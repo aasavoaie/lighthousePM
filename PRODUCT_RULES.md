@@ -2576,6 +2576,35 @@ and CI-only results that have not actually run. Existing warnings, including
 the frontend bundle-size warning, remain visible. Delivery-control and IPC
 security changes do not alter metric meaning, so `ruleset_version` remains `2`.
 
+## Jira Incremental Sync State
+
+Status: **Approved — Phase 7.1**
+
+LighthousePM persists Jira freshness from Jira's own issue `updated` timestamp
+so synchronization can become incremental without making local clock time part
+of metric meaning. The stored Jira update timestamp is issue data: it records
+the latest authoritative modification time observed from Jira for that issue.
+It is separate from local ingestion time, metric snapshot time, and release or
+sprint ruleset provenance.
+
+Each Jira project sync may persist a last-success marker or cursor derived from
+the Jira update timestamps successfully processed for that project. A successful
+incremental sync may advance this marker only after the sync transaction has
+durably stored all accepted issue data and changelog data needed by the current
+rules. Failed, cancelled, rejected, or partially persisted sync attempts must
+not advance the marker.
+
+First sync and explicit full sync remain supported. When no marker exists, when
+the marker is invalid, or when incremental Jira queries fail in a way that
+prevents trustworthy freshness filtering, the service falls back to the
+existing full-sync behavior and reports the fallback reason. Incremental sync
+does not change metric formulas, thresholds, availability rules, evidence
+requirements, snapshot interpretation, or `ruleset_version`.
+
+Tests must cover first sync with no marker, successful marker advancement,
+unchanged Jira issues, changed Jira issues, failed sync preserving the previous
+marker, and fallback to full sync when incremental freshness cannot be trusted.
+
 ## Change Control
 
 Any change to a metric, signal, threshold, availability rule, or classification
@@ -2715,3 +2744,18 @@ behavior or the approved single-service architecture.
 | 6.9 | Normalize line endings and remove generated, logged, metadata, and accidental tracked artifacts through isolated safeguards and commits | Approved |
 | 6.10 | Declare every direct backend, frontend, desktop, and test/build dependency and enforce platform-specific reproducible locks | Approved |
 | 6.11 | Require complete backend, PostgreSQL, frontend, desktop, Docker, contract, dependency, hygiene, and documentation verification | Approved |
+
+## Phase 7 Decision Register
+
+Phase 7 improves sync performance and user experience after correctness,
+security, architecture, and delivery controls are stable. It must not change
+metric formulas, ruleset meaning, signal thresholds, or stored historical
+interpretation unless a later approved product rule explicitly requires it.
+
+| Point | Decision | Status |
+|---|---|---|
+| 7.1 | Persist Jira issue update timestamps and use them to support deterministic incremental synchronization | Approved |
+| 7.2 | Avoid refetching unchanged Jira issue details and changelogs while preserving reproducible stored data | Proposed |
+| 7.3 | Add per-project sync progress, last-success markers, and clear failure state visibility | Proposed |
+| 7.4 | Code-split heavy frontend screens such as reporting, charts, settings, and documentation to reduce the production bundle | Proposed |
+| 7.5 | Define snapshot-retention rules only if long-running installations show meaningful storage growth | Proposed |

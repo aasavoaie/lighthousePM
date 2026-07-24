@@ -67,7 +67,7 @@ def test_migration_graph_has_single_head() -> None:
         str(Path(__file__).resolve().parents[1] / "alembic"),
     )
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260720_0017"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260724_0018"]
 
 
 def test_create_database_engine_supports_file_backed_sqlite(tmp_path: Path) -> None:
@@ -133,6 +133,7 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "issue_history",
         "issue_sprints",
         "issues",
+        "jira_project_sync_state",
         "metric_snapshots",
         "operational_status",
         "release_signals",
@@ -140,7 +141,7 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "sprint_metric_snapshots",
         "sprints",
     }.issubset(table_names)
-    assert current_revision == "20260720_0017"
+    assert current_revision == "20260724_0018"
     assert revision_after_second_start == current_revision
     assert {
         "completed_tickets",
@@ -200,6 +201,14 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "risk_aging_evidence",
         "calculated_at",
     }.issubset(signal_columns)
+    sync_state_columns = {
+        column["name"] for column in schema.get_columns("jira_project_sync_state")
+    }
+    assert {
+        "project_key",
+        "last_successful_jira_updated_at",
+        "last_successful_sync_at",
+    }.issubset(sync_state_columns)
 
 
 def test_nullable_issue_classification_migration_round_trip(tmp_path: Path) -> None:
@@ -512,12 +521,12 @@ def test_migrate_database_upgrades_unversioned_legacy_sqlite_and_preserves_data(
         assert "ruleset_version" in {column["name"] for column in schema.get_columns("metric_snapshots")}
         assert "jira_created_at" in {column["name"] for column in schema.get_columns("issues")}
         with database_engine.connect() as connection:
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260720_0017"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260724_0018"
             assert connection.scalar(
                 text("SELECT name FROM releases WHERE release_id = 'legacy-release'")
             ) == "Legacy release"
 
-        backup_path = tmp_path / "legacy.db.pre-20260720_0017.bak"
+        backup_path = tmp_path / "legacy.db.pre-20260724_0018.bak"
         assert backup_path.is_file()
         backup_mtime = backup_path.stat().st_mtime_ns
 

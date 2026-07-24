@@ -1,10 +1,15 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Issue, IssueHistory, IssueSprint, Release, Sprint
-from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraSprintRef, JiraVersion
+from app.models import Issue, IssueHistory, IssueSprint, JiraProjectSyncState, Release, Sprint
+from app.services.jira_types import (
+    JiraChangelogEntry,
+    JiraIssueDetail,
+    JiraSprintRef,
+    JiraVersion,
+)
 
 
 def _parse_iso_date(value: str | None) -> datetime | None:
@@ -28,6 +33,36 @@ def _parse_jira_datetime(value: str | None) -> datetime | None:
 
 class SyncRepository:
     """Write-oriented persistence helpers for Jira sync."""
+
+    @staticmethod
+    def get_project_sync_state(
+        session: Session,
+        project_key: str,
+    ) -> JiraProjectSyncState | None:
+        return session.scalar(
+            select(JiraProjectSyncState).where(
+                JiraProjectSyncState.project_key == project_key
+            )
+        )
+
+    @staticmethod
+    def mark_project_sync_succeeded(
+        session: Session,
+        project_key: str,
+        jira_updated_cursor: datetime | None,
+    ) -> JiraProjectSyncState:
+        state = SyncRepository.get_project_sync_state(
+            session=session,
+            project_key=project_key,
+        )
+        if state is None:
+            state = JiraProjectSyncState(project_key=project_key)
+            session.add(state)
+
+        state.last_successful_jira_updated_at = jira_updated_cursor
+        state.last_successful_sync_at = datetime.now(UTC)
+        session.flush()
+        return state
 
     @staticmethod
     def upsert_release(session: Session, version: JiraVersion) -> tuple[Release, bool]:

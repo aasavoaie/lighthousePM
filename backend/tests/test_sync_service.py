@@ -8,7 +8,15 @@ from sqlalchemy.pool import StaticPool
 
 from app.config import Settings
 from app.db.base import Base
-from app.models import Issue, IssueHistory, MetricSnapshot, OperationalStatus, Release, ReleaseSignal
+from app.models import (
+    Issue,
+    IssueHistory,
+    JiraProjectSyncState,
+    MetricSnapshot,
+    OperationalStatus,
+    Release,
+    ReleaseSignal,
+)
 from app.services.jira_errors import JiraAuthError
 from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraIssueSummary, JiraVersion
 from app.services.sync_service import SyncService, SyncServiceError
@@ -164,6 +172,13 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert issues[0].jira_created_at == FakeJiraService.jira_created_at.replace(tzinfo=None)
     assert issues[0].jira_updated_at == FakeJiraService.jira_updated_at.replace(tzinfo=None)
     assert issues[0].jira_changelog_complete is True
+    sync_state = db_session.scalar(select(JiraProjectSyncState))
+    assert sync_state is not None
+    assert sync_state.project_key == "LHPM"
+    assert sync_state.last_successful_jira_updated_at == (
+        FakeJiraService.jira_updated_at.replace(tzinfo=None)
+    )
+    assert sync_state.last_successful_sync_at is not None
 
     status = db_session.scalar(select(OperationalStatus))
     assert status is not None
@@ -266,6 +281,74 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     assert len(signals) == 2
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
     assert all(signal.ruleset_version == 2 for signal in signals)
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_advances_project_cursor_from_changed_issue_timestamp(
+    db_session: Session,
+) -> None:
+    class MutableUpdatedJiraService(FakeJiraService):
+        def __init__(self) -> None:
+            self.updated = datetime(2026, 4, 1, 10, 0, tzinfo=UTC)
+
+        async def search_issues(
+            self,
+            jql: str,
+            next_page_token: str | None = None,
+            max_results: int = 50,
+            fields: list[str] | None = None,
+        ) -> tuple[list[JiraIssueSummary], str | None]:
+            issues, token = await super().search_issues(
+                jql=jql,
+                next_page_token=next_page_token,
+                max_results=max_results,
+                fields=fields,
+            )
+            for issue in issues:
+                issue.updated = self.updated
+            return issues, token
+
+        async def get_issue_details(self, issue_key: str, fields: list[str] | None = None) -> JiraIssueDetail:
+            detail = await super().get_issue_details(issue_key=issue_key, fields=fields)
+            detail.updated = self.updated
+            return detail
+
+    jira_service = MutableUpdatedJiraService()
+    service = SyncService(jira_service=jira_service, settings=_test_settings())
+
+    await service.sync_from_jira(session=db_session)
+    jira_service.updated = datetime(2026, 4, 3, 12, 30, tzinfo=UTC)
+    await service.sync_from_jira(session=db_session)
+
+    sync_state = db_session.scalar(select(JiraProjectSyncState))
+    assert sync_state is not None
+    assert sync_state.last_successful_jira_updated_at == (
+        jira_service.updated.replace(tzinfo=None)
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_from_jira_failure_preserves_project_cursor(db_session: Session) -> None:
+    service = SyncService(jira_service=FakeJiraService(), settings=_test_settings())
+    await service.sync_from_jira(session=db_session)
+    original_sync_state = db_session.scalar(select(JiraProjectSyncState))
+    assert original_sync_state is not None
+    original_cursor = original_sync_state.last_successful_jira_updated_at
+    original_success_time = original_sync_state.last_successful_sync_at
+
+    class FailingJiraService(FakeJiraService):
+        async def get_project_versions(self, project_key: str) -> list[JiraVersion]:
+            raise RuntimeError("Jira unavailable")
+
+    failing_service = SyncService(jira_service=FailingJiraService(), settings=_test_settings())
+
+    with pytest.raises(SyncServiceError, match="Unexpected sync failure"):
+        await failing_service.sync_from_jira(session=db_session)
+
+    sync_state = db_session.scalar(select(JiraProjectSyncState))
+    assert sync_state is not None
+    assert sync_state.last_successful_jira_updated_at == original_cursor
+    assert sync_state.last_successful_sync_at == original_success_time
 
 
 @pytest.mark.asyncio
