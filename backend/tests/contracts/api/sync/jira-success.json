@@ -9,7 +9,9 @@
   "issues_inserted": 20,
   "issues_updated": 5,
   "issues_skipped": 2,
+  "issue_details_skipped_unchanged": 2,
   "history_fetched": 41,
   "history_inserted": 38,
-  "history_skipped": 3
+  "history_skipped": 3,
+  "changelogs_skipped_unchanged": 2
 }

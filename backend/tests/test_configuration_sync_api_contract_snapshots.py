@@ -142,9 +142,11 @@ def test_successful_jira_sync_response_matches_contract(
             "issues_inserted": 20,
             "issues_updated": 5,
             "issues_skipped": 2,
+            "issue_details_skipped_unchanged": 2,
             "history_fetched": 41,
             "history_inserted": 38,
             "history_skipped": 3,
+            "changelogs_skipped_unchanged": 2,
         }
 
     monkeypatch.setattr(
