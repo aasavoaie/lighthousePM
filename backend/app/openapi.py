@@ -1,5 +1,5 @@
 from collections.abc import Callable, Iterable, Iterator
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
@@ -12,7 +12,10 @@ try:
 except ImportError:  # pragma: no cover - exercised by older local FastAPI installs.
     _fastapi_iter_route_contexts = None
 else:
-    _fastapi_iter_route_contexts = _imported_iter_route_contexts
+    _fastapi_iter_route_contexts = cast(
+        Callable[[Iterable[Any]], Iterable[Any]],
+        _imported_iter_route_contexts,
+    )
 
 
 APPLICATION_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
