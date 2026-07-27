@@ -115,8 +115,20 @@ timestamps.
 ### `POST /sync/jira`
 
 Runs Jira ingestion and downstream release and sprint recomputation. The
-response reports fetched, inserted, updated, and skipped counts for releases,
-sprints, issues, and history.
+response reports the effective sync mode, any full-fetch fallback reason,
+whether the project cursor advanced, and fetched, inserted, updated, failed,
+duplicate, and unchanged-skip counts for releases, sprints, issues, and
+history.
+
+Query parameter:
+
+- `mode`: `incremental` or `full`; default `incremental`.
+
+Both modes scan the complete project issue-summary inventory. Incremental mode
+skips trusted unchanged issue details and changelogs. Full mode refetches every
+detail and changelog. When no trusted cursor exists, incremental mode reports a
+fallback and performs full detail fetching. Any issue-detail fetch failure
+preserves the previous cursor so the issue remains eligible for retry.
 
 Important behavior:
 

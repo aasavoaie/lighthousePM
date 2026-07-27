@@ -1251,9 +1251,9 @@ A successful health response is the desktop's proof that the backend startup
 lifecycle, including migration, has completed. The health endpoint is not a
 second migration mechanism and must not contain schema-changing logic.
 
-This readiness contract changes startup ordering and failure handling only. It
-does not change metric formulas, thresholds, availability, or output meaning,
-so the runtime `ruleset_version` remains `2`.
+This readiness contract changed startup ordering and failure handling only. It
+did not change metric formulas, thresholds, availability, or output meaning,
+and therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Supported Schema Upgrade Matrix
 
@@ -1357,9 +1357,9 @@ process alone is not sufficient evidence. Automated tests and acceptance runs
 must use isolated temporary storage or disposable PostgreSQL databases and must
 never modify developer or production application data.
 
-This startup-acceptance contract changes upgrade assurance only. It does not
-change metrics, signals, thresholds, or output meaning, so the runtime
-`ruleset_version` remains `2`.
+This startup-acceptance contract changed upgrade assurance only. It did not
+change metrics, signals, thresholds, or output meaning, and therefore did not
+increment the then-current `ruleset_version` of `2`.
 
 ## Atomic SQLite Migration Backups
 
@@ -1404,9 +1404,9 @@ backup; inclusion of committed WAL-resident data; and unchanged fresh-database
 and current-head behavior. Existing migration-matrix and application-startup
 coverage must continue to pass.
 
-This backup-publication contract changes operational safety only. It does not
-change metrics, signals, thresholds, or API meaning, so the runtime
-`ruleset_version` remains `2`.
+This backup-publication contract changed operational safety only. It did not
+change metrics, signals, thresholds, or API meaning, and therefore did not
+increment the then-current `ruleset_version` of `2`.
 
 ## Backup Version and Integrity Validation
 
@@ -1510,9 +1510,9 @@ token validation; preflight before backend shutdown; stale WAL/SHM removal;
 explicit user-facing errors; and existing migration, startup, desktop, and
 backend regressions.
 
-This validation contract changes operational backup safety only. It does not
-change metrics, signals, thresholds, API meaning, or output meaning, so the
-runtime `ruleset_version` remains `2`.
+This validation contract changed operational backup safety only. It did not
+change metrics, signals, thresholds, API meaning, or output meaning, and
+therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Transactional Desktop Storage Operations and Recovery Tests
 
@@ -1622,9 +1622,9 @@ change or clearing, restore with visible data and usable configuration/token,
 Clear Data with empty APIs and retained settings, Factory Reset with first-run
 state, and retention of automatic migration backups after both reset actions.
 
-This contract changes desktop operational safety only. It does not change
-metrics, signals, thresholds, API meaning, or output meaning, so the runtime
-`ruleset_version` remains `2`.
+This contract changed desktop operational safety only. It did not change
+metrics, signals, thresholds, API meaning, or output meaning, and therefore did
+not increment the then-current `ruleset_version` of `2`.
 
 ## Supported Deployment-Mode Security Contract
 
@@ -1714,9 +1714,9 @@ Across all three modes:
 - Direct public deployment of FastAPI or PostgreSQL without an explicitly
   documented protective boundary is unsupported.
 
-This contract defines supported security boundaries only. It does not change
-metrics, signals, thresholds, availability, or output meaning, so the runtime
-`ruleset_version` remains `2`.
+This contract defined supported security boundaries only. It did not change
+metrics, signals, thresholds, availability, or output meaning, and therefore
+did not increment the then-current `ruleset_version` of `2`.
 
 ## API-Token Requirements by Deployment Mode
 
@@ -1786,8 +1786,9 @@ returned through APIs, persisted in application data, or embedded in frontend
 bundles. Desktop tokens remain per-process and memory-only. Browser handling
 and non-Electron persistence are defined by a later Phase 4 point.
 
-This authentication contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This authentication contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Secure Docker Network Defaults
 
@@ -1858,8 +1859,9 @@ token, successful `docker compose config` with isolated test credentials, and
 documentation that does not describe the defaults as LAN- or publicly
 accessible.
 
-This infrastructure contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This infrastructure contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Mutating and Administrative Endpoint Protection
 
@@ -1933,8 +1935,9 @@ on sensitive responses, absence of token values from configuration responses,
 read-only behavior for protected GET operations, and failure when a new route
 is not deliberately classified.
 
-This API-security contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This API-security contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Secure Non-Electron Credential Persistence
 
@@ -2019,8 +2022,9 @@ persistence; transient connection testing; unchanged Electron `safeStorage`
 behavior; Docker secret declarations without committed values; and frontend
 bearer-token storage restrictions.
 
-This credential contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This credential contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Deployment-Mode Authentication and Configuration-Write Tests
 
@@ -2122,23 +2126,25 @@ data. The acceptance matrix is the authoritative set of supported mode,
 environment, and binding combinations; changing that set requires updating the
 matrix and its tests together.
 
-This testing contract changes security assurance only. It does not change
-metric formulas, signals, thresholds, availability, or output meaning, so the
-runtime `ruleset_version` remains `2`.
+This testing contract changed security assurance only. It did not change
+metric formulas, signals, thresholds, availability, or output meaning, and
+therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Application Response-Assembly Boundaries
 
 Status: **Approved — Phase 5.1**
 
-Release-metric and sprint response assembly belongs to focused application
-services, not FastAPI route modules. These services coordinate repositories and
-the existing analytics, availability, comparison, recommendation, confidence,
-and driver services and return the established Pydantic response models.
+Release-metric, release-signal, and sprint response assembly belongs to focused
+application services, not FastAPI route modules. These services coordinate
+repositories and the existing analytics, availability, comparison,
+recommendation, confidence, signal, and driver services and return the
+established Pydantic response models.
 
-API routes retain only HTTP concerns: FastAPI parameter and dependency
-declarations, one application-service call, and explicit translation of
-defined service outcomes into HTTP responses. Metric calculation remains in
-`analytics_service`; availability decisions remain in
+Derived response routes retain only HTTP concerns: FastAPI parameter and
+dependency declarations, one application-service call, and explicit
+translation of defined service outcomes into HTTP responses. Metric
+calculation remains in `analytics_service`; signal evaluation remains in
+`signal_service`; availability decisions remain in
 `metric_availability_service`; comparison logic remains in
 `snapshot_comparison_service`. Response-assembly services must not duplicate
 those rules.
@@ -2307,9 +2313,9 @@ catalog supply mechanical endpoint and metric metadata; contract tests do not
 attempt subjective prose generation.
 
 An explicit command may export current OpenAPI JSON for external tooling, but a
-generated `openapi.json` file is not committed. This assurance contract does
-not change endpoint behavior, authentication enforcement, metric meaning, or
-the runtime `ruleset_version`, which remains `2`.
+generated `openapi.json` file is not committed. This assurance contract did
+not change endpoint behavior, authentication enforcement, or metric meaning,
+and therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Continuous-Integration Execution Contract
 
@@ -2662,8 +2668,9 @@ GitHub settings are not changed automatically.
 
 Final reporting separates locally passed gates, environment-dependent gates,
 and CI-only results that have not actually run. Existing warnings, including
-the frontend bundle-size warning, remain visible. Delivery-control and IPC
-security changes do not alter metric meaning, so `ruleset_version` remains `2`.
+the frontend bundle-size warning, remain visible. These delivery-control and
+IPC-security changes did not alter metric meaning and therefore did not
+increment the then-current `ruleset_version` of `2`.
 
 ## Jira Incremental Sync State
 
@@ -2683,16 +2690,20 @@ durably stored all accepted issue data and changelog data needed by the current
 rules. Failed, cancelled, rejected, or partially persisted sync attempts must
 not advance the marker.
 
-First sync and explicit full sync remain supported. When no marker exists, when
-the marker is invalid, or when incremental Jira queries fail in a way that
-prevents trustworthy freshness filtering, the service falls back to the
-existing full-sync behavior and reports the fallback reason. Incremental sync
-does not change metric formulas, thresholds, availability rules, evidence
+The default incremental mode scans the complete project issue-summary inventory
+so removals and current membership remain visible, then uses the trusted cursor
+to avoid refetching unchanged issue details and changelogs. Explicit full mode
+refetches every issue detail and changelog. When no trusted marker exists,
+incremental mode falls back to full detail fetching and reports the fallback
+reason. A project-summary search failure fails the sync because neither mode can
+reconstruct a trustworthy complete project inventory without it. Incremental
+sync does not change metric formulas, thresholds, availability rules, evidence
 requirements, snapshot interpretation, or `ruleset_version`.
 
-Tests must cover first sync with no marker, successful marker advancement,
-unchanged Jira issues, changed Jira issues, failed sync preserving the previous
-marker, and fallback to full sync when incremental freshness cannot be trusted.
+Tests must cover first sync with no marker, explicit full mode, successful
+marker advancement, unchanged Jira issues, changed Jira issues, failed and
+partially persisted syncs preserving the previous marker, and fallback to full
+detail fetching when incremental freshness cannot be trusted.
 
 ## Jira Unchanged Issue Fetch Avoidance
 
@@ -2716,11 +2727,14 @@ ruleset version, or historical snapshot interpretation. Sync results must
 expose how many issue details and changelogs were skipped because Jira reported
 them as unchanged.
 
-If Jira incremental search fails or returns data that cannot be trusted for
-freshness filtering, sync falls back to full fetch behavior and reports the
-fallback reason. The project cursor advances only after the successful
-transaction, using the max accepted Jira update timestamp from fetched or
-trusted unchanged issue summaries.
+If the project cursor is absent or cannot be trusted, sync falls back to full
+detail and changelog fetching and reports the fallback reason. The project
+cursor advances only after the successful transaction, using the max accepted
+Jira update timestamp from fetched or trusted unchanged issue summaries. If any
+issue detail is skipped because its fetch failed, the attempt may retain its
+other accepted data and report success with skipped counts, but it must
+preserve the previous project cursor so the failed issue remains eligible for
+retry.
 
 ## Jira Sync Visibility
 

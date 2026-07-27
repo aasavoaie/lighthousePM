@@ -247,7 +247,11 @@ def test_409_sync_running_payload_matches_contract(
     api_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_sync_running(self, session: Session) -> dict[str, int | str]:
+    async def fake_sync_running(
+        self,
+        session: Session,
+        mode: str = "incremental",
+    ) -> dict[str, object]:
         raise SyncAlreadyRunningError("Jira sync is already running")
 
     monkeypatch.setattr(

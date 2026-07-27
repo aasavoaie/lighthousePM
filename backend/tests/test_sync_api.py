@@ -44,9 +44,16 @@ def client() -> Generator[TestClient, None, None]:
 
 
 def test_post_sync_jira_returns_sync_counts(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    async def fake_sync(self, session: Session) -> dict[str, int | str]:
+    async def fake_sync(
+        self,
+        session: Session,
+        mode: str = "incremental",
+    ) -> dict[str, object]:
         return {
             "project_key": "LHPM",
+            "sync_mode": mode,
+            "fallback_reason": None,
+            "cursor_advanced": True,
             "releases_fetched": 1,
             "releases_inserted": 1,
             "releases_updated": 0,
@@ -70,10 +77,54 @@ def test_post_sync_jira_returns_sync_counts(client: TestClient, monkeypatch: pyt
     assert response.status_code == 200
     payload = response.json()
     assert payload["project_key"] == "LHPM"
+    assert payload["sync_mode"] == "incremental"
+    assert payload["cursor_advanced"] is True
     assert payload["issues_inserted"] == 3
     assert payload["issue_details_skipped_unchanged"] == 2
     assert payload["history_inserted"] == 5
     assert payload["changelogs_skipped_unchanged"] == 2
+
+
+def test_post_sync_jira_passes_explicit_full_mode(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_mode: list[str] = []
+
+    async def fake_sync(
+        self,
+        session: Session,
+        mode: str = "incremental",
+    ) -> dict[str, object]:
+        observed_mode.append(mode)
+        return {
+            "project_key": "LHPM",
+            "sync_mode": mode,
+            "fallback_reason": None,
+            "cursor_advanced": False,
+            "releases_fetched": 0,
+            "releases_inserted": 0,
+            "releases_updated": 0,
+            "sprints_inserted": 0,
+            "sprints_updated": 0,
+            "issues_fetched": 0,
+            "issues_inserted": 0,
+            "issues_updated": 0,
+            "issues_skipped": 0,
+            "issue_details_skipped_unchanged": 0,
+            "history_fetched": 0,
+            "history_inserted": 0,
+            "history_skipped": 0,
+            "changelogs_skipped_unchanged": 0,
+        }
+
+    monkeypatch.setattr("app.services.sync_service.SyncService.sync_from_jira", fake_sync)
+
+    response = client.post("/sync/jira?mode=full")
+
+    assert response.status_code == 200
+    assert response.json()["sync_mode"] == "full"
+    assert observed_mode == ["full"]
 
 
 def test_get_sync_jira_status_returns_structured_state(
@@ -113,7 +164,11 @@ def test_post_sync_jira_returns_400_for_sync_service_error(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_sync_error(self, session: Session) -> dict[str, int | str]:
+    async def fake_sync_error(
+        self,
+        session: Session,
+        mode: str = "incremental",
+    ) -> dict[str, object]:
         raise SyncServiceError("JIRA_PROJECT_KEY must be configured for sync")
 
     monkeypatch.setattr("app.services.sync_service.SyncService.sync_from_jira", fake_sync_error)
@@ -128,7 +183,11 @@ def test_post_sync_jira_returns_409_when_sync_is_already_running(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_sync_running(self, session: Session) -> dict[str, int | str]:
+    async def fake_sync_running(
+        self,
+        session: Session,
+        mode: str = "incremental",
+    ) -> dict[str, object]:
         raise SyncAlreadyRunningError("Jira sync is already running")
 
     monkeypatch.setattr("app.services.sync_service.SyncService.sync_from_jira", fake_sync_running)
@@ -143,7 +202,11 @@ def test_post_sync_jira_returns_401_for_jira_auth_error(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_sync_auth_error(self, session: Session) -> dict[str, int | str]:
+    async def fake_sync_auth_error(
+        self,
+        session: Session,
+        mode: str = "incremental",
+    ) -> dict[str, object]:
         raise SyncServiceError("Jira sync failed: auth failed") from JiraAuthError("auth failed")
 
     monkeypatch.setattr("app.services.sync_service.SyncService.sync_from_jira", fake_sync_auth_error)

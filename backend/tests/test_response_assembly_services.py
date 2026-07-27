@@ -8,12 +8,14 @@ from app.repositories.release_repository import ReleaseRepository
 from app.repositories.sprint_repository import SprintRepository
 from app.services.application_errors import ApplicationNotFoundError
 from app.services.release_metrics_response_service import ReleaseMetricsResponseService
+from app.services.release_signal_response_service import ReleaseSignalResponseService
 from app.services.sprint_response_service import SprintResponseService
 
 
 API_DIRECTORY = Path(__file__).resolve().parents[1] / "app" / "api"
 ROUTE_SERVICE_NAMES = {
     "metrics.py": "ReleaseMetricsResponseService",
+    "signals.py": "ReleaseSignalResponseService",
     "sprints.py": "SprintResponseService",
 }
 
@@ -97,6 +99,22 @@ def test_release_service_reports_missing_release_without_http_dependency(
             session=object(),
             release_id="MISSING",
             limit=10,
+        )
+
+
+def test_release_signal_service_reports_missing_release_without_http_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ReleaseRepository,
+        "get_release_by_id",
+        lambda **_kwargs: None,
+    )
+
+    with pytest.raises(ApplicationNotFoundError, match="Release 'MISSING' not found"):
+        ReleaseSignalResponseService().get_signal(
+            session=object(),
+            release_id="MISSING",
         )
 
 

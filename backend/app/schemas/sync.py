@@ -6,6 +6,9 @@ from pydantic import BaseModel
 
 class SyncJiraResponse(BaseModel):
     project_key: str
+    sync_mode: Literal["incremental", "full"]
+    fallback_reason: str | None
+    cursor_advanced: bool
     releases_fetched: int
     releases_inserted: int
     releases_updated: int

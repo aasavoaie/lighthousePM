@@ -1,12 +1,19 @@
 import { useState } from "react";
 
 import { apiClient } from "../api/client";
+import type { MetricScope } from "../api/types";
 import { savePdfBlob } from "../components/ReportExportActions";
+import { useMetricCatalog } from "../MetricCatalogContext";
+import { metricDefinition, type MetricCatalogView } from "../metricCatalog";
 
 type AboutGuidePage = "overview" | "releases" | "sprints";
 
 type AboutGuideSection = {
-  title: string;
+  title?: string;
+  metric?: {
+    scope: MetricScope;
+    apiField: string;
+  };
   description: string;
   questions: string[];
   note?: string;
@@ -172,9 +179,9 @@ const aboutReleaseSections: AboutGuideSection[] = [
 
 const aboutReleaseMetricSections: AboutGuideSection[] = [
   {
-    title: "Metric: Scope completed",
+    metric: { scope: "release", apiField: "scope_completed_pct" },
     description:
-      "Shows the percentage of release scope that is done. This is the simplest delivery-progress signal for the release commitment.",
+      "Shows the percentage of current release tickets whose status is configured as done. It is ticket-based and does not use story points. If any current release ticket has no status, the percentage is withheld and marked Partial with the affected Jira keys. Empty release scope is Not computed rather than zero.",
     questions: [
       "Is enough release scope complete for the planned date?",
       "Is delivery progress aligned with the business expectation?",
@@ -182,9 +189,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Completed tickets",
+    metric: { scope: "release", apiField: "completed_tickets" },
     description:
-      "Counts the release tickets already finished. It gives leadership a concrete volume of delivered work behind the completion percentage.",
+      "Counts current release tickets whose status is configured as done. If current release tickets are missing status, the displayed count is a confirmed minimum and is marked Partial. Empty release scope is Not computed.",
     questions: [
       "How much work has actually landed?",
       "Is progress supported by completed Jira items?",
@@ -192,9 +199,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Scope creep",
+    metric: { scope: "release", apiField: "scope_churn_7d_pct" },
     description:
-      "Measures recent release scope movement over the last seven days. High churn means the release target is still changing while the team is trying to finish it.",
+      "Measures release scope addition and removal events over the seven days ending at the stored snapshot time. Every distinct transition is counted, including repeated removal and re-addition of the same ticket. The percentage compares the total event count against distinct observed scope and may exceed 100%. Incomplete project changelog ingestion withholds the percentage while confirmed event counts remain Partial evidence.",
     questions: [
       "Is the release commitment stable enough to govern?",
       "Are new requests or removals changing the delivery promise late?",
@@ -202,9 +209,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Scope added",
+    metric: { scope: "release", apiField: "scope_added_7d_count" },
     description:
-      "Counts tickets added to the release in the recent scope window. It explains whether churn is caused by new work entering the release.",
+      "Counts distinct addition events in the recent seven-day scope window. Adding the same ticket more than once through separate transitions increases the count each time. Incomplete project changelog ingestion leaves this as a Partial confirmed minimum.",
     questions: [
       "What new work has entered the release recently?",
       "Is added scope putting the date or quality bar at risk?",
@@ -212,9 +219,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Scope removed",
+    metric: { scope: "release", apiField: "scope_removed_7d_count" },
     description:
-      "Counts tickets removed from the release in the recent scope window. It helps separate healthy trade-offs from unstable release planning.",
+      "Counts distinct removal events in the recent seven-day scope window. Removing the same ticket more than once through separate transitions increases the count each time. Incomplete project changelog ingestion leaves this as a Partial confirmed minimum.",
     questions: [
       "Are we protecting the release by deliberately reducing scope?",
       "Are removals changing stakeholder expectations?",
@@ -222,9 +229,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Open high-severity bugs",
+    metric: { scope: "release", apiField: "open_high_severity_bugs" },
     description:
-      "Counts unresolved high-severity defects in the release. This is a direct quality risk because serious bugs can block approval even when delivery progress looks healthy.",
+      "Counts unresolved high-severity defects in the release. Missing issue type, severity, or status can make the count a Partial confirmed minimum. Empty scope is Not computed and does not present zero as healthy evidence.",
     questions: [
       "Is quality acceptable for release approval?",
       "Which critical defects still need management attention?",
@@ -232,9 +239,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Reopen events per 100 eligible tickets",
+    metric: { scope: "release", apiField: "reopen_rate_pct" },
     description:
-      "Counts every transition from done back to a non-done status per 100 eligible tickets. An eligible ticket is currently done or has recorded evidence that it reached done. The same ticket is counted once for every distinct reopen event, so the value can exceed 100. Reopen-event evidence names any ticket counted more than once. A high value signals acceptance churn, missed requirements, or quality gaps.",
+      "Counts every transition from done back to a non-done status per 100 eligible tickets. The same ticket is counted for every distinct reopen event, so the value can exceed 100. If relevant current status or Jira history is incomplete, confirmed event and eligible-ticket counts remain evidence but the percentage is withheld as Partial.",
     questions: [
       "Is completed work staying done?",
       "Are acceptance or quality standards creating rework?",
@@ -242,9 +249,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Median cycle time",
+    metric: { scope: "release", apiField: "median_cycle_time_days" },
     description:
-      "Shows the typical time work spends from active start to done. Longer cycle time means work is moving slowly through the delivery system.",
+      "Shows the median duration from each eligible ticket's earliest transition into a configured in-progress status to its first later transition into a configured done status. If a potentially eligible ticket has missing status or incomplete history, the median is withheld as Partial. Complete evidence with no valid transition pair is Not computed.",
     questions: [
       "Is work flowing fast enough to protect the release date?",
       "Are tickets spending too long in progress or review?",
@@ -252,9 +259,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Open blockers",
+    metric: { scope: "release", apiField: "open_blockers" },
     description:
-      "Counts unresolved blocking issues in the release. Blockers are treated as release risk because they can prevent completion, validation, or approval.",
+      "Counts unresolved blocking issues in the release. Missing status or insufficient blocker-classification evidence can make the count a Partial confirmed minimum. Empty scope is Not computed.",
     questions: [
       "What is stopping the release from moving forward?",
       "Which blockers require escalation or ownership decisions?",
@@ -262,9 +269,9 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Confidence score",
+    metric: { scope: "release", apiField: "confidence_score" },
     description:
-      "Combines release metrics into a single readiness-confidence value. It is useful for leadership scanning, but should always be read with the risk drivers behind it.",
+      "Subtracts approved weighted risk points from 100 and should always be read with its stored drivers. When Jira classification inputs are incomplete, the score is withheld. A confirmed hard-red risk remains RED; otherwise the release is Inconclusive until the missing evidence is completed and metrics are recomputed.",
     questions: [
       "What is the current confidence level for this release?",
       "Is the release improving, stable, or deteriorating?",
@@ -272,7 +279,7 @@ const aboutReleaseMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Readiness percent and gates",
+    title: "Derived view: Readiness and gates",
     description:
       "Shows how much of the release-readiness logic is passing. Gates make the readiness decision explainable instead of relying on a subjective status.",
     questions: [
@@ -362,7 +369,7 @@ const aboutSprintSections: AboutGuideSection[] = [
 
 const aboutSprintMetricSections: AboutGuideSection[] = [
   {
-    title: "Metric: Current sprint scope",
+    metric: { scope: "sprint", apiField: "committed_scope" },
     description:
       "Counts distinct tickets currently linked to the sprint at snapshot time. The API retains the field name committed_scope for compatibility, but this metric describes current membership and does not reconstruct the sprint-start commitment. An empty current scope is shown as unavailable rather than zero.",
     questions: [
@@ -372,7 +379,7 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Completed scope",
+    metric: { scope: "sprint", apiField: "completed_scope_pct" },
     description:
       "Shows the percentage of current sprint tickets whose current status is configured as done. It is ticket-based and does not use story points. Empty scope is unavailable, and missing ticket statuses make the percentage partial with the affected Jira keys identified.",
     questions: [
@@ -382,9 +389,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Scope creep",
+    metric: { scope: "sprint", apiField: "scope_creep_pct" },
     description:
-      "Shows sprint addition and removal events after the sprint starts. Re-adding a previously removed ticket counts as another event. High creep means the sprint plan is changing while the team is executing, which reduces predictability.",
+      "Shows sprint addition and removal events after the sprint starts per 100 initial-commitment tickets. Re-adding a previously removed ticket counts as another event, so the percentage may exceed 100%. Missing sprint start or incomplete project membership history makes the result unavailable; zero initial commitment is Not computed.",
     questions: [
       "Is sprint scope stable after planning?",
       "Are new requests interrupting the sprint commitment?",
@@ -392,9 +399,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Velocity health",
+    title: "Derived view: Velocity health",
     description:
-      "Compares current completed work to historical sprint velocity. It indicates whether the sprint is tracking close to the team's normal delivery capacity.",
+      "Compares current completed work with the eligible historical velocity baseline used by delivery confidence. It describes current calculation inputs and does not predict future output.",
     questions: [
       "Is the team delivering at a healthy pace?",
       "Is current output below recent sprint history?",
@@ -402,9 +409,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Team predictability",
+    title: "Derived view: Historical commitment reliability",
     description:
-      "Shows how reliably recent closed sprints completed committed work. It helps leadership understand whether the team has a stable delivery pattern.",
+      "Shows how recent closed sprints compare committed and completed work when the required stored evidence is available. It describes historical consistency and is not a probability for the current sprint.",
     questions: [
       "Can we trust sprint commitments based on recent history?",
       "Is the team becoming more or less predictable?",
@@ -412,9 +419,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Open high-severity bugs",
+    metric: { scope: "sprint", apiField: "open_high_severity_bugs" },
     description:
-      "Counts unresolved serious defects inside the sprint. It shows whether sprint delivery is carrying quality risk that could affect the release.",
+      "Counts unresolved serious defects inside the sprint. Missing issue type, severity, or status can make this a Partial confirmed minimum. Empty current sprint scope is Not computed.",
     questions: [
       "Is the sprint producing or carrying critical quality risk?",
       "Should defect resolution take priority over feature work?",
@@ -422,9 +429,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Bugs created during sprint",
+    metric: { scope: "sprint", apiField: "bugs_created_during_sprint" },
     description:
-      "Counts bugs opened during the sprint. This helps leadership see when planned delivery is being displaced by newly discovered quality work.",
+      "Counts current-sprint bugs whose Jira creation time falls inside the inclusive sprint window. Missing sprint start makes the metric unavailable, while missing Jira creation time makes the count Partial and exposes the affected Jira keys. Local database insertion time is never substituted.",
     questions: [
       "Is new defect work consuming sprint capacity?",
       "Are quality issues emerging during execution?",
@@ -432,9 +439,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Reopen events per 100 eligible tickets",
+    metric: { scope: "sprint", apiField: "reopen_rate_pct" },
     description:
-      "Counts every transition from done back to a non-done status per 100 eligible sprint tickets. An eligible ticket is currently done or has recorded evidence that it reached done. The same ticket is counted once for every distinct reopen event, so the value can exceed 100. Reopen-event evidence names any ticket counted more than once. A high value signals rework, acceptance churn, or incomplete validation.",
+      "Counts every transition from done back to a non-done status per 100 eligible sprint tickets. The same ticket is counted for every distinct reopen event, so the value can exceed 100. Incomplete status or history evidence withholds the percentage as Partial while retaining confirmed event evidence.",
     questions: [
       "Is sprint work really complete when marked done?",
       "Are acceptance criteria or quality checks clear enough?",
@@ -442,9 +449,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Median cycle time",
+    metric: { scope: "sprint", apiField: "median_cycle_time_days" },
     description:
-      "Shows the typical time sprint work takes from active start to done. It helps reveal whether work is flowing smoothly through implementation, review, and validation.",
+      "Shows the median first valid in-progress-to-done duration for eligible current-sprint tickets. Missing status or incomplete history withholds the median as Partial; complete evidence with no valid pair is Not computed.",
     questions: [
       "Is sprint work moving through the system fast enough?",
       "Where might work be stuck?",
@@ -452,9 +459,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Open blockers",
+    metric: { scope: "sprint", apiField: "open_blockers" },
     description:
-      "Counts unresolved blockers in the sprint. Blockers directly threaten sprint completion and often need escalation before normal delivery can continue.",
+      "Counts unresolved blockers in the sprint. Missing status or incomplete blocker classification can make this a Partial confirmed minimum. Empty current sprint scope is Not computed.",
     questions: [
       "What is preventing sprint work from progressing?",
       "Which blockers need ownership or escalation?",
@@ -462,9 +469,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Unfinished closed-sprint scope",
+    metric: { scope: "sprint", apiField: "rollover_count" },
     description:
-      "Counts tickets that remain in the current membership of a closed sprint and have a known non-done status. This does not prove that a ticket entered another sprint. The metric is not applicable to active, future, or unknown-state sprints.",
+      "Counts tickets that remain in the current membership of a closed sprint and have a known non-done status. It does not prove that a ticket entered another sprint. Active, future, or unknown-state sprints are Not applicable; empty closed-sprint scope is Not computed; missing statuses make the count a Partial confirmed minimum.",
     questions: [
       "How many currently assigned tickets are unfinished after the sprint closed?",
       "Which known unfinished tickets need follow-up?",
@@ -472,9 +479,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Work distribution",
+    metric: { scope: "sprint", apiField: "workload_concentration_pct" },
     description:
-      "Shows the top assignee's share of active sprint story points using the backend's configured done-status rules. Below 50% sprint story-point coverage the result is inconclusive; partial coverage excludes unpointed active tickets and identifies them. No active work is not applicable, and a zero-point denominator is not computed. Below 35% is healthy, 35% through 50% is watch, and above 50% is critical. Recommendations, reports, and the dashboard reuse the stored result and Jira-key evidence.",
+      "Shows the top assignee's share of included active sprint story points using configured done-status rules. Below required story-point coverage the result is Inconclusive; partial coverage excludes unpointed active tickets and identifies them. Missing stable assignee identity can make the result Partial. No active work is Not applicable, a zero-point denominator is Not computed, and catalog-defined severity bands apply to the stored result reused by recommendations, reports, and the dashboard.",
     questions: [
       "Is too much critical work dependent on one person?",
       "Should work be rebalanced to reduce delivery risk?",
@@ -483,7 +490,7 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Sprint work state",
+    title: "Derived view: Sprint work state",
     description:
       "Condenses current sprint scope, in-progress, not-started, done, and applicable unfinished closed-sprint work into one scan-friendly view of sprint execution.",
     questions: [
@@ -493,9 +500,9 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Delivery confidence score",
+    metric: { scope: "sprint", apiField: "delivery_confidence_score" },
     description:
-      "Combines progress alignment, velocity fit, blocker health, and scope stability into a single sprint confidence score. The score is returned only when required status, blocker-classification, duration, and project sprint-history evidence is complete.",
+      "Combines progress alignment, velocity fit, blocker health, and scope stability into one sprint score. Empty scope is Not computed and story-point coverage below 50% is Inconclusive. From 50% to below complete coverage, the score is Partial and point-based components use only pointed tickets. Required status, blocker-classification, duration, and project sprint-history evidence must also be complete or the result is Inconclusive.",
     questions: [
       "Does current sprint evidence support its delivery plan?",
       "Which confidence component is pulling the sprint down?",
@@ -503,7 +510,7 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Progress alignment",
+    title: "Delivery-confidence component: Progress alignment",
     description:
       "Compares completed scope with elapsed sprint time. It requires valid sprint start and end times; missing or invalid duration makes the component unavailable rather than healthy.",
     questions: [
@@ -513,7 +520,7 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Velocity fit",
+    title: "Delivery-confidence component: Velocity fit",
     description:
       "Checks whether remaining sprint work fits the team's historical delivery capacity. It uses valid sprint duration and never substitutes a healthy time or capacity fallback when duration is unavailable.",
     questions: [
@@ -523,7 +530,7 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
     ],
   },
   {
-    title: "Metric: Scope stability",
+    title: "Delivery-confidence component: Scope stability",
     description:
       "Scores how stable sprint scope has been since the initial commitment. It requires a sprint start and complete sprint-membership history across synchronized project tickets; otherwise the component and delivery confidence are unavailable.",
     questions: [
@@ -534,10 +541,31 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
   },
 ];
 
-function AboutGuideCard({ section }: { section: AboutGuideSection }) {
+function aboutGuideTitle(
+  section: AboutGuideSection,
+  catalog: MetricCatalogView,
+) {
+  if (section.metric) {
+    return `Metric: ${metricDefinition(
+      catalog,
+      section.metric.scope,
+      section.metric.apiField,
+    ).label}`;
+  }
+  return section.title ?? "Guide";
+}
+
+function AboutGuideCard({
+  section,
+  catalog,
+}: {
+  section: AboutGuideSection;
+  catalog: MetricCatalogView;
+}) {
+  const title = aboutGuideTitle(section, catalog);
   return (
     <article className="about-guide-card">
-      <h3>{section.title}</h3>
+      <h3>{title}</h3>
       <p>{section.description}</p>
       <h4>Should answer the following questions:</h4>
       <ul>
@@ -551,10 +579,15 @@ function AboutGuideCard({ section }: { section: AboutGuideSection }) {
 }
 
 function AboutGuideGrid({ sections }: { sections: AboutGuideSection[] }) {
+  const catalog = useMetricCatalog();
   return (
     <div className="about-guide-grid" aria-label="About guide sections">
       {sections.map((section) => (
-        <AboutGuideCard key={section.title} section={section} />
+        <AboutGuideCard
+          key={section.title ?? `${section.metric?.scope}.${section.metric?.apiField}`}
+          section={section}
+          catalog={catalog}
+        />
       ))}
     </div>
   );

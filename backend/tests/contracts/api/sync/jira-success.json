@@ -1,5 +1,8 @@
 {
   "project_key": "LHPM",
+  "sync_mode": "incremental",
+  "fallback_reason": null,
+  "cursor_advanced": true,
   "releases_fetched": 3,
   "releases_inserted": 2,
   "releases_updated": 1,

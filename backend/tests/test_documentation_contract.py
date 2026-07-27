@@ -15,6 +15,9 @@ ABOUT_PATH = REPOSITORY_ROOT / "ABOUT.md"
 HELPER_PATH = REPOSITORY_ROOT / "HELPER.md"
 UNIT_TEST_DOCS_PATH = REPOSITORY_ROOT / "UNIT_TEST_DOCS.md"
 AGENTS_PATH = REPOSITORY_ROOT / "AGENTS.md"
+ABOUT_PANEL_PATH = (
+    REPOSITORY_ROOT / "frontend" / "src" / "pages" / "AboutKnowledgePanel.tsx"
+)
 MAINTAINED_PUBLIC_DOCUMENTS = (README_PATH, ABOUT_PATH, DESKTOP_README_PATH)
 MAINTAINED_TECHNICAL_DOCUMENTS = (
     README_PATH,
@@ -32,6 +35,10 @@ RETIRED_PRODUCT_LABEL_PATTERN = re.compile(
 ABOUT_METRIC_HEADING_PATTERN = re.compile(
     r"^#### Metric: (?P<label>.+)$",
     re.MULTILINE,
+)
+ABOUT_PANEL_METRIC_PATTERN = re.compile(
+    r'metric: \{ scope: "(?P<scope>release|sprint)", '
+    r'apiField: "(?P<api_field>[a-z][a-z0-9_]*)" \}'
 )
 METRIC_KEY_PATTERN = re.compile(
     r"\b(?:release|sprint)\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*\b"
@@ -115,6 +122,25 @@ def test_about_metric_headings_use_current_catalog_labels() -> None:
             violations.append(f"duplicate {scope} headings: {duplicate_labels}")
 
     assert not violations, "ABOUT metric-label drift: " + "; ".join(violations)
+
+
+def test_in_app_about_metric_titles_are_catalog_backed() -> None:
+    source = _read_document(ABOUT_PANEL_PATH)
+    references = ABOUT_PANEL_METRIC_PATTERN.findall(source)
+    assert references, "In-app About does not reference catalog-backed metrics"
+
+    catalog_fields = {
+        scope: {metric.api_field for metric in metrics_for_scope(scope)}
+        for scope in ("release", "sprint")
+    }
+    unknown = [
+        f"{scope}.{api_field}"
+        for scope, api_field in references
+        if api_field not in catalog_fields[scope]
+    ]
+
+    assert not unknown, f"In-app About references unknown catalog metrics: {unknown}"
+    assert 'title: "Metric:' not in source
 
 
 def test_documented_metric_keys_exist_in_current_catalog() -> None:

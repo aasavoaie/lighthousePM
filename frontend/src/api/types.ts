@@ -730,6 +730,9 @@ export interface JiraConnectionTestResponse {
 
 export interface SyncJiraResponse {
   project_key: string;
+  sync_mode: "incremental" | "full";
+  fallback_reason: string | null;
+  cursor_advanced: boolean;
   releases_fetched: number;
   releases_inserted: number;
   releases_updated: number;
@@ -739,9 +742,11 @@ export interface SyncJiraResponse {
   issues_inserted: number;
   issues_updated: number;
   issues_skipped: number;
+  issue_details_skipped_unchanged: number;
   history_fetched: number;
   history_inserted: number;
   history_skipped: number;
+  changelogs_skipped_unchanged: number;
 }
 
 export interface HealthResponse {

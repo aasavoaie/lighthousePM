@@ -18,6 +18,9 @@ def test_runtime_ruleset_version_matches_product_catalog() -> None:
         "Version `5` identifies event-based seven-day release scope churn"
         in catalog
     )
+    assert "`ruleset_version` remains `2`" not in catalog
+    assert "runtime `ruleset_version`, which remains `2`" not in catalog
+    assert catalog.count("then-current `ruleset_version` of `2`") == 13
 
 
 def test_derived_results_are_immutable_after_persistence() -> None:

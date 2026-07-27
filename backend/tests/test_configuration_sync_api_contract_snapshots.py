@@ -130,9 +130,16 @@ def test_successful_jira_sync_response_matches_contract(
     configuration_sync_contract_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_sync(self, session: Session) -> dict[str, int | str]:
+    async def fake_sync(
+        self,
+        session: Session,
+        mode: str = "incremental",
+    ) -> dict[str, object]:
         return {
             "project_key": "LHPM",
+            "sync_mode": mode,
+            "fallback_reason": None,
+            "cursor_advanced": True,
             "releases_fetched": 3,
             "releases_inserted": 2,
             "releases_updated": 1,
