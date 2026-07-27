@@ -1,7 +1,7 @@
 {
   "sprint_id": "LHPM-SPRINT-42",
-  "ruleset_version": 4,
-  "ruleset_label": "Ruleset v4",
+  "ruleset_version": 5,
+  "ruleset_label": "Ruleset v5",
   "calculation_provenance": {
     "source_calculated_at": "2026-07-21T13:00:00+00:00",
     "thresholds": {

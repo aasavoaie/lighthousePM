@@ -164,7 +164,7 @@ assertEqual(partialScoreDisplay.value, "Inconclusive", "partial release confiden
 assertEqual(partialScoreDisplay.isAvailable, false, "partial release confidence is unavailable");
 
 const partialChurnReason =
-  "Scope churn is partial because Jira changelog ingestion is incomplete for 1 project ticket(s). Added and removed counts are confirmed minima; the percentage is unavailable.";
+  "Scope churn is partial because Jira changelog ingestion is incomplete for 1 project ticket(s). Addition and removal event counts are confirmed minima; the percentage is unavailable.";
 const partialChurnMetrics = metricsResponse({
   computation_status: "PARTIAL",
   unavailable_reason: partialChurnReason,

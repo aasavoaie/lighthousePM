@@ -130,7 +130,7 @@ def test_backend_metric_name_inventories_are_catalog_selections() -> None:
 
 
 def test_catalog_structure_is_complete_and_deterministically_ordered() -> None:
-    assert CATALOG_VERSION == 2
+    assert CATALOG_VERSION == 3
     assert metrics_for_scope("release") == RELEASE_METRICS
     assert metrics_for_scope("sprint") == SPRINT_METRICS
 
@@ -195,6 +195,8 @@ def test_catalog_and_nested_metadata_are_immutable() -> None:
 
 
 def test_threshold_accessors_expose_approved_values_and_coverage() -> None:
+    assert METRIC_CATALOG_BY_KEY["release.scope_added_7d_count"].unit == "events"
+    assert METRIC_CATALOG_BY_KEY["release.scope_removed_7d_count"].unit == "events"
     assert metric_threshold("release.open_blockers", "critical").comparison == "gt"
     assert metric_threshold_value("release.open_blockers", "critical") == 0
     assert metric_threshold_value("release.confidence_score", "watch") == 90.0

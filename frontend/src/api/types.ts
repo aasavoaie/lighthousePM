@@ -47,7 +47,7 @@ export type ComputationStatus = "COMPUTED" | "PARTIAL" | "NOT_COMPUTED";
 
 export type MetricScope = "release" | "sprint";
 export type MetricCategory = "delivery" | "quality" | "flow" | "risk" | "snapshot";
-export type MetricUnit = "tickets" | "percent" | "days" | "score" | "gates";
+export type MetricUnit = "tickets" | "events" | "percent" | "days" | "score" | "gates";
 export type MetricFormat = "integer" | "decimal_1" | "decimal_2" | "decimal_4" | "percent_2";
 export type MetricSeverity = "watch" | "critical";
 export type MetricComparison = "gt" | "gte" | "lt" | "lte";

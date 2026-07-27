@@ -493,7 +493,7 @@ def test_pipeline_idempotency_same_signal(db_session: Session) -> None:
     assert signal1_id != signal2_id
     assert len(signal_rows) == 2
     assert [row.metric_snapshot_id for row in signal_rows] == [snapshot1_id, snapshot2_id]
-    assert all(row.ruleset_version == 4 for row in signal_rows)
+    assert all(row.ruleset_version == 5 for row in signal_rows)
 
     # Both snapshots should have same metric values
     snapshot2 = db_session.query(MetricSnapshot).filter_by(release_id="REL-1").order_by(MetricSnapshot.id.desc()).first()

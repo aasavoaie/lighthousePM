@@ -1231,7 +1231,8 @@ class SignalService:
         Args:
             open_blockers: Count of issues marked as blockers (typically blocking release).
             open_high_severity_bugs: Count of open bugs with high/critical priority.
-            scope_churn_7d_pct: Percentage (0-100) of issues changed in last 7 days.
+            scope_churn_7d_pct: Release scope-change events per 100 distinct
+                observed-scope tickets in the last 7 days; may exceed 100.
             reopen_rate_pct: Percentage (0-100) of issues reopened in release window.
             median_cycle_time_days: Median days from in-progress to done (None if no done issues).
 

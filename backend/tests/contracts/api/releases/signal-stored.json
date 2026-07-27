@@ -1,7 +1,7 @@
 {
   "release_id": "LHPM-REL-ALPHA",
   "metric_snapshot_id": 2,
-  "ruleset_version": 4,
+  "ruleset_version": 5,
   "signal": "RED",
   "status_label": "NOT READY FOR RELEASE",
   "confidence_score": 64.0,

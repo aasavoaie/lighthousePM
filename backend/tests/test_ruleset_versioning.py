@@ -13,8 +13,11 @@ from app.utils.constants import RULESET_VERSION
 def test_runtime_ruleset_version_matches_product_catalog() -> None:
     catalog = (Path(__file__).resolve().parents[2] / "PRODUCT_RULES.md").read_text(encoding="utf-8")
 
-    assert RULESET_VERSION == 4
-    assert "Version `4` identifies event-based Scope creep counting" in catalog
+    assert RULESET_VERSION == 5
+    assert (
+        "Version `5` identifies event-based seven-day release scope churn"
+        in catalog
+    )
 
 
 def test_derived_results_are_immutable_after_persistence() -> None:

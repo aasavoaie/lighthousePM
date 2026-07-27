@@ -235,20 +235,29 @@ case-insensitively:
 - Removed: the old value references the release and the new value does not.
 - A record that does not change release membership is ignored.
 
-An issue can appear in both the added and removed evidence lists when it moves
-more than once. It appears only once in the distinct churn numerator.
-
 Definitions:
 
-- `churned issue keys = distinct union of added and removed issue keys`;
+- `addition events = distinct qualifying outside-to-inside release-membership
+  transitions`;
+- `removal events = distinct qualifying inside-to-outside release-membership
+  transitions`;
+- event identity is the unique combination of issue key, transition timestamp,
+  normalized old value, and normalized new value, so duplicate copies of the
+  same event count once;
+- every distinct event is counted, so repeated removal and re-addition
+  transitions for the same ticket increase their respective event counts;
+- `scope change event count = addition event count + removal event count`;
+- `churned issue keys = distinct union of issue keys represented by addition
+  and removal events`;
 - `observed scope issue keys = current release issue keys union churned issue
   keys`; and
-- `scope_churn_7d_pct = 100 * churned issue count / observed scope issue
+- `scope_churn_7d_pct = 100 * scope change event count / observed scope issue
   count`.
 
-The percentage is rounded to two decimal places and is naturally bounded from
-`0` to `100`; it is not capped after calculation. Added and removed counts are
-the lengths of their distinct evidence lists and can overlap.
+The percentage is rounded to two decimal places, is not capped, and may exceed
+`100%`. `scope_added_7d_count` is the addition event count and
+`scope_removed_7d_count` is the removal event count. Distinct added and removed
+issue-key lists remain supporting evidence and do not define these counts.
 
 Availability rules:
 
@@ -272,10 +281,12 @@ produce a computed result. A partial or unavailable percentage must not be
 replaced by zero in confidence, signal, readiness, or reporting calculations.
 
 `calculation_provenance` stores the window boundaries, synchronized project
-issue keys, current-scope keys, observed-scope keys and denominator, churned
-keys, added keys, removed keys, incomplete-project-changelog keys, configured
+issue keys, current-scope keys, observed-scope keys and denominator, ordered
+addition and removal events, event counts, net scope change, churned keys,
+distinct added and removed keys, incomplete-project-changelog keys, configured
 changelog aliases, and normalized release value used by the calculation. Every
-issue-key list is sorted.
+issue-key list is sorted. Events are ordered by transition time and stable
+history identity.
 
 Configured Jira release and sprint field identifiers are authoritative
 changelog aliases in addition to the display-name aliases. This is required
@@ -1070,6 +1081,8 @@ Status: **Approved — Phase 0.6**
   creep metric and its delivery-confidence integration.
 - Version `4` identifies event-based Scope creep counting, including repeated
   removal and re-addition transitions for the same ticket.
+- Version `5` identifies event-based seven-day release scope churn, addition,
+  and removal counting, including repeated transitions for the same ticket.
 - The version increments whenever a formula, threshold, weight,
   classification, availability rule, or output meaning changes.
 - Wording, layout, and other presentation-only changes do not increment the

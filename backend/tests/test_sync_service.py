@@ -192,7 +192,7 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert len(snapshots) == 1
     assert len(signals) == 1
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 4 for signal in signals)
+    assert all(signal.ruleset_version == 5 for signal in signals)
     assert signals[0].signal == "INCONCLUSIVE"
     assert signals[0].confidence_score is None
     assert any("reopen_rate_pct" in reason for reason in signals[0].reasons)
@@ -360,7 +360,7 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     assert len(snapshots) == 2
     assert len(signals) == 2
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 4 for signal in signals)
+    assert all(signal.ruleset_version == 5 for signal in signals)
 
 
 @pytest.mark.asyncio
@@ -511,7 +511,7 @@ async def test_sync_recomputes_stored_project_sprints_when_issues_are_unchanged(
     )
     assert result["issue_details_skipped_unchanged"] == 1
     assert len(snapshots) == 1
-    assert snapshots[0].ruleset_version == 4
+    assert snapshots[0].ruleset_version == 5
 
 
 @pytest.mark.asyncio

@@ -247,7 +247,7 @@ def test_scope_creep_counts_readdition_as_another_event(
     snapshot = AnalyticsService().recompute_sprint_metrics(db_session, "10")
 
     evidence = snapshot.scope_creep_evidence
-    assert snapshot.ruleset_version == 4
+    assert snapshot.ruleset_version == 5
     assert snapshot.scope_creep_pct == 76.47
     assert evidence["initial_commitment_count"] == 17
     assert evidence["scope_added_count"] == 7

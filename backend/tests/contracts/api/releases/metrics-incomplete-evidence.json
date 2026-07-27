@@ -1,7 +1,7 @@
 {
   "release_id": "LHPM-REL-PARTIAL",
-  "ruleset_version": 4,
-  "ruleset_label": "Ruleset v4",
+  "ruleset_version": 5,
+  "ruleset_label": "Ruleset v5",
   "calculation_provenance": {
     "source_calculated_at": "2026-07-21T13:00:00+00:00",
     "thresholds": {
@@ -271,6 +271,8 @@
     "unavailable_reason": "Open blockers are a confirmed minimum because blocker classification is incomplete for 2 ticket(s). Additional blockers may exist.",
     "story_point_coverage": null,
     "scope_churn_7d": {
+      "calculation_status": "COMPUTED",
+      "scope_churn_7d_pct": 0.0,
       "window_start": "2026-07-14T13:00:00+00:00",
       "window_end": "2026-07-21T13:00:00+00:00",
       "synchronized_project_issue_keys": [
@@ -298,6 +300,12 @@
         "LHPM-205"
       ],
       "observed_scope_denominator": 5,
+      "scope_change_event_count": 0,
+      "scope_addition_event_count": 0,
+      "scope_removal_event_count": 0,
+      "net_scope_change": 0,
+      "scope_addition_events": [],
+      "scope_removal_events": [],
       "churned_issue_keys": [],
       "added_issue_keys": [],
       "removed_issue_keys": [],
@@ -407,6 +415,8 @@
         ]
       },
       "scope_churn_7d_pct": {
+        "calculation_status": "COMPUTED",
+        "scope_churn_7d_pct": 0.0,
         "window_start": "2026-07-14T13:00:00+00:00",
         "window_end": "2026-07-21T13:00:00+00:00",
         "synchronized_project_issue_keys": [
@@ -434,6 +444,12 @@
           "LHPM-205"
         ],
         "observed_scope_denominator": 5,
+        "scope_change_event_count": 0,
+        "scope_addition_event_count": 0,
+        "scope_removal_event_count": 0,
+        "net_scope_change": 0,
+        "scope_addition_events": [],
+        "scope_removal_events": [],
         "churned_issue_keys": [],
         "added_issue_keys": [],
         "removed_issue_keys": [],
@@ -446,6 +462,8 @@
         "normalized_release_value": "partial evidence release"
       },
       "scope_added_7d_count": {
+        "calculation_status": "COMPUTED",
+        "scope_churn_7d_pct": 0.0,
         "window_start": "2026-07-14T13:00:00+00:00",
         "window_end": "2026-07-21T13:00:00+00:00",
         "synchronized_project_issue_keys": [
@@ -473,6 +491,12 @@
           "LHPM-205"
         ],
         "observed_scope_denominator": 5,
+        "scope_change_event_count": 0,
+        "scope_addition_event_count": 0,
+        "scope_removal_event_count": 0,
+        "net_scope_change": 0,
+        "scope_addition_events": [],
+        "scope_removal_events": [],
         "churned_issue_keys": [],
         "added_issue_keys": [],
         "removed_issue_keys": [],
@@ -485,6 +509,8 @@
         "normalized_release_value": "partial evidence release"
       },
       "scope_removed_7d_count": {
+        "calculation_status": "COMPUTED",
+        "scope_churn_7d_pct": 0.0,
         "window_start": "2026-07-14T13:00:00+00:00",
         "window_end": "2026-07-21T13:00:00+00:00",
         "synchronized_project_issue_keys": [
@@ -512,6 +538,12 @@
           "LHPM-205"
         ],
         "observed_scope_denominator": 5,
+        "scope_change_event_count": 0,
+        "scope_addition_event_count": 0,
+        "scope_removal_event_count": 0,
+        "net_scope_change": 0,
+        "scope_addition_events": [],
+        "scope_removal_events": [],
         "churned_issue_keys": [],
         "added_issue_keys": [],
         "removed_issue_keys": [],

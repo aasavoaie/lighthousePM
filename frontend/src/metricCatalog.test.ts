@@ -36,8 +36,8 @@ function apiMetric(
 assertEqual(fallbackMetricCatalog.release.length, 12, "fallback release inventory is complete");
 assertEqual(fallbackMetricCatalog.sprint.length, 13, "fallback sprint inventory is complete");
 assertEqual(fallbackMetricCatalog.source, "fallback", "fallback source is explicit");
-assertEqual(fallbackMetricCatalog.catalogVersion, 2, "generated fallback catalog version is retained");
-assertEqual(fallbackMetricCatalog.rulesetVersion, 4, "generated fallback ruleset version is retained");
+assertEqual(fallbackMetricCatalog.catalogVersion, 3, "generated fallback catalog version is retained");
+assertEqual(fallbackMetricCatalog.rulesetVersion, 5, "generated fallback ruleset version is retained");
 assertEqual(
   fallbackMetricCatalog.release.map((metric) => metric.api_field).join(","),
   "open_blockers,open_high_severity_bugs,scope_completed_pct,completed_tickets,scope_churn_7d_pct,scope_added_7d_count,scope_removed_7d_count,median_cycle_time_days,reopen_rate_pct,confidence_score,gates_passed_count,readiness_pct",
@@ -60,6 +60,16 @@ assertEqual(formatCatalogMetricValue(releaseChurn, 12.5), "12.50%", "percent for
 assertEqual(catalogMetricStatus(releaseChurn, 10), "good", "strict watch boundary is respected");
 assertEqual(catalogMetricStatus(releaseChurn, 10.01), "warning", "watch comparison is respected");
 assertEqual(catalogMetricStatus(releaseChurn, 20.01), "critical", "critical comparison is respected");
+assertEqual(
+  metricDefinition(fallbackMetricCatalog, "release", "scope_added_7d_count").unit,
+  "events",
+  "release scope additions use event units",
+);
+assertEqual(
+  metricDefinition(fallbackMetricCatalog, "release", "scope_removed_7d_count").unit,
+  "events",
+  "release scope removals use event units",
+);
 
 const sprintScopeCreep = metricDefinition(fallbackMetricCatalog, "sprint", "scope_creep_pct");
 assertEqual(catalogMetricStatus(sprintScopeCreep, 10), "good", "scope creep watch boundary is healthy");

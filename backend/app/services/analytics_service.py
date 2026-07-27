@@ -794,8 +794,14 @@ class AnalyticsService:
             else []
         )
 
-        added_keys: set[str] = set()
-        removed_keys: set[str] = set()
+        addition_events_by_identity: dict[
+            tuple[str, datetime, str, str],
+            _ScopeMovementEvent,
+        ] = {}
+        removal_events_by_identity: dict[
+            tuple[str, datetime, str, str],
+            _ScopeMovementEvent,
+        ] = {}
         for entry in entries:
             if not field_mapper.is_fix_version_field(entry.field_name):
                 continue
@@ -807,24 +813,64 @@ class AnalyticsService:
                 entry.new_value,
                 normalized_release_value,
             )
-            if not old_references_release and new_references_release:
-                added_keys.add(entry.issue_key)
-            elif old_references_release and not new_references_release:
-                removed_keys.add(entry.issue_key)
+            if old_references_release == new_references_release:
+                continue
 
-        sorted_added_keys = sorted(added_keys)
-        sorted_removed_keys = sorted(removed_keys)
-        churned_issue_keys = sorted(added_keys | removed_keys)
+            normalized_changed_at = _coerce_utc(entry.changed_at)
+            assert normalized_changed_at is not None
+            event_identity = (
+                entry.issue_key,
+                normalized_changed_at,
+                _normalize_text(entry.old_value),
+                _normalize_text(entry.new_value),
+            )
+            event: _ScopeMovementEvent = {
+                "history_id": entry.id,
+                "issue_key": entry.issue_key,
+                "changed_at": normalized_changed_at.isoformat(),
+                "from_value": entry.old_value,
+                "to_value": entry.new_value,
+            }
+            if not old_references_release and new_references_release:
+                addition_events_by_identity.setdefault(event_identity, event)
+            else:
+                removal_events_by_identity.setdefault(event_identity, event)
+
+        def event_order(event: _ScopeMovementEvent) -> tuple[str, int, str]:
+            return (
+                event["changed_at"],
+                event["history_id"],
+                event["issue_key"],
+            )
+
+        addition_events = sorted(
+            addition_events_by_identity.values(),
+            key=event_order,
+        )
+        removal_events = sorted(
+            removal_events_by_identity.values(),
+            key=event_order,
+        )
+        sorted_added_keys = sorted(
+            {event["issue_key"] for event in addition_events}
+        )
+        sorted_removed_keys = sorted(
+            {event["issue_key"] for event in removal_events}
+        )
+        churned_issue_keys = sorted(set(sorted_added_keys) | set(sorted_removed_keys))
         observed_scope_issue_keys = sorted(set(current_scope_issue_keys) | set(churned_issue_keys))
         denominator = len(observed_scope_issue_keys)
+        addition_event_count = len(addition_events)
+        removal_event_count = len(removal_events)
+        scope_change_event_count = addition_event_count + removal_event_count
 
         if incomplete_project_changelog_issue_keys:
             status = "PARTIAL"
             scope_churn_7d_pct = None
             explanations = [
                 "Scope churn is partial because Jira changelog ingestion is incomplete for "
-                f"{len(incomplete_project_changelog_issue_keys)} project ticket(s). Added and "
-                "removed counts are confirmed minima; the percentage is unavailable."
+                f"{len(incomplete_project_changelog_issue_keys)} project ticket(s). Addition "
+                "and removal event counts are confirmed minima; the percentage is unavailable."
             ]
         elif denominator == 0:
             status = "NOT_COMPUTED"
@@ -835,23 +881,34 @@ class AnalyticsService:
             ]
         else:
             status = "COMPUTED"
-            scope_churn_7d_pct = round(100.0 * len(churned_issue_keys) / denominator, 2)
+            scope_churn_7d_pct = round(
+                100.0 * scope_change_event_count / denominator,
+                2,
+            )
             explanations = []
 
         return {
             "status": status,
             "scope_churn_7d_pct": scope_churn_7d_pct,
-            "scope_added_7d_count": len(sorted_added_keys),
-            "scope_removed_7d_count": len(sorted_removed_keys),
+            "scope_added_7d_count": addition_event_count,
+            "scope_removed_7d_count": removal_event_count,
             "explanations": explanations,
             "missing_issue_keys": incomplete_project_changelog_issue_keys,
             "evidence": {
+                "calculation_status": status,
+                "scope_churn_7d_pct": scope_churn_7d_pct,
                 "window_start": window_start.isoformat(),
                 "window_end": window_end.isoformat(),
                 "synchronized_project_issue_keys": project_issue_keys,
                 "current_scope_issue_keys": current_scope_issue_keys,
                 "observed_scope_issue_keys": observed_scope_issue_keys,
                 "observed_scope_denominator": denominator,
+                "scope_change_event_count": scope_change_event_count,
+                "scope_addition_event_count": addition_event_count,
+                "scope_removal_event_count": removal_event_count,
+                "net_scope_change": addition_event_count - removal_event_count,
+                "scope_addition_events": addition_events,
+                "scope_removal_events": removal_events,
                 "churned_issue_keys": churned_issue_keys,
                 "added_issue_keys": sorted_added_keys,
                 "removed_issue_keys": sorted_removed_keys,

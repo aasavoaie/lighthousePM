@@ -1,6 +1,6 @@
 {
-  "catalog_version": 2,
-  "ruleset_version": 4,
+  "catalog_version": 3,
+  "ruleset_version": 5,
   "release": [
     {
       "key": "release.open_blockers",
@@ -40,7 +40,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.open_high_severity_bugs",
@@ -86,7 +86,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_completed_pct",
@@ -118,7 +118,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.completed_tickets",
@@ -151,7 +151,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_churn_7d_pct",
@@ -159,7 +159,7 @@
       "api_field": "scope_churn_7d_pct",
       "api_location": "metric_values",
       "label": "Scope churn 7d",
-      "description": "Distinct release membership changes per 100 observed-scope tickets in the inclusive seven-day window.",
+      "description": "Release addition and removal events per 100 distinct observed-scope tickets in the inclusive seven-day window.",
       "category": "risk",
       "unit": "percent",
       "formatting": "percent_2",
@@ -197,7 +197,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_added_7d_count",
@@ -205,9 +205,9 @@
       "api_field": "scope_added_7d_count",
       "api_location": "metric_values",
       "label": "Scope added 7d",
-      "description": "Distinct tickets added to the release in the inclusive seven-day window.",
+      "description": "Distinct addition events into the release in the inclusive seven-day window, including repeated additions of one ticket.",
       "category": "snapshot",
-      "unit": "tickets",
+      "unit": "events",
       "formatting": "integer",
       "display_order": 6,
       "thresholds": [],
@@ -231,7 +231,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_removed_7d_count",
@@ -239,9 +239,9 @@
       "api_field": "scope_removed_7d_count",
       "api_location": "metric_values",
       "label": "Scope removed 7d",
-      "description": "Distinct tickets removed from the release in the inclusive seven-day window.",
+      "description": "Distinct removal events from the release in the inclusive seven-day window, including repeated removals of one ticket.",
       "category": "snapshot",
-      "unit": "tickets",
+      "unit": "events",
       "formatting": "integer",
       "display_order": 7,
       "thresholds": [],
@@ -265,7 +265,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.median_cycle_time_days",
@@ -306,7 +306,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.reopen_rate_pct",
@@ -352,7 +352,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.confidence_score",
@@ -399,7 +399,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.gates_passed_count",
@@ -431,7 +431,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "release.readiness_pct",
@@ -464,7 +464,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     }
   ],
   "sprint": [
@@ -498,7 +498,7 @@
       "confidence_participation": true,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.completed_scope_pct",
@@ -531,7 +531,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.scope_creep_pct",
@@ -578,7 +578,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.open_blockers",
@@ -611,7 +611,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.open_high_severity_bugs",
@@ -644,7 +644,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.bugs_created_during_sprint",
@@ -678,7 +678,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.in_progress_count",
@@ -711,7 +711,7 @@
       "confidence_participation": false,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.not_started_count",
@@ -744,7 +744,7 @@
       "confidence_participation": false,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.rollover_count",
@@ -777,7 +777,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.median_cycle_time_days",
@@ -811,7 +811,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.reopen_rate_pct",
@@ -844,7 +844,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.workload_concentration_pct",
@@ -893,7 +893,7 @@
       "confidence_participation": false,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     },
     {
       "key": "sprint.delivery_confidence_score",
@@ -934,7 +934,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 4
+      "ruleset_version": 5
     }
   ]
 }

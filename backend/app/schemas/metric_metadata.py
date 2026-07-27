@@ -31,7 +31,7 @@ class MetricDefinitionResponse(BaseModel):
     label: str
     description: str
     category: Literal["delivery", "quality", "flow", "risk", "snapshot"]
-    unit: Literal["tickets", "percent", "days", "score", "gates"]
+    unit: Literal["tickets", "events", "percent", "days", "score", "gates"]
     formatting: Literal["integer", "decimal_1", "decimal_2", "decimal_4", "percent_2"]
     display_order: int
     thresholds: list[MetricThresholdMetadataResponse]

@@ -266,7 +266,7 @@ def test_scope_churn_7d_counts_recent_fix_version_changes(db_session: Session) -
     assert evidence["normalized_release_value"] == "v1.0"
 
 
-def test_scope_churn_uses_inclusive_snapshot_boundaries_and_distinct_union(
+def test_scope_churn_uses_inclusive_snapshot_boundaries_and_event_counts(
     db_session: Session,
 ) -> None:
     db_session.add(_release(name="v1.0"))
@@ -296,14 +296,106 @@ def test_scope_churn_uses_inclusive_snapshot_boundaries_and_distinct_union(
     )
 
     assert result["status"] == "COMPUTED"
-    assert result["scope_churn_7d_pct"] == 100.0
+    assert result["scope_churn_7d_pct"] == 200.0
     assert result["scope_added_7d_count"] == 1
     assert result["scope_removed_7d_count"] == 1
+    assert result["evidence"]["scope_change_event_count"] == 2
+    assert result["evidence"]["scope_addition_event_count"] == 1
+    assert result["evidence"]["scope_removal_event_count"] == 1
     assert result["evidence"]["churned_issue_keys"] == ["PROJ-1"]
     assert result["evidence"]["added_issue_keys"] == ["PROJ-1"]
     assert result["evidence"]["removed_issue_keys"] == ["PROJ-1"]
     assert result["evidence"]["window_start"] == window_start.isoformat()
     assert result["evidence"]["window_end"] == snapshot_at.isoformat()
+
+
+def test_scope_churn_counts_repeated_transitions_for_the_same_ticket(
+    db_session: Session,
+) -> None:
+    db_session.add(_release(name="v1.0"))
+    db_session.add(_issue("PROJ-1", "In Progress"))
+    db_session.flush()
+
+    snapshot_at = datetime(2026, 7, 17, 12, tzinfo=UTC)
+    db_session.add_all(
+        [
+            _history(
+                "PROJ-1",
+                "fix version",
+                "v0.9",
+                "v1.0",
+                snapshot_at - timedelta(days=3),
+            ),
+            _history(
+                "PROJ-1",
+                "fix version",
+                "v1.0",
+                "v2.0",
+                snapshot_at - timedelta(days=2),
+            ),
+            _history(
+                "PROJ-1",
+                "fix version",
+                "v2.0",
+                "v1.0",
+                snapshot_at - timedelta(days=1),
+            ),
+        ]
+    )
+    db_session.flush()
+
+    result = AnalyticsService._compute_release_scope_churn_7d(
+        session=db_session,
+        release_id="R1",
+        project_key="PROJ",
+        release_name="v1.0",
+        field_mapper=JiraFieldMapper(Settings(_env_file=None)),
+        snapshot_at=snapshot_at,
+    )
+
+    assert result["status"] == "COMPUTED"
+    assert result["scope_churn_7d_pct"] == 300.0
+    assert result["scope_added_7d_count"] == 2
+    assert result["scope_removed_7d_count"] == 1
+    assert result["evidence"]["observed_scope_denominator"] == 1
+    assert result["evidence"]["scope_change_event_count"] == 3
+    assert result["evidence"]["added_issue_keys"] == ["PROJ-1"]
+    assert result["evidence"]["removed_issue_keys"] == ["PROJ-1"]
+    assert len(result["evidence"]["scope_addition_events"]) == 2
+    assert len(result["evidence"]["scope_removal_events"]) == 1
+
+
+def test_scope_churn_deduplicates_duplicate_semantic_event_copies(
+    db_session: Session,
+) -> None:
+    db_session.add(_release(name="v1.0"))
+    db_session.add(_issue("PROJ-1", "In Progress"))
+    db_session.flush()
+
+    snapshot_at = datetime(2026, 7, 17, 12, tzinfo=UTC)
+    changed_at = snapshot_at - timedelta(days=1)
+    db_session.add_all(
+        [
+            _history("PROJ-1", "fix version", "v0.9", "v1.0", changed_at),
+            _history("PROJ-1", "fixVersion", " V0.9 ", " V1.0 ", changed_at),
+        ]
+    )
+    db_session.flush()
+
+    result = AnalyticsService._compute_release_scope_churn_7d(
+        session=db_session,
+        release_id="R1",
+        project_key="PROJ",
+        release_name="v1.0",
+        field_mapper=JiraFieldMapper(Settings(_env_file=None)),
+        snapshot_at=snapshot_at,
+    )
+
+    assert result["scope_churn_7d_pct"] == 100.0
+    assert result["scope_added_7d_count"] == 1
+    assert result["scope_removed_7d_count"] == 0
+    assert result["evidence"]["scope_change_event_count"] == 1
+    assert len(result["evidence"]["scope_addition_events"]) == 1
 
 
 def test_scope_churn_computes_removal_only_observed_scope(db_session: Session) -> None:

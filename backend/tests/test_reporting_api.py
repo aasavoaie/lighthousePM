@@ -403,7 +403,7 @@ def test_release_report_generation_includes_sections_footer_and_chart(client: Te
     assert "Executive Summary" in text
     assert "Release Outlook" in text
     assert "Risk Aging Evidence" in text
-    assert "Ruleset v4" in text
+    assert "Ruleset v5" in text
     assert "This outlook reflects the latest stored snapshot and is not a forecast." in text
     assert "24-hour confidence change" in text
     assert "Calendar days remaining" in text

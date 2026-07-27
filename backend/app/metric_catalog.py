@@ -14,7 +14,7 @@ from app.utils.constants import RULESET_VERSION
 
 MetricScope = Literal["release", "sprint"]
 MetricCategory = Literal["delivery", "quality", "flow", "risk", "snapshot"]
-MetricUnit = Literal["tickets", "percent", "days", "score", "gates"]
+MetricUnit = Literal["tickets", "events", "percent", "days", "score", "gates"]
 MetricFormat = Literal["integer", "decimal_1", "decimal_2", "decimal_4", "percent_2"]
 MetricSeverity = Literal["watch", "critical"]
 MetricComparison = Literal["gt", "gte", "lt", "lte"]
@@ -26,7 +26,7 @@ PartialValuePolicy = Literal[
     "not_supported",
 ]
 
-CATALOG_VERSION = 2
+CATALOG_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,7 +233,7 @@ RELEASE_METRICS: tuple[MetricDefinition, ...] = (
         scope="release",
         api_field="scope_churn_7d_pct",
         label="Scope churn 7d",
-        description="Distinct release membership changes per 100 observed-scope tickets in the inclusive seven-day window.",
+        description="Release addition and removal events per 100 distinct observed-scope tickets in the inclusive seven-day window.",
         category="risk",
         unit="percent",
         formatting="percent_2",
@@ -274,9 +274,9 @@ RELEASE_METRICS: tuple[MetricDefinition, ...] = (
         scope="release",
         api_field="scope_added_7d_count",
         label="Scope added 7d",
-        description="Distinct tickets added to the release in the inclusive seven-day window.",
+        description="Distinct addition events into the release in the inclusive seven-day window, including repeated additions of one ticket.",
         category="snapshot",
-        unit="tickets",
+        unit="events",
         formatting="integer",
         display_order=6,
         thresholds=(),
@@ -303,9 +303,9 @@ RELEASE_METRICS: tuple[MetricDefinition, ...] = (
         scope="release",
         api_field="scope_removed_7d_count",
         label="Scope removed 7d",
-        description="Distinct tickets removed from the release in the inclusive seven-day window.",
+        description="Distinct removal events from the release in the inclusive seven-day window, including repeated removals of one ticket.",
         category="snapshot",
-        unit="tickets",
+        unit="events",
         formatting="integer",
         display_order=7,
         thresholds=(),

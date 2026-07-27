@@ -250,6 +250,11 @@ confidence, or chance of meeting a release target.
 - Version `0` identifies legacy results without an explicit ruleset.
 - Version `1` identifies the approved Phase 0 contract.
 - Version `2` identifies the approved Phase 2 metric-contract hardening.
+- Version `3` identifies authoritative sprint Scope creep and its
+  delivery-confidence integration.
+- Version `4` identifies event-based sprint Scope creep counting.
+- Version `5` identifies event-based seven-day release scope churn, addition,
+  and removal counting.
 - Metric snapshots and release signals are immutable.
 - Recompute creates a new metric snapshot and an append-only signal result.
 - Historical derived values are read from their stored artifacts, not
