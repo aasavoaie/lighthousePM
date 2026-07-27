@@ -27,9 +27,12 @@ def _parse_jira_datetime(value: str | None) -> datetime | None:
         return None
     normalized = value.replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        return parsed
+    return parsed.astimezone(UTC).replace(tzinfo=None)
 
 
 class SyncRepository:
@@ -129,6 +132,19 @@ class SyncRepository:
         return SyncRepository.IssueSyncFreshness(
             jira_updated_at=row.jira_updated_at,
             jira_changelog_complete=row.jira_changelog_complete,
+        )
+
+    @staticmethod
+    def list_project_sprint_ids(
+        session: Session,
+        project_key: str,
+    ) -> list[str]:
+        return list(
+            session.scalars(
+                select(Sprint.sprint_id)
+                .where(Sprint.project_key == project_key)
+                .order_by(Sprint.sprint_id)
+            ).all()
         )
 
     @staticmethod

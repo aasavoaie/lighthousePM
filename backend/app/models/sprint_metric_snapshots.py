@@ -27,6 +27,18 @@ class SprintMetricSnapshot(Base):
     )
     committed_scope: Mapped[int | None] = mapped_column("committed_scope", Integer, nullable=True)
     completed_scope_pct: Mapped[float | None] = mapped_column("completed_scope_pct", Float, nullable=True)
+    scope_creep_pct: Mapped[float | None] = mapped_column(
+        "scope_creep_pct", Float, nullable=True
+    )
+    scope_creep_status: Mapped[str] = mapped_column(
+        "scope_creep_status", String(32), nullable=False, default="NOT_COMPUTED"
+    )
+    scope_creep_explanations: Mapped[list[str] | None] = mapped_column(
+        "scope_creep_explanations", JSON, nullable=True
+    )
+    scope_creep_evidence: Mapped[dict[str, Any] | None] = mapped_column(
+        "scope_creep_evidence", JSON, nullable=True
+    )
     open_blockers: Mapped[int] = mapped_column("open_blockers", Integer, nullable=False)
     open_high_severity_bugs: Mapped[int] = mapped_column("open_high_severity_bugs", Integer, nullable=False)
     bugs_created_during_sprint: Mapped[int] = mapped_column(

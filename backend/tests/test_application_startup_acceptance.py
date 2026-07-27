@@ -183,6 +183,16 @@ def _running_postgres_backend(database_url: str, log_path: Path) -> Iterator[int
 
 
 def _seed_representative_records(connection) -> None:
+    sprint_metric_columns = {
+        column["name"]
+        for column in inspect(connection).get_columns("sprint_metric_snapshots")
+    }
+    scope_creep_column = (
+        ", scope_creep_status" if "scope_creep_status" in sprint_metric_columns else ""
+    )
+    scope_creep_value = (
+        ", 'NOT_COMPUTED'" if "scope_creep_status" in sprint_metric_columns else ""
+    )
     connection.execute(
         text(
             "INSERT INTO releases (release_id, name, project_key, status) "
@@ -227,9 +237,13 @@ def _seed_representative_records(connection) -> None:
             "story_point_pointed_count, story_point_unpointed_count, story_point_coverage_pct, "
             "story_point_unpointed_issue_keys, delivery_confidence_status, "
             "delivery_confidence_explanations, bugs_created_during_sprint_status, "
-            "bugs_created_during_sprint_missing_created_at_issue_keys) "
+            "bugs_created_during_sprint_missing_created_at_issue_keys"
+            + scope_creep_column
+            + ") "
             "VALUES ('MIG-SPRINT', CURRENT_TIMESTAMP, 1, 25, 0, 1, 1, 0, 0, 2, 10, "
-            "1, 1, 0, 100, '[]', 'COMPUTED', '[]', 'COMPUTED', '[]')"
+            "1, 1, 0, 100, '[]', 'COMPUTED', '[]', 'COMPUTED', '[]'"
+            + scope_creep_value
+            + ")"
         )
     )
     connection.execute(

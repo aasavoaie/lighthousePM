@@ -175,14 +175,20 @@ class SyncService:
             assignee=self._sanitize_persisted_text(issue_detail.assignee),
             fix_versions=[self._sanitize_persisted_text(version) or "" for version in issue_detail.fix_versions],
             sprints=[self._sanitize_sprint_ref(sprint_ref) for sprint_ref in issue_detail.sprints],
+            created=self._normalized_jira_datetime(issue_detail.created),
+            updated=self._normalized_jira_datetime(issue_detail.updated),
         )
 
     def _sanitize_history_entry(self, entry: JiraChangelogEntry) -> JiraChangelogEntry:
+        normalized_changed_at = self._normalized_jira_datetime(entry.changed_at)
+        if normalized_changed_at is None:
+            raise ValueError("Jira changelog timestamp cannot be missing")
         return replace(
             entry,
             field_name=self._sanitize_persisted_text(entry.field_name) or "",
             from_value=self._sanitize_persisted_text(entry.from_value),
             to_value=self._sanitize_persisted_text(entry.to_value),
+            changed_at=normalized_changed_at,
         )
 
     async def sync_from_jira(self, session: Session) -> dict[str, int | str]:
@@ -367,6 +373,12 @@ class SyncService:
             )
 
             # Keep metrics snapshots in sync with each successful Jira ingestion run.
+            sprint_ids_seen.update(
+                SyncRepository.list_project_sprint_ids(
+                    session=session,
+                    project_key=project_key,
+                )
+            )
             analytics_service = AnalyticsService()
             signal_service = SignalService()
             for release_id in version_name_to_release_id.values():

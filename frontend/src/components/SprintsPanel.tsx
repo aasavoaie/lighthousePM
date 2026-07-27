@@ -9,7 +9,7 @@ import type {
   SnapshotComparisonResponse,
 } from "../api/types";
 import { useMetricCatalog } from "../MetricCatalogContext";
-import { metricDefinition } from "../metricCatalog";
+import { catalogMetricStatus, metricDefinition } from "../metricCatalog";
 import { SprintDeliveryConfidencePanel } from "./SprintDeliveryConfidencePanel";
 import { SprintHealthPanel, type SprintOption } from "./SprintHealthPanel";
 import { buildBaseMetricEvaluation, SprintMetricsPanel } from "./SprintMetricsPanel";
@@ -110,6 +110,7 @@ async function loadAllSprintIssues(sprintId: string) {
 export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence", projectKey = null }: SprintsPanelProps) {
   const catalog = useMetricCatalog();
   const deliveryConfidenceDefinition = metricDefinition(catalog, "sprint", "delivery_confidence_score");
+  const scopeCreepDefinition = metricDefinition(catalog, "sprint", "scope_creep_pct");
   const activeProjectKey = normalizeProjectKey(projectKey);
   const [currentSprint, setCurrentSprint] = useState<Sprint | null>(null);
   const [closedSprints, setClosedSprints] = useState<Sprint[]>([]);
@@ -239,8 +240,15 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
   const confidenceBreakdown = storyPointUi.showDeliveryConfidenceBreakdown ? metrics?.confidence_breakdown ?? null : null;
   const biggestDeliveryDriver = hasStoryPointMetrics ? metrics?.biggest_driver ?? null : null;
   const scopeCreepCard = useMemo(
-    () => (deliveryConfidence ? buildScopeCreepDisplayModel(deliveryConfidence) : null),
-    [deliveryConfidence]
+    () => (
+      metrics?.is_computed
+        ? buildScopeCreepDisplayModel(
+            metrics,
+            catalogMetricStatus(scopeCreepDefinition, metrics.metrics.scope_creep_pct),
+          )
+        : null
+    ),
+    [metrics, scopeCreepDefinition]
   );
   const velocityHealthCard = useMemo(
     () => (deliveryConfidence && storyPointUi.showVelocityHealth ? buildVelocityHealthDisplayModel(deliveryConfidence) : null),
@@ -252,12 +260,10 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     }
     const evaluations: MetricEvaluation[] = [];
     if (scopeCreepCard) {
-      const value = deliveryConfidence?.inputs.scope_stability_index === null || !deliveryConfidence
-        ? null
-        : Number((deliveryConfidence.inputs.scope_stability_index * 100).toFixed(2));
+      const value = metrics.metrics.scope_creep_pct;
       evaluations.push({
-        key: "scope_creep",
-        label: "Scope creep",
+        key: "scope_creep_pct",
+        label: scopeCreepDefinition.label,
         group: "delivery",
         status: scopeCreepCard.status,
         value,
@@ -309,7 +315,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
       });
     }
     return evaluations;
-  }, [catalog, deliveryConfidence, metrics, predictabilityCard, scopeCreepCard, velocityHealthCard, workDistributionCard]);
+  }, [catalog, deliveryConfidence, metrics, predictabilityCard, scopeCreepCard, scopeCreepDefinition, velocityHealthCard, workDistributionCard]);
   const focusAreas = useMemo(() => generateFocusAreas(metricEvaluations), [metricEvaluations]);
   const riskHeatmapCells = useMemo(() => buildRiskHeatmapRows(sprintChartRows), [sprintChartRows]);
   const latestConfidenceDelta = sprintConfidenceRows.length > 1
@@ -516,6 +522,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
               name: sprint.name,
               is_not_closed: isNotClosedSprint(sprint),
               metrics: response,
+              scope_creep_definition: scopeCreepDefinition,
             };
           })
         );
@@ -540,7 +547,7 @@ export function SprintsPanel({ refreshNonce, onSelectIssue, mode = "intelligence
     return () => {
       isActive = false;
     };
-  }, [recentSprints, refreshNonce, sprintChartRefreshNonce]);
+  }, [recentSprints, refreshNonce, scopeCreepDefinition, sprintChartRefreshNonce]);
 
   async function handleRecomputeSprint() {
     if (!selectedScopedSprintId || isRecomputing) {

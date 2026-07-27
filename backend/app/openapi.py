@@ -8,7 +8,7 @@ from app.security import RouteSecurityClass, route_security_class
 
 _fastapi_iter_route_contexts: Callable[[Iterable[Any]], Iterable[Any]] | None
 try:
-    from fastapi.routing import iter_route_contexts as _imported_iter_route_contexts
+    from fastapi.routing import iter_route_contexts as _imported_iter_route_contexts  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover - exercised by older local FastAPI installs.
     _fastapi_iter_route_contexts = None
 else:

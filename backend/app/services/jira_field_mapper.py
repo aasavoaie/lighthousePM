@@ -56,15 +56,22 @@ class JiraFieldMapper:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        release_field = settings.jira_field_release.strip() or "fixVersions"
+        sprint_field = settings.jira_field_sprint.strip()
+        changelog_fix_version_fields = set(settings.changelog_fix_version_fields)
+        changelog_fix_version_fields.add(release_field.casefold())
+        changelog_sprint_fields = set(settings.changelog_sprint_fields)
+        if sprint_field:
+            changelog_sprint_fields.add(sprint_field.casefold())
         self.mapping = JiraFieldMapping(
             story_points_field=settings.jira_field_story_points.strip(),
             severity_field=settings.jira_field_severity.strip() or "priority",
-            release_field=settings.jira_field_release.strip() or "fixVersions",
-            sprint_field=settings.jira_field_sprint.strip(),
+            release_field=release_field,
+            sprint_field=sprint_field,
             blocker_field=settings.jira_field_blocker.strip(),
             blocker_true_values=settings.blocker_true_values,
-            changelog_fix_version_fields=settings.changelog_fix_version_fields,
-            changelog_sprint_fields=settings.changelog_sprint_fields,
+            changelog_fix_version_fields=frozenset(changelog_fix_version_fields),
+            changelog_sprint_fields=frozenset(changelog_sprint_fields),
             done_statuses=settings.done_statuses,
             in_progress_statuses=settings.in_progress_statuses,
             high_severity_values=settings.high_severity_values,

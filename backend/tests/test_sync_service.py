@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, select, text
@@ -16,6 +16,8 @@ from app.models import (
     OperationalStatus,
     Release,
     ReleaseSignal,
+    Sprint,
+    SprintMetricSnapshot,
 )
 from app.services.jira_errors import JiraAuthError
 from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraIssueSummary, JiraVersion
@@ -190,7 +192,7 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert len(snapshots) == 1
     assert len(signals) == 1
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 2 for signal in signals)
+    assert all(signal.ruleset_version == 4 for signal in signals)
     assert signals[0].signal == "INCONCLUSIVE"
     assert signals[0].confidence_score is None
     assert any("reopen_rate_pct" in reason for reason in signals[0].reasons)
@@ -216,6 +218,50 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert status is not None
     assert status.last_sync_succeeded_at is not None
     assert status.last_sync_failure_summary is None
+
+
+@pytest.mark.asyncio
+async def test_sync_persists_configured_sprint_field_id_changelog(
+    db_session: Session,
+) -> None:
+    class CustomSprintFieldJiraService(FakeJiraService):
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            return [
+                JiraChangelogEntry(
+                    issue_key=issue_key,
+                    field_name="customfield_10020",
+                    from_value="",
+                    to_value="Sprint 8",
+                    changed_at=datetime(
+                        2026,
+                        4,
+                        1,
+                        9,
+                        tzinfo=timezone(timedelta(hours=3)),
+                    ),
+                )
+            ]
+
+    settings = _test_settings()
+    settings.jira_field_sprint = "customfield_10020"
+    service = SyncService(
+        jira_service=CustomSprintFieldJiraService(),
+        settings=settings,
+    )
+
+    result = await service.sync_from_jira(session=db_session)
+
+    history = list(db_session.scalars(select(IssueHistory)).all())
+    assert result["history_fetched"] == 1
+    assert result["history_inserted"] == 1
+    assert len(history) == 1
+    assert history[0].field_name == "customfield_10020"
+    assert history[0].changed_at == datetime(2026, 4, 1, 6)
 
 
 @pytest.mark.asyncio
@@ -314,7 +360,7 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     assert len(snapshots) == 2
     assert len(signals) == 2
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 2 for signal in signals)
+    assert all(signal.ruleset_version == 4 for signal in signals)
 
 
 @pytest.mark.asyncio
@@ -429,6 +475,43 @@ async def test_sync_from_jira_skips_unchanged_existing_issue_detail_and_changelo
     assert result["history_fetched"] == 0
     assert jira_service.detail_calls == 0
     assert jira_service.changelog_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_recomputes_stored_project_sprints_when_issues_are_unchanged(
+    db_session: Session,
+) -> None:
+    await SyncService(
+        jira_service=FakeJiraService(),
+        settings=_test_settings(),
+    ).sync_from_jira(session=db_session)
+    db_session.add(
+        Sprint(
+            sprint_id="SPRINT-10",
+            name="Sprint 10",
+            state="active",
+            project_key="LHPM",
+            start_date=datetime(2026, 3, 30, tzinfo=UTC),
+            end_date=datetime(2026, 4, 10, tzinfo=UTC),
+        )
+    )
+    db_session.flush()
+
+    result = await SyncService(
+        jira_service=FakeJiraService(),
+        settings=_test_settings(),
+    ).sync_from_jira(session=db_session)
+
+    snapshots = list(
+        db_session.scalars(
+            select(SprintMetricSnapshot).where(
+                SprintMetricSnapshot.sprint_id == "SPRINT-10"
+            )
+        ).all()
+    )
+    assert result["issue_details_skipped_unchanged"] == 1
+    assert len(snapshots) == 1
+    assert snapshots[0].ruleset_version == 4
 
 
 @pytest.mark.asyncio

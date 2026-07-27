@@ -709,27 +709,40 @@ def sprint_velocity_rows(
 def sprint_scope_rows(
     snapshot: SprintMetricSnapshot | None, has_story_points: bool = True
 ) -> list[tuple[str, str]]:
-    if not has_story_points:
-        return [("Status", SPRINT_STORY_POINT_UNAVAILABLE_MESSAGE)]
-    if snapshot is None or not snapshot.delivery_confidence_inputs:
-        return [("Status", "No scope stability data is available.")]
-    inputs = snapshot.delivery_confidence_inputs
-    index = inputs.get("scope_stability_index")
-    return [
+    if snapshot is None or snapshot.scope_creep_evidence is None:
+        return [("Status", "Scope movement has not been computed yet.")]
+    evidence = snapshot.scope_creep_evidence
+    rows = [
+        ("Status", snapshot.scope_creep_status.replace("_", " ").title()),
         (
-            "Scope stability component",
-            format_percent(
-                (snapshot.delivery_confidence_components or {}).get("scope_stability")
+            report_metric_label("sprint.scope_creep_pct"),
+            format_report_metric_value(
+                "sprint.scope_creep_pct", snapshot.scope_creep_pct
             ),
         ),
         (
-            "Scope stability index",
-            format_percent(index * 100 if isinstance(index, int | float) else None),
+            "Initial commitment",
+            format_number(evidence.get("initial_commitment_count")),
         ),
-        ("Added issues", format_number(inputs.get("scope_added_count"))),
-        ("Removed issues", format_number(inputs.get("scope_removed_count"))),
-        ("Scope change count", format_number(inputs.get("scope_change_count"))),
+        ("Addition events", format_number(evidence.get("scope_added_count"))),
+        ("Removal events", format_number(evidence.get("scope_removed_count"))),
+        ("Net scope change", format_number(evidence.get("net_scope_change"))),
+        ("Scope change count", format_number(evidence.get("scope_change_count"))),
     ]
+    if has_story_points and snapshot.delivery_confidence_components:
+        rows.append(
+            (
+                "Scope stability component",
+                format_percent(
+                    snapshot.delivery_confidence_components.get("scope_stability")
+                ),
+            )
+        )
+    rows.extend(
+        ("Explanation", str(explanation))
+        for explanation in (snapshot.scope_creep_explanations or [])
+    )
+    return rows
 
 
 def sprint_workload_rows(

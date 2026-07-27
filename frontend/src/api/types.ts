@@ -105,6 +105,7 @@ export interface MetricCatalogResponse {
 export interface SprintMetricValues {
   committed_scope: number | null;
   completed_scope_pct: number | null;
+  scope_creep_pct: number | null;
   open_blockers: number | null;
   open_high_severity_bugs: number | null;
   bugs_created_during_sprint: number | null;
@@ -173,6 +174,44 @@ export interface DeliveryConfidenceDetail {
   weights: DeliveryConfidenceWeights;
   components: DeliveryConfidenceComponents;
   inputs: DeliveryConfidenceInputs;
+}
+
+export interface SprintScopeMovementEvent {
+  history_id: number;
+  issue_key: string;
+  changed_at: string;
+  from_value: string | null;
+  to_value: string | null;
+}
+
+export interface SprintScopeMovementEvidence {
+  calculation_status: ComputationStatus;
+  scope_creep_pct: number | null;
+  window_start: string | null;
+  window_end: string | null;
+  current_scope_issue_keys: string[];
+  project_issue_keys: string[];
+  initial_commitment_count: number;
+  scope_change_count: number;
+  scope_added_count: number;
+  scope_removed_count: number;
+  net_scope_change: number;
+  scope_change_issue_keys: string[];
+  scope_added_issue_keys: string[];
+  scope_removed_issue_keys: string[];
+  scope_addition_events: SprintScopeMovementEvent[];
+  scope_removal_events: SprintScopeMovementEvent[];
+  incomplete_history_issue_keys: string[];
+  sprint_id: string;
+  sprint_name: string;
+  sprint_changelog_fields: string[];
+}
+
+export interface SprintScopeMovementDetail {
+  status: ComputationStatus;
+  percentage: number | null;
+  explanations: string[];
+  evidence: SprintScopeMovementEvidence;
 }
 
 export type ConfidenceBreakdownStatus = "good" | "warning" | "critical";
@@ -302,6 +341,7 @@ export interface SprintMetricsResponse {
   delivery_confidence_status: DeliveryConfidenceStatus;
   delivery_confidence_explanations: string[];
   delivery_confidence: DeliveryConfidenceDetail | null;
+  scope_movement: SprintScopeMovementDetail | null;
   workload_distribution: WorkloadDistributionDetail | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;

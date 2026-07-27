@@ -1,7 +1,7 @@
 {
   "release_id": "LHPM-REL-ALPHA",
-  "ruleset_version": 2,
-  "ruleset_label": "Ruleset v2",
+  "ruleset_version": 4,
+  "ruleset_label": "Ruleset v4",
   "calculation_provenance": {
     "source_calculated_at": "2026-07-21T13:00:00+00:00",
     "thresholds": {
@@ -251,7 +251,8 @@
       "incomplete_project_changelog_issue_keys": [],
       "configured_changelog_aliases": [
         "fix version",
-        "fixversion"
+        "fixversion",
+        "fixversions"
       ],
       "normalized_release_value": "alpha release"
     },
@@ -459,7 +460,8 @@
         "incomplete_project_changelog_issue_keys": [],
         "configured_changelog_aliases": [
           "fix version",
-          "fixversion"
+          "fixversion",
+          "fixversions"
         ],
         "normalized_release_value": "alpha release"
       },
@@ -492,7 +494,8 @@
         "incomplete_project_changelog_issue_keys": [],
         "configured_changelog_aliases": [
           "fix version",
-          "fixversion"
+          "fixversion",
+          "fixversions"
         ],
         "normalized_release_value": "alpha release"
       },
@@ -525,7 +528,8 @@
         "incomplete_project_changelog_issue_keys": [],
         "configured_changelog_aliases": [
           "fix version",
-          "fixversion"
+          "fixversion",
+          "fixversions"
         ],
         "normalized_release_value": "alpha release"
       },

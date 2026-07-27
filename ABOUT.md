@@ -453,7 +453,7 @@ Should answer the following questions:
 
 #### Derived view: Sprint scope movement
 
-Summarizes confirmed sprint additions and removals after the sprint starts. It is a derived presentation of stored scope-stability evidence, not a forecast of whether the sprint will finish.
+Summarizes confirmed sprint addition and removal events after the sprint starts. Re-adding a previously removed ticket counts as another event. It is a derived presentation of stored scope-stability evidence, not a forecast of whether the sprint will finish.
 
 Should answer the following questions:
 

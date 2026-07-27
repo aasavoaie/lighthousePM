@@ -1,7 +1,7 @@
 {
   "sprint_id": "LHPM-SPRINT-41",
-  "ruleset_version": 2,
-  "ruleset_label": "Ruleset v2",
+  "ruleset_version": 4,
+  "ruleset_label": "Ruleset v4",
   "calculation_provenance": {
     "source_calculated_at": "2026-07-21T13:00:00+00:00",
     "thresholds": {
@@ -87,6 +87,18 @@
           "depends_on": [
             "ticket_count",
             "ticket_status",
+            "sprint_assignment"
+          ]
+        },
+        "scope_creep_pct": {
+          "status": "COMPUTED",
+          "available": true,
+          "reason": null,
+          "explanations": [],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "sprint_duration",
+            "project_changelog_completeness",
             "sprint_assignment"
           ]
         },
@@ -233,6 +245,50 @@
         "LHPM-4102"
       ]
     },
+    "scope_movement": {
+      "status": "COMPUTED",
+      "value": 0.0,
+      "explanations": [],
+      "missing_issue_keys": [],
+      "evidence": {
+        "calculation_status": "COMPUTED",
+        "scope_creep_pct": 0.0,
+        "window_start": "2026-07-20T00:00:00+00:00",
+        "window_end": "2026-07-21T13:00:00+00:00",
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "project_issue_keys": [
+          "LHPM-3901",
+          "LHPM-3902",
+          "LHPM-4001",
+          "LHPM-4002",
+          "LHPM-4003",
+          "LHPM-4101",
+          "LHPM-4102",
+          "LHPM-4201",
+          "LHPM-4202",
+          "LHPM-4203"
+        ],
+        "initial_commitment_count": 2,
+        "scope_change_count": 0,
+        "scope_added_count": 0,
+        "scope_removed_count": 0,
+        "net_scope_change": 0,
+        "scope_change_issue_keys": [],
+        "scope_added_issue_keys": [],
+        "scope_removed_issue_keys": [],
+        "scope_addition_events": [],
+        "scope_removal_events": [],
+        "incomplete_history_issue_keys": [],
+        "sprint_id": "LHPM-SPRINT-41",
+        "sprint_name": "Sprint 41 Partial",
+        "sprint_changelog_fields": [
+          "sprint"
+        ]
+      }
+    },
     "delivery_confidence_prerequisites": {
       "status": "COMPUTED",
       "available": true,
@@ -241,7 +297,7 @@
       "evidence": {
         "pointed_missing_status_issue_keys": [],
         "incomplete_blocker_classification_issue_keys": [],
-        "sprint_start_at": "2026-07-22T00:00:00+00:00",
+        "sprint_start_at": "2026-07-20T00:00:00+00:00",
         "sprint_end_at": "2026-08-05T00:00:00+00:00",
         "sprint_duration_valid": true,
         "project_issue_keys": [
@@ -315,7 +371,7 @@
       "completed_effective_points": 5.0,
       "remaining_effective_points": 0.0,
       "completed_scope_pct": 100.0,
-      "time_elapsed_pct": 0.0,
+      "time_elapsed_pct": 9.64,
       "historical_velocity": 8.0,
       "baseline_sprint_count": 1,
       "baseline_sprints": [
@@ -327,7 +383,7 @@
         }
       ],
       "velocity_status": "COMPUTED",
-      "remaining_capacity_points": 8.0,
+      "remaining_capacity_points": 7.23,
       "blocked_issue_ratio": 0.0,
       "initial_commitment_count": 2,
       "scope_change_count": 0,
@@ -354,7 +410,7 @@
             "score": 100.0,
             "maxScore": 100.0,
             "status": "good",
-            "explanation": "Completed scope is aligned with elapsed sprint time (100.0% done vs 0.0% elapsed)."
+            "explanation": "Completed scope is aligned with elapsed sprint time (100.0% done vs 9.6% elapsed)."
           },
           {
             "id": "velocity_fit",
@@ -481,6 +537,44 @@
           "LHPM-4101"
         ]
       },
+      "scope_creep_pct": {
+        "calculation_status": "COMPUTED",
+        "scope_creep_pct": 0.0,
+        "window_start": "2026-07-20T00:00:00+00:00",
+        "window_end": "2026-07-21T13:00:00+00:00",
+        "current_scope_issue_keys": [
+          "LHPM-4101",
+          "LHPM-4102"
+        ],
+        "project_issue_keys": [
+          "LHPM-3901",
+          "LHPM-3902",
+          "LHPM-4001",
+          "LHPM-4002",
+          "LHPM-4003",
+          "LHPM-4101",
+          "LHPM-4102",
+          "LHPM-4201",
+          "LHPM-4202",
+          "LHPM-4203"
+        ],
+        "initial_commitment_count": 2,
+        "scope_change_count": 0,
+        "scope_added_count": 0,
+        "scope_removed_count": 0,
+        "net_scope_change": 0,
+        "scope_change_issue_keys": [],
+        "scope_added_issue_keys": [],
+        "scope_removed_issue_keys": [],
+        "scope_addition_events": [],
+        "scope_removal_events": [],
+        "incomplete_history_issue_keys": [],
+        "sprint_id": "LHPM-SPRINT-41",
+        "sprint_name": "Sprint 41 Partial",
+        "sprint_changelog_fields": [
+          "sprint"
+        ]
+      },
       "in_progress_count": {
         "current_scope_issue_keys": [
           "LHPM-4101",
@@ -552,6 +646,7 @@
   "metrics": {
     "committed_scope": 2,
     "completed_scope_pct": 50.0,
+    "scope_creep_pct": 0.0,
     "open_blockers": 0,
     "open_high_severity_bugs": 0,
     "bugs_created_during_sprint": 0,
@@ -573,6 +668,7 @@
   "metric_names": [
     "committed_scope",
     "completed_scope_pct",
+    "scope_creep_pct",
     "open_blockers",
     "open_high_severity_bugs",
     "bugs_created_during_sprint",
@@ -614,6 +710,18 @@
         "depends_on": [
           "ticket_count",
           "ticket_status",
+          "sprint_assignment"
+        ]
+      },
+      "scope_creep_pct": {
+        "status": "COMPUTED",
+        "available": true,
+        "reason": null,
+        "explanations": [],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "sprint_duration",
+          "project_changelog_completeness",
           "sprint_assignment"
         ]
       },
@@ -785,7 +893,7 @@
       "completed_effective_points": 5.0,
       "remaining_effective_points": 0.0,
       "completed_scope_pct": 100.0,
-      "time_elapsed_pct": 0.0,
+      "time_elapsed_pct": 9.64,
       "historical_velocity": 8.0,
       "baseline_sprint_count": 1,
       "baseline_sprints": [
@@ -797,7 +905,7 @@
         }
       ],
       "velocity_status": "COMPUTED",
-      "remaining_capacity_points": 8.0,
+      "remaining_capacity_points": 7.23,
       "blocked_issue_ratio": 0.0,
       "scope_change_count": 0,
       "scope_added_count": 0,
@@ -806,6 +914,49 @@
       "scope_change_issue_keys": [],
       "scope_added_issue_keys": [],
       "scope_removed_issue_keys": []
+    }
+  },
+  "scope_movement": {
+    "status": "COMPUTED",
+    "percentage": 0.0,
+    "explanations": [],
+    "evidence": {
+      "calculation_status": "COMPUTED",
+      "scope_creep_pct": 0.0,
+      "window_start": "2026-07-20T00:00:00Z",
+      "window_end": "2026-07-21T13:00:00Z",
+      "current_scope_issue_keys": [
+        "LHPM-4101",
+        "LHPM-4102"
+      ],
+      "project_issue_keys": [
+        "LHPM-3901",
+        "LHPM-3902",
+        "LHPM-4001",
+        "LHPM-4002",
+        "LHPM-4003",
+        "LHPM-4101",
+        "LHPM-4102",
+        "LHPM-4201",
+        "LHPM-4202",
+        "LHPM-4203"
+      ],
+      "initial_commitment_count": 2,
+      "scope_change_count": 0,
+      "scope_added_count": 0,
+      "scope_removed_count": 0,
+      "net_scope_change": 0,
+      "scope_change_issue_keys": [],
+      "scope_added_issue_keys": [],
+      "scope_removed_issue_keys": [],
+      "scope_addition_events": [],
+      "scope_removal_events": [],
+      "incomplete_history_issue_keys": [],
+      "sprint_id": "LHPM-SPRINT-41",
+      "sprint_name": "Sprint 41 Partial",
+      "sprint_changelog_fields": [
+        "sprint"
+      ]
     }
   },
   "workload_distribution": {
@@ -854,7 +1005,7 @@
         "score": 100.0,
         "maxScore": 100.0,
         "status": "good",
-        "explanation": "Completed scope is aligned with elapsed sprint time (100.0% done vs 0.0% elapsed)."
+        "explanation": "Completed scope is aligned with elapsed sprint time (100.0% done vs 9.6% elapsed)."
       },
       {
         "id": "velocity_fit",

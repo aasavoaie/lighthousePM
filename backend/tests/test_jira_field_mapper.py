@@ -30,6 +30,30 @@ def test_mapper_uses_configured_classification_values() -> None:
     assert mapper.is_bug("Bug") is False
 
 
+def test_mapper_accepts_configured_jira_field_ids_and_display_aliases() -> None:
+    mapper = JiraFieldMapper(
+        Settings(
+            _env_file=None,
+            jira_field_release="fixVersions",
+            jira_field_sprint="customfield_10020",
+            jira_changelog_fix_version_fields="fix version,fixversion",
+            jira_changelog_sprint_fields="sprint",
+        )
+    )
+
+    assert mapper.fix_version_changelog_fields == frozenset(
+        {"fix version", "fixversion", "fixversions"}
+    )
+    assert mapper.sprint_changelog_fields == frozenset(
+        {"customfield_10020", "sprint"}
+    )
+    assert mapper.is_fix_version_field("fixVersions") is True
+    assert mapper.is_fix_version_field("Fix Version") is True
+    assert mapper.is_sprint_field("customfield_10020") is True
+    assert mapper.is_sprint_field("Sprint") is True
+    assert mapper.is_relevant_history_field("customfield_10020") is True
+
+
 def test_explicit_blocker_value_takes_precedence_over_fallbacks() -> None:
     mapper = _custom_mapper()
 

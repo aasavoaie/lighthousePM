@@ -277,6 +277,12 @@ keys, added keys, removed keys, incomplete-project-changelog keys, configured
 changelog aliases, and normalized release value used by the calculation. Every
 issue-key list is sorted.
 
+Configured Jira release and sprint field identifiers are authoritative
+changelog aliases in addition to the display-name aliases. This is required
+because Jira may identify the same transition by its configured field ID.
+All Jira issue, sprint, and changelog timestamps are normalized to UTC before
+persistence so metric windows compare one time basis in every database mode.
+
 ### Median cycle time (`median_cycle_time_days`)
 
 Status: **Approved — Phase 2.4**
@@ -490,6 +496,74 @@ Status: **Approved — Phase 2.5**
   the value is `null` and the metric is `PARTIAL`.
 - Empty scope: the API value is `null` and status is `NOT_COMPUTED`.
 - Story points are not used.
+
+### Scope creep (`scope_creep_pct`)
+
+Status: **Approved — Phase 2.6**
+
+Scope creep measures sprint-membership transition events after sprint start.
+It is ticket-event-based and is evaluated independently of story-point
+coverage and delivery-confidence availability.
+
+The calculation window uses the stored snapshot time as its calculation
+boundary:
+
+- `window_start = sprint start`;
+- for a closed sprint, `window_end` is completion time when present, otherwise
+  configured end time, otherwise snapshot time;
+- for an active or other non-closed sprint, `window_end` is the earlier of
+  configured end time and snapshot time, or snapshot time when no end exists;
+- the start boundary is exclusive and the end boundary is inclusive.
+
+Sprint membership is matched by exact normalized sprint ID or exact normalized
+sprint name. Substring matches are forbidden: sprint `10` must not match
+`110`, and `Sprint 1` must not match `Sprint 10`.
+
+Definitions:
+
+- `addition events`: stored sprint-changelog transitions from outside to inside
+  the exact sprint;
+- `removal events`: stored sprint-changelog transitions from inside to outside
+  the exact sprint;
+- every qualifying transition is counted, so a ticket that is removed and
+  re-added contributes another addition event;
+- `added issue keys` and `removed issue keys` are distinct, sorted supporting
+  evidence and do not define the event counts;
+- `scope change count = addition event count + removal event count`;
+- `initial commitment count =
+  max(current sprint-scope count - addition event count + removal event count,
+  0)`;
+- `scope_creep_pct =
+  100 * scope change count / initial commitment count`.
+
+The percentage is rounded to two decimal places. It is not capped and may
+exceed `100%`. No intermediate count or ratio is rounded.
+
+Availability rules:
+
+- `COMPUTED`: sprint start and a valid window exist, all synchronized project
+  issue histories are complete, and initial commitment is greater than zero.
+- `PARTIAL`: any synchronized project issue has incomplete Jira changelog
+  ingestion. Addition and removal event counts remain confirmed minimum
+  counts, while `scope_creep_pct` is `null`.
+- `NOT_COMPUTED`: sprint start is missing, the effective window ends before
+  sprint start, no current or changed scope exists, or initial commitment is
+  zero. Zero initial commitment must never be presented as zero creep or
+  perfect stability.
+- Complete evidence with an initial commitment and no changes returns `0%`.
+
+Risk bands use strict upper breaches:
+
+- `10%` or below: healthy;
+- greater than `10%` through `20%`: watch; and
+- greater than `20%`: critical.
+
+Stored evidence includes window boundaries, synchronized project issue keys,
+current-scope keys, initial commitment, ordered addition and removal events,
+distinct added, removed, and changed keys, event counts, net scope change,
+incomplete-history keys, configured changelog aliases, exact sprint
+identifiers, percentage, and calculation status. Every issue-key list is
+sorted. Events are ordered by transition time and stable history identity.
 
 ### Sprint blockers and high-severity bugs
 
@@ -715,15 +789,13 @@ sprint or scope stability.
 
 #### Scope stability
 
-- Post-start additions and removals are reconstructed from sprint changelog.
-- Initial commitment count:
-  `max(current ticket count - added count + removed count, 0)`.
-- Stability index:
-  `(added count + removed count) / initial commitment count`.
-- Component: `clamp(100 * (1 - stability index), 0, 100)`.
-- Missing sprint start or incomplete project sprint-membership history makes
-  scope stability unavailable and delivery confidence `INCONCLUSIVE`; missing
-  stability is never replaced by zero churn.
+- Scope stability consumes the authoritative stored Scope creep result and
+  does not independently reconstruct sprint movement.
+- Stability index: `scope_creep_pct / 100`.
+- Component: `clamp(100 - scope_creep_pct, 0, 100)`.
+- A `PARTIAL` or `NOT_COMPUTED` Scope creep result makes scope stability
+  unavailable and delivery confidence `INCONCLUSIVE`; missing stability is
+  never replaced by zero churn or a healthy component.
 
 Delivery confidence formula:
 
@@ -994,6 +1066,10 @@ Status: **Approved — Phase 0.6**
   implemented in runtime code.
 - Version `2` identifies the approved Phase 2 metric-contract hardening once
   that contract is implemented in runtime code.
+- Version `3` identifies the approved Phase 2.6 authoritative sprint Scope
+  creep metric and its delivery-confidence integration.
+- Version `4` identifies event-based Scope creep counting, including repeated
+  removal and re-addition transitions for the same ticket.
 - The version increments whenever a formula, threshold, weight,
   classification, availability rule, or output meaning changes.
 - Wording, layout, and other presentation-only changes do not increment the
@@ -1171,9 +1247,9 @@ so the runtime `ruleset_version` remains `2`.
 Status: **Approved — Phase 3.3**
 
 Every non-head revision retained in the single Alembic ancestor chain is a
-supported versioned upgrade source. With current head `20260724_0019`, the
+supported versioned upgrade source. With current head `20260727_0022`, the
 supported prior versioned revisions are `20260407_0001` through
-`20260724_0018`. The current head is also a supported startup source and must
+`20260726_0021`. The current head is also a supported startup source and must
 remain idempotent.
 
 Supported unversioned legacy schemas are limited to the explicit deterministic

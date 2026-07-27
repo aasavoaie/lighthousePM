@@ -241,6 +241,7 @@ def _seed_sprint_snapshot(
     workload_distribution_status: str | None = None,
     workload_distribution_explanations: list[str] | None = None,
     workload_distribution_evidence: dict[str, object] | None = None,
+    scope_creep_pct: float | None = None,
 ) -> None:
     session.add(
         SprintMetricSnapshot(
@@ -249,6 +250,22 @@ def _seed_sprint_snapshot(
             ruleset_version=ruleset_version,
             committed_scope=committed_scope,
             completed_scope_pct=completed_scope_pct,
+            scope_creep_pct=scope_creep_pct,
+            scope_creep_status=(
+                "COMPUTED" if scope_creep_pct is not None else "NOT_COMPUTED"
+            ),
+            scope_creep_explanations=[],
+            scope_creep_evidence=(
+                {
+                    "initial_commitment_count": 8,
+                    "scope_added_count": 2,
+                    "scope_removed_count": 0,
+                    "net_scope_change": 2,
+                    "scope_change_count": 2,
+                }
+                if scope_creep_pct is not None
+                else None
+            ),
             open_blockers=1,
             open_high_severity_bugs=1,
             bugs_created_during_sprint=2,
@@ -386,7 +403,7 @@ def test_release_report_generation_includes_sections_footer_and_chart(client: Te
     assert "Executive Summary" in text
     assert "Release Outlook" in text
     assert "Risk Aging Evidence" in text
-    assert "Ruleset v2" in text
+    assert "Ruleset v4" in text
     assert "This outlook reflects the latest stored snapshot and is not a forecast." in text
     assert "24-hour confidence change" in text
     assert "Calendar days remaining" in text
@@ -532,7 +549,7 @@ def test_full_sprint_template_includes_historical_trend_charts(client: TestClien
         {
             "Historical Delivery Confidence",
             "Historical Progress Alignment",
-            "Historical Scope Changes",
+            "Historical Scope Creep",
             "Historical High-Severity Bugs",
             "Historical Reopen Events per 100 Eligible Tickets",
         }
@@ -1093,10 +1110,12 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
         _seed_sprint_snapshot(
             session, "12", now - timedelta(hours=4), 62.0,
             delivery_confidence_status="INCONCLUSIVE",
+            scope_creep_pct=12.5,
         )
         _seed_sprint_snapshot(
             session, "12", now, 72.0,
             delivery_confidence_status="INCONCLUSIVE",
+            scope_creep_pct=25.0,
         )
         session.commit()
         sprint = session.query(Sprint).filter(Sprint.sprint_id == "12").one()
@@ -1128,11 +1147,18 @@ def test_sprint_report_suppresses_story_point_sections_without_story_points(clie
         "Delivery confidence requires at least 50% of sprint tickets to have valid story points.",
     )
 
+    scope_movement = next(
+        section for section in document.sections if section.title == "Scope Movement"
+    )
+    assert ("Scope creep", "25.00%") in scope_movement.rows
+    assert ("Initial commitment", "8") in scope_movement.rows
+
     historical = next(section for section in document.sections if section.title == "Historical Trends")
     chart_titles = {chart.title for chart in historical.charts}
     assert "Historical Delivery Confidence" not in chart_titles
     assert "Historical Velocity Fit" not in chart_titles
     assert "Historical Scope Completion" in chart_titles
+    assert "Historical Scope Creep" in chart_titles
     assert "Historical High-Severity Bugs" in chart_titles
 
 

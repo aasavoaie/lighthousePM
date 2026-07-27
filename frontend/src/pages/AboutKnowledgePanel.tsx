@@ -384,7 +384,7 @@ const aboutSprintMetricSections: AboutGuideSection[] = [
   {
     title: "Metric: Scope creep",
     description:
-      "Shows scope movement after the sprint starts. High creep means the sprint plan is changing while the team is executing, which reduces predictability.",
+      "Shows sprint addition and removal events after the sprint starts. Re-adding a previously removed ticket counts as another event. High creep means the sprint plan is changing while the team is executing, which reduces predictability.",
     questions: [
       "Is sprint scope stable after planning?",
       "Are new requests interrupting the sprint commitment?",
@@ -694,4 +694,3 @@ export function AboutKnowledgePanel({ page }: { page: AboutGuidePage }) {
     </section>
   );
 }
-

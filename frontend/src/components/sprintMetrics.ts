@@ -385,28 +385,39 @@ export function generateFocusAreas(evaluations: MetricEvaluation[]) {
   return actionable.slice(0, 3).map(({ item }) => item.focusMessage);
 }
 
-export function buildScopeCreepDisplayModel(confidence: DeliveryConfidenceDetail): ScopeCreepDisplayModel {
-  const index = confidence.inputs.scope_stability_index;
-  const creepPct = index === null ? null : Number((index * 100).toFixed(2));
-  const status: MetricStatus = creepPct === null ? "neutral" : creepPct > 20 ? "critical" : creepPct > 10 ? "warning" : "good";
-  const added = confidence.inputs.scope_added_count;
-  const removed = confidence.inputs.scope_removed_count;
-  const netChange = added - removed;
-  const issueKeys = confidence.inputs.scope_change_issue_keys ?? [];
+export function buildScopeCreepDisplayModel(
+  metrics: SprintMetricsResponse,
+  status: MetricStatus,
+): ScopeCreepDisplayModel {
+  const movement = metrics.scope_movement;
+  const creepPct = metrics.metrics.scope_creep_pct;
+  const added = movement?.evidence.scope_added_count ?? 0;
+  const removed = movement?.evidence.scope_removed_count ?? 0;
+  const netChange = movement?.evidence.net_scope_change ?? 0;
+  const issueKeys = movement?.evidence.scope_change_issue_keys ?? [];
+  const explanations = movement?.explanations ?? [];
 
   return {
     value: creepPct === null ? "N/A" : formatPercent(creepPct),
     status,
     comparison:
-      confidence.inputs.scope_change_count === 0
+      movement === null
+        ? "Scope movement has not been computed"
+        : movement.evidence.scope_change_count === 0
         ? "No scope changes after sprint start"
-        : `${confidence.inputs.scope_change_count} scope changes after sprint start`,
-    impact: confidence.inputs.scope_change_count === 0 ? "positive" : "negative",
-    details: [
-      `${added} added`,
-      `${removed} removed`,
-      `Net ${netChange >= 0 ? "+" : ""}${netChange}`,
-    ],
+        : `${movement.evidence.scope_change_count} scope changes after sprint start`,
+    impact: creepPct === null
+      ? "unknown"
+      : movement?.evidence.scope_change_count === 0
+        ? "positive"
+        : "negative",
+    details: creepPct === null && explanations.length > 0
+      ? explanations
+      : [
+          `${added} addition event${added === 1 ? "" : "s"}`,
+          `${removed} removal event${removed === 1 ? "" : "s"}`,
+          `Net ${netChange >= 0 ? "+" : ""}${netChange}`,
+        ],
     issueKeys: issueKeys.slice(0, 5),
     hiddenIssueCount: Math.max(0, issueKeys.length - 5),
   };

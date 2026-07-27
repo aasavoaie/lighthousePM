@@ -100,6 +100,7 @@ const confidence: DeliveryConfidenceDetail = {
 const metrics: SprintMetricValues = {
   committed_scope: 19,
   completed_scope_pct: 31.58,
+  scope_creep_pct: 46.15,
   open_blockers: 0,
   open_high_severity_bugs: 2,
   bugs_created_during_sprint: 0,
@@ -151,6 +152,33 @@ function sprintMetricsResponse(hasStoryPoints: boolean): SprintMetricsResponse {
     bugs_created_during_sprint_status: "COMPUTED",
     delivery_confidence_explanations: hasStoryPoints ? [] : [sprintNoStoryPointsReason],
     delivery_confidence: hasStoryPoints ? confidence : null,
+    scope_movement: {
+      status: "COMPUTED",
+      percentage: 46.15,
+      explanations: [],
+      evidence: {
+        calculation_status: "COMPUTED",
+        scope_creep_pct: 46.15,
+        window_start: "2026-05-18T00:00:00Z",
+        window_end: "2026-06-01T10:00:00Z",
+        current_scope_issue_keys: [],
+        project_issue_keys: [],
+        initial_commitment_count: 13,
+        scope_change_count: 8,
+        scope_added_count: 7,
+        scope_removed_count: 1,
+        net_scope_change: 6,
+        scope_change_issue_keys: ["LHPM-1", "LHPM-2", "LHPM-3", "LHPM-4", "LHPM-5", "LHPM-6"],
+        scope_added_issue_keys: [],
+        scope_removed_issue_keys: [],
+        scope_addition_events: [],
+        scope_removal_events: [],
+        incomplete_history_issue_keys: [],
+        sprint_id: "12",
+        sprint_name: "Sprint 12",
+        sprint_changelog_fields: ["Sprint"],
+      },
+    },
     workload_distribution: null,
     confidence_breakdown: null,
     biggest_driver: null,
@@ -569,9 +597,13 @@ assertDeepEqual(
   "focus areas prioritize critical metrics deterministically"
 );
 
-const scopeCreep = buildScopeCreepDisplayModel(confidence);
-assertEqual(scopeCreep.value, "46.15%", "scope creep uses stability index percent");
-assertDeepEqual(scopeCreep.details, ["7 added", "1 removed", "Net +6"], "scope creep includes added removed and net change");
+const scopeCreep = buildScopeCreepDisplayModel(sprintMetricsResponse(true), "critical");
+assertEqual(scopeCreep.value, "46.15%", "scope creep uses the authoritative metric value");
+assertDeepEqual(
+  scopeCreep.details,
+  ["7 addition events", "1 removal event", "Net +6"],
+  "scope creep includes addition events, removal events and net change",
+);
 assertEqual(scopeCreep.issueKeys.length, 5, "scope creep limits visible issue chips");
 assertEqual(scopeCreep.hiddenIssueCount, 1, "scope creep reports hidden issue count");
 

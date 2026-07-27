@@ -152,6 +152,19 @@ POST_LEGACY_REVISION_MARKERS = (
             )
         },
     ),
+    LegacyRevisionShape(
+        revision="20260726_0020",
+        columns={
+            "sprint_metric_snapshots": frozenset(
+                {
+                    "scope_creep_pct",
+                    "scope_creep_status",
+                    "scope_creep_explanations",
+                    "scope_creep_evidence",
+                }
+            )
+        },
+    ),
 )
 
 

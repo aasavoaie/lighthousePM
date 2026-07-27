@@ -40,6 +40,7 @@ class CurrentSprintResponse(BaseModel):
 class SprintMetricValues(BaseModel):
     committed_scope: int | None
     completed_scope_pct: float | None
+    scope_creep_pct: float | None
     open_blockers: int | None
     open_high_severity_bugs: int | None
     bugs_created_during_sprint: int | None
@@ -112,6 +113,44 @@ class StoryPointCoverage(BaseModel):
     unpointed_issue_keys: list[str]
 
 
+class SprintScopeMovementEvent(BaseModel):
+    history_id: int
+    issue_key: str
+    changed_at: datetime
+    from_value: str | None
+    to_value: str | None
+
+
+class SprintScopeMovementEvidence(BaseModel):
+    calculation_status: ComputationStatus
+    scope_creep_pct: float | None
+    window_start: datetime | None
+    window_end: datetime | None
+    current_scope_issue_keys: list[str]
+    project_issue_keys: list[str]
+    initial_commitment_count: int
+    scope_change_count: int
+    scope_added_count: int
+    scope_removed_count: int
+    net_scope_change: int
+    scope_change_issue_keys: list[str]
+    scope_added_issue_keys: list[str]
+    scope_removed_issue_keys: list[str]
+    scope_addition_events: list[SprintScopeMovementEvent] = Field(default_factory=list)
+    scope_removal_events: list[SprintScopeMovementEvent] = Field(default_factory=list)
+    incomplete_history_issue_keys: list[str]
+    sprint_id: str
+    sprint_name: str
+    sprint_changelog_fields: list[str]
+
+
+class SprintScopeMovementDetail(BaseModel):
+    status: ComputationStatus
+    percentage: float | None
+    explanations: list[str]
+    evidence: SprintScopeMovementEvidence
+
+
 WorkloadDistributionStatus = Literal[
     "COMPUTED",
     "PARTIAL",
@@ -168,6 +207,7 @@ class SprintMetricsResponse(BaseModel):
     delivery_confidence_status: DeliveryConfidenceStatus
     delivery_confidence_explanations: list[str]
     delivery_confidence: DeliveryConfidenceDetail | None
+    scope_movement: SprintScopeMovementDetail | None = None
     workload_distribution: WorkloadDistributionDetail | None = None
     confidence_breakdown: ConfidenceBreakdown | None
     biggest_driver: DriverAnalysis | None

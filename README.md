@@ -431,7 +431,8 @@ Field mappings are explicit per Jira instance:
 - `JIRA_FIELD_SPRINT` identifies the sprint custom field;
 - `JIRA_FIELD_STORY_POINTS` identifies the story-point field;
 - `JIRA_FIELD_BLOCKER` optionally identifies an explicit blocker flag;
-- changelog aliases identify fix-version and sprint membership changes.
+- changelog aliases identify fix-version and sprint membership changes; the
+  configured release and sprint field identifiers are always recognized too.
 
 Jira workflow classifications are also explicit, comma-separated settings:
 
@@ -453,7 +454,7 @@ still available when Jira sync itself is enabled.
 
 Application startup runs the Alembic migration chain before accepting API
 requests or starting scheduled work. The current single head is
-`20260724_0019`.
+`20260727_0022`.
 
 Alembic is the only runtime schema authority for both PostgreSQL and SQLite.
 Application startup does not use `Base.metadata.create_all()` and does not run
@@ -468,7 +469,7 @@ fixtures.
 - Before migration, a consistent SQLite backup is written to a unique
   temporary file beside the active database, flushed and closed, and then
   atomically published. For the current migration head its canonical suffix is
-  `.pre-20260724_0019.bak`.
+  `.pre-20260727_0022.bak`.
 - Unknown or partially migrated legacy schemas stop startup instead of being
   guessed or silently modified.
 - Repeated startup at the current revision is idempotent.
@@ -477,7 +478,7 @@ fixtures.
 
 Every prior revision retained in the single Alembic chain is a supported
 versioned upgrade source. For the current chain, this is `20260407_0001`
-through `20260724_0018`. Recognized unversioned SQLite sources are limited to
+through `20260726_0021`. Recognized unversioned SQLite sources are limited to
 the explicit legacy-shape registry, currently `20260407_0001` through
 `20260716_0010`; other unversioned shapes fail closed.
 
@@ -544,7 +545,7 @@ Run the packaged validator from the backend executable directory:
 
 ```powershell
 .\lighthousepm-backend.exe --validate-sqlite-backup `
-  "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260724_0019.bak" `
+  "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260727_0022.bak" `
   --migration-backup
 ```
 

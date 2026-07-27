@@ -241,6 +241,7 @@ class MetricAvailabilityService:
         flow_metric_results: dict[str, dict[str, object]] | None = None,
         scope_metric_results: dict[str, dict[str, object]] | None = None,
         work_state_metric_results: dict[str, dict[str, object]] | None = None,
+        scope_creep_result: dict[str, object] | None = None,
         delivery_confidence_result: dict[str, object] | None = None,
         workload_distribution_result: dict[str, object] | None = None,
     ) -> MetricAvailability:
@@ -326,6 +327,8 @@ class MetricAvailabilityService:
                 field_mapper,
             ),
         )
+        if scope_creep_result is not None:
+            _apply_scope_creep_availability(metrics, scope_creep_result)
         if flow_metric_results is not None:
             _apply_flow_metric_availability(metrics, flow_metric_results)
         if workload_distribution_result is not None:
@@ -347,6 +350,12 @@ class MetricAvailabilityService:
             _apply_delivery_confidence_prerequisite_availability(
                 metrics,
                 cast(dict[str, object], prerequisites),
+            )
+        if context.has_story_points and delivery_confidence_result is not None:
+            _apply_delivery_confidence_result_availability(
+                metrics,
+                delivery_confidence_result,
+                scope_creep_result,
             )
         return MetricAvailability(context=context, metrics=metrics)
 
@@ -1140,6 +1149,31 @@ def _apply_sprint_work_state_metric_availability(
         )
 
 
+def _apply_scope_creep_availability(
+    items: dict[str, MetricAvailabilityItem],
+    result: dict[str, object],
+) -> None:
+    explanations = [
+        str(item)
+        for item in cast(Iterable[object], result.get("explanations", []))
+    ]
+    status = cast(MetricAvailabilityStatus, result["status"])
+    available = status == COMPUTATION_STATUS_COMPUTED
+    items["scope_creep_pct"] = MetricAvailabilityItem(
+        status=status,
+        available=available,
+        reason=explanations[0] if not available and explanations else None,
+        explanations=explanations,
+        missing_issue_keys=sorted(
+            str(key)
+            for key in cast(
+                Iterable[object], result.get("missing_issue_keys", [])
+            )
+        ),
+        depends_on=SPRINT_METRIC_DEPENDENCIES["scope_creep_pct"],
+    )
+
+
 def _apply_delivery_confidence_prerequisite_availability(
     items: dict[str, MetricAvailabilityItem],
     result: dict[str, object],
@@ -1159,6 +1193,41 @@ def _apply_delivery_confidence_prerequisite_availability(
             str(key)
             for key in cast(Iterable[object], result.get("missing_issue_keys", []))
         ),
+        depends_on=SPRINT_METRIC_DEPENDENCIES["delivery_confidence_score"],
+    )
+
+
+def _apply_delivery_confidence_result_availability(
+    items: dict[str, MetricAvailabilityItem],
+    result: dict[str, object],
+    scope_creep_result: dict[str, object] | None,
+) -> None:
+    if result.get("status") != "INCONCLUSIVE":
+        return
+    explanations = [
+        str(item)
+        for item in cast(Iterable[object], result.get("explanations", []))
+    ]
+    missing_issue_keys = sorted(
+        {
+            str(key)
+            for key in (
+                list(items["delivery_confidence_score"].missing_issue_keys)
+                + list(
+                    cast(
+                        Iterable[object],
+                        (scope_creep_result or {}).get("missing_issue_keys", []),
+                    )
+                )
+            )
+        }
+    )
+    items["delivery_confidence_score"] = MetricAvailabilityItem(
+        status=COMPUTATION_STATUS_NOT_COMPUTED,
+        available=False,
+        reason=explanations[0] if explanations else None,
+        explanations=explanations,
+        missing_issue_keys=missing_issue_keys,
         depends_on=SPRINT_METRIC_DEPENDENCIES["delivery_confidence_score"],
     )
 
