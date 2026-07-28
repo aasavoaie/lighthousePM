@@ -34,10 +34,10 @@ function apiMetric(
 }
 
 assertEqual(fallbackMetricCatalog.release.length, 12, "fallback release inventory is complete");
-assertEqual(fallbackMetricCatalog.sprint.length, 12, "fallback sprint inventory is complete");
+assertEqual(fallbackMetricCatalog.sprint.length, 13, "fallback sprint inventory is complete");
 assertEqual(fallbackMetricCatalog.source, "fallback", "fallback source is explicit");
-assertEqual(fallbackMetricCatalog.catalogVersion, 1, "generated fallback catalog version is retained");
-assertEqual(fallbackMetricCatalog.rulesetVersion, 2, "generated fallback ruleset version is retained");
+assertEqual(fallbackMetricCatalog.catalogVersion, 3, "generated fallback catalog version is retained");
+assertEqual(fallbackMetricCatalog.rulesetVersion, 5, "generated fallback ruleset version is retained");
 assertEqual(
   fallbackMetricCatalog.release.map((metric) => metric.api_field).join(","),
   "open_blockers,open_high_severity_bugs,scope_completed_pct,completed_tickets,scope_churn_7d_pct,scope_added_7d_count,scope_removed_7d_count,median_cycle_time_days,reopen_rate_pct,confidence_score,gates_passed_count,readiness_pct",
@@ -45,7 +45,7 @@ assertEqual(
 );
 assertEqual(
   fallbackMetricCatalog.sprint.map((metric) => metric.api_field).join(","),
-  "committed_scope,completed_scope_pct,open_blockers,open_high_severity_bugs,bugs_created_during_sprint,in_progress_count,not_started_count,rollover_count,median_cycle_time_days,reopen_rate_pct,workload_concentration_pct,delivery_confidence_score",
+  "committed_scope,completed_scope_pct,scope_creep_pct,open_blockers,open_high_severity_bugs,bugs_created_during_sprint,in_progress_count,not_started_count,rollover_count,median_cycle_time_days,reopen_rate_pct,workload_concentration_pct,delivery_confidence_score",
   "fallback sprint order matches the API contract",
 );
 
@@ -60,6 +60,21 @@ assertEqual(formatCatalogMetricValue(releaseChurn, 12.5), "12.50%", "percent for
 assertEqual(catalogMetricStatus(releaseChurn, 10), "good", "strict watch boundary is respected");
 assertEqual(catalogMetricStatus(releaseChurn, 10.01), "warning", "watch comparison is respected");
 assertEqual(catalogMetricStatus(releaseChurn, 20.01), "critical", "critical comparison is respected");
+assertEqual(
+  metricDefinition(fallbackMetricCatalog, "release", "scope_added_7d_count").unit,
+  "events",
+  "release scope additions use event units",
+);
+assertEqual(
+  metricDefinition(fallbackMetricCatalog, "release", "scope_removed_7d_count").unit,
+  "events",
+  "release scope removals use event units",
+);
+
+const sprintScopeCreep = metricDefinition(fallbackMetricCatalog, "sprint", "scope_creep_pct");
+assertEqual(catalogMetricStatus(sprintScopeCreep, 10), "good", "scope creep watch boundary is healthy");
+assertEqual(catalogMetricStatus(sprintScopeCreep, 10.01), "warning", "scope creep watch threshold is catalog-owned");
+assertEqual(catalogMetricStatus(sprintScopeCreep, 20.01), "critical", "scope creep critical threshold is catalog-owned");
 
 const cycleTime = metricDefinition(fallbackMetricCatalog, "sprint", "median_cycle_time_days");
 assertEqual(formatCatalogMetricValue(cycleTime, 3.125), "3.1250", "decimal precision comes from catalog");

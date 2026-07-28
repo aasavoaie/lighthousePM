@@ -1,4 +1,10 @@
-import type { DeliveryConfidenceDetail, SprintMetricValues, SprintMetricsResponse } from "../api/types";
+import type { SprintMetricValues, SprintMetricsResponse } from "../api/types";
+import {
+  catalogMetricStatus,
+  fallbackMetricCatalog,
+  metricDefinition,
+  type MetricPresentationDefinition,
+} from "../metricCatalog";
 import type { MetricStatus } from "./MetricCards";
 import { getMetricStatus, hasSprintStoryPoints } from "./sprintMetrics";
 
@@ -10,16 +16,12 @@ export const confidenceStatusThresholds = {
   risk: 40,
 } as const;
 
-export const scopeCreepStatusThresholds = {
-  critical: 20,
-  watch: 10,
-} as const;
-
 export interface SprintChartSource {
   sprint_id: string;
   name: string;
   is_not_closed: boolean;
   metrics: SprintMetricsResponse;
+  scope_creep_definition?: MetricPresentationDefinition;
 }
 
 export interface SprintChartHistoryPoint {
@@ -123,18 +125,16 @@ export function hasChartData<T>(rows: T[], keys: Array<keyof T>) {
   return rows.some((row) => keys.some((key) => row[key] !== null && row[key] !== undefined));
 }
 
-export function normalizeScopeChange(confidence: DeliveryConfidenceDetail) {
-  const added = confidence.inputs.scope_added_count;
-  const removed = confidence.inputs.scope_removed_count;
+export function normalizeScopeChange(metrics: SprintMetricsResponse) {
+  const evidence = metrics.scope_movement?.evidence;
+  const added = evidence?.scope_added_count ?? 0;
+  const removed = evidence?.scope_removed_count ?? 0;
   return {
-    scope_change_count: confidence.inputs.scope_change_count,
-    scope_creep_pct:
-      confidence.inputs.scope_stability_index === null
-        ? null
-        : Number((confidence.inputs.scope_stability_index * 100).toFixed(2)),
+    scope_change_count: evidence?.scope_change_count ?? 0,
+    scope_creep_pct: metrics.metrics.scope_creep_pct,
     scope_added_count: added,
     scope_removed_count: removed,
-    net_scope_change: added - removed,
+    net_scope_change: evidence?.net_scope_change ?? added - removed,
   };
 }
 
@@ -144,19 +144,6 @@ export function normalizeQualityTrend(metrics: SprintMetricValues) {
     bugs_created_during_sprint: metrics.bugs_created_during_sprint,
     reopen_rate_pct: metrics.reopen_rate_pct,
   };
-}
-
-function scopeCreepStatus(scopeCreepPct: number | null): RiskHeatmapStatus {
-  if (scopeCreepPct === null) {
-    return "neutral";
-  }
-  if (scopeCreepPct > scopeCreepStatusThresholds.critical) {
-    return "critical";
-  }
-  if (scopeCreepPct > scopeCreepStatusThresholds.watch) {
-    return "watch";
-  }
-  return "healthy";
 }
 
 function effectiveStatus(...statuses: RiskHeatmapStatus[]) {
@@ -195,15 +182,9 @@ function baseChartRow(source: SprintChartSource): SprintChartHistoryPoint | null
   }
 
   const confidence = hasSprintStoryPoints(metrics) ? metrics.delivery_confidence : null;
-  const scope = confidence
-    ? normalizeScopeChange(confidence)
-    : {
-        scope_change_count: 0,
-        scope_creep_pct: null,
-        scope_added_count: 0,
-        scope_removed_count: 0,
-        net_scope_change: 0,
-      };
+  const scope = normalizeScopeChange(metrics);
+  const scopeDefinition = source.scope_creep_definition
+    ?? metricDefinition(fallbackMetricCatalog, "sprint", "scope_creep_pct");
   const quality = normalizeQualityTrend(metrics.metrics);
   const committed = confidence ? Number(confidence.inputs.committed_effective_points.toFixed(2)) : null;
   const completed = confidence ? Number(confidence.inputs.completed_effective_points.toFixed(2)) : null;
@@ -211,7 +192,7 @@ function baseChartRow(source: SprintChartSource): SprintChartHistoryPoint | null
   const deliveryStatus = effectiveStatus(
     confidence ? getConfidenceStatusLevel(confidence.score) : "neutral",
     metricStatusToHeatmap(getMetricStatus("completed_scope_pct", metrics.metrics.completed_scope_pct)),
-    scopeCreepStatus(scope.scope_creep_pct)
+    metricStatusToHeatmap(catalogMetricStatus(scopeDefinition, scope.scope_creep_pct))
   );
 
   return {

@@ -106,6 +106,7 @@ function sprintMetrics(sprintId: string): SprintMetricsResponse {
     metrics: {
       committed_scope: 1,
       completed_scope_pct: 50,
+      scope_creep_pct: null,
       open_blockers: 0,
       open_high_severity_bugs: 0,
       bugs_created_during_sprint: 0,
@@ -146,6 +147,7 @@ function sprintMetrics(sprintId: string): SprintMetricsResponse {
     bugs_created_during_sprint_status: "COMPUTED",
     delivery_confidence_explanations: ["Story points are insufficient."],
     delivery_confidence: null,
+    scope_movement: null,
     workload_distribution: null,
     confidence_breakdown: null,
     biggest_driver: null,

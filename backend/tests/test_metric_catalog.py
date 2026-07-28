@@ -130,7 +130,7 @@ def test_backend_metric_name_inventories_are_catalog_selections() -> None:
 
 
 def test_catalog_structure_is_complete_and_deterministically_ordered() -> None:
-    assert CATALOG_VERSION == 1
+    assert CATALOG_VERSION == 3
     assert metrics_for_scope("release") == RELEASE_METRICS
     assert metrics_for_scope("sprint") == SPRINT_METRICS
 
@@ -195,6 +195,8 @@ def test_catalog_and_nested_metadata_are_immutable() -> None:
 
 
 def test_threshold_accessors_expose_approved_values_and_coverage() -> None:
+    assert METRIC_CATALOG_BY_KEY["release.scope_added_7d_count"].unit == "events"
+    assert METRIC_CATALOG_BY_KEY["release.scope_removed_7d_count"].unit == "events"
     assert metric_threshold("release.open_blockers", "critical").comparison == "gt"
     assert metric_threshold_value("release.open_blockers", "critical") == 0
     assert metric_threshold_value("release.confidence_score", "watch") == 90.0
@@ -364,6 +366,13 @@ def test_only_product_rule_thresholds_are_cataloged() -> None:
         ("critical", "gt", 50.0),
         ("watch", "gte", 35.0),
     ]
+    assert [
+        (item.severity, item.comparison, item.value)
+        for item in METRIC_CATALOG_BY_KEY["sprint.scope_creep_pct"].thresholds
+    ] == [
+        ("critical", "gt", 20.0),
+        ("watch", "gt", 10.0),
+    ]
 
     thresholded_keys = {metric.key for metric in METRIC_CATALOG if metric.thresholds}
     assert thresholded_keys == {
@@ -373,5 +382,6 @@ def test_only_product_rule_thresholds_are_cataloged() -> None:
         "release.median_cycle_time_days",
         "release.reopen_rate_pct",
         "release.confidence_score",
+        "sprint.scope_creep_pct",
         "sprint.workload_concentration_pct",
     }

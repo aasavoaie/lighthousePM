@@ -249,7 +249,7 @@ Should answer the following questions:
 
 #### Metric: Scope churn 7d
 
-Measures distinct release scope additions and removals over the seven days ending at the stored snapshot time. The percentage compares tickets with confirmed movement against the observed scope: current release tickets plus tickets with confirmed additions or removals. High churn means the release target is still changing while the team is trying to finish it.
+Measures release scope addition and removal events over the seven days ending at the stored snapshot time. Every distinct transition is counted, including repeated removal and re-addition of the same ticket. The percentage compares the total event count against the distinct observed scope: current release tickets plus tickets with confirmed additions or removals. It may exceed 100% when tickets move repeatedly. High churn means the release target is still changing while the team is trying to finish it.
 
 If Jira changelog ingestion is incomplete for any synchronized project ticket, the percentage is shown as unavailable. Confirmed added and removed counts remain visible as partial evidence, together with the Jira keys whose history is incomplete.
 
@@ -261,7 +261,7 @@ Should answer the following questions:
 
 #### Metric: Scope added 7d
 
-Counts tickets added to the release in the recent scope window. It explains whether churn is caused by new work entering the release.
+Counts distinct addition events in the recent scope window. Adding the same ticket more than once through separate transitions increases the count each time. It explains whether churn is caused by work entering or re-entering the release.
 
 Should answer the following questions:
 
@@ -271,7 +271,7 @@ Should answer the following questions:
 
 #### Metric: Scope removed 7d
 
-Counts tickets removed from the release in the recent scope window. It helps separate healthy trade-offs from unstable release planning.
+Counts distinct removal events in the recent scope window. Removing the same ticket more than once through separate transitions increases the count each time. It helps separate healthy trade-offs from unstable release planning.
 
 Should answer the following questions:
 
@@ -453,7 +453,7 @@ Should answer the following questions:
 
 #### Derived view: Sprint scope movement
 
-Summarizes confirmed sprint additions and removals after the sprint starts. It is a derived presentation of stored scope-stability evidence, not a forecast of whether the sprint will finish.
+Summarizes confirmed sprint addition and removal events after the sprint starts. Re-adding a previously removed ticket counts as another event. It is a derived presentation of stored scope-stability evidence, not a forecast of whether the sprint will finish.
 
 Should answer the following questions:
 

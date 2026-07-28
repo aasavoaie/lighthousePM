@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import create_engine, select, text
@@ -16,6 +16,8 @@ from app.models import (
     OperationalStatus,
     Release,
     ReleaseSignal,
+    Sprint,
+    SprintMetricSnapshot,
 )
 from app.services.jira_errors import JiraAuthError
 from app.services.jira_types import JiraChangelogEntry, JiraIssueDetail, JiraIssueSummary, JiraVersion
@@ -159,6 +161,9 @@ async def test_sync_from_jira_allows_manual_sync_when_scheduler_is_disabled(db_s
     result = await service.sync_from_jira(session=db_session)
 
     assert result["project_key"] == "LHPM"
+    assert result["sync_mode"] == "full"
+    assert result["fallback_reason"] is not None
+    assert result["cursor_advanced"] is True
     assert result["releases_fetched"] == 1
     assert result["issues_fetched"] == 1
 
@@ -190,7 +195,7 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert len(snapshots) == 1
     assert len(signals) == 1
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 2 for signal in signals)
+    assert all(signal.ruleset_version == 5 for signal in signals)
     assert signals[0].signal == "INCONCLUSIVE"
     assert signals[0].confidence_score is None
     assert any("reopen_rate_pct" in reason for reason in signals[0].reasons)
@@ -216,6 +221,50 @@ async def test_sync_from_jira_inserts_data_and_counts(db_session: Session) -> No
     assert status is not None
     assert status.last_sync_succeeded_at is not None
     assert status.last_sync_failure_summary is None
+
+
+@pytest.mark.asyncio
+async def test_sync_persists_configured_sprint_field_id_changelog(
+    db_session: Session,
+) -> None:
+    class CustomSprintFieldJiraService(FakeJiraService):
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            return [
+                JiraChangelogEntry(
+                    issue_key=issue_key,
+                    field_name="customfield_10020",
+                    from_value="",
+                    to_value="Sprint 8",
+                    changed_at=datetime(
+                        2026,
+                        4,
+                        1,
+                        9,
+                        tzinfo=timezone(timedelta(hours=3)),
+                    ),
+                )
+            ]
+
+    settings = _test_settings()
+    settings.jira_field_sprint = "customfield_10020"
+    service = SyncService(
+        jira_service=CustomSprintFieldJiraService(),
+        settings=settings,
+    )
+
+    result = await service.sync_from_jira(session=db_session)
+
+    history = list(db_session.scalars(select(IssueHistory)).all())
+    assert result["history_fetched"] == 1
+    assert result["history_inserted"] == 1
+    assert len(history) == 1
+    assert history[0].field_name == "customfield_10020"
+    assert history[0].changed_at == datetime(2026, 4, 1, 6)
 
 
 @pytest.mark.asyncio
@@ -300,7 +349,12 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     second = await service.sync_from_jira(session=db_session)
 
     assert first["issues_inserted"] == 1
+    assert first["sync_mode"] == "full"
+    assert first["fallback_reason"] is not None
     assert second["issues_inserted"] == 0
+    assert second["sync_mode"] == "incremental"
+    assert second["fallback_reason"] is None
+    assert second["cursor_advanced"] is False
     assert second["issues_updated"] == 0
     assert second["issue_details_skipped_unchanged"] == 1
     assert second["history_inserted"] == 0
@@ -314,7 +368,56 @@ async def test_sync_from_jira_is_idempotent_for_history_entries(db_session: Sess
     assert len(snapshots) == 2
     assert len(signals) == 2
     assert {signal.metric_snapshot_id for signal in signals} == {snapshot.id for snapshot in snapshots}
-    assert all(signal.ruleset_version == 2 for signal in signals)
+    assert all(signal.ruleset_version == 5 for signal in signals)
+
+
+@pytest.mark.asyncio
+async def test_explicit_full_sync_refetches_trusted_unchanged_issue(
+    db_session: Session,
+) -> None:
+    class CountingJiraService(FakeJiraService):
+        def __init__(self) -> None:
+            self.detail_calls = 0
+            self.changelog_calls = 0
+
+        async def get_issue_details(
+            self,
+            issue_key: str,
+            fields: list[str] | None = None,
+        ) -> JiraIssueDetail:
+            self.detail_calls += 1
+            return await super().get_issue_details(issue_key=issue_key, fields=fields)
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            self.changelog_calls += 1
+            return await super().get_issue_changelog(
+                issue_key=issue_key,
+                start_at=start_at,
+                max_results=max_results,
+            )
+
+    await SyncService(
+        jira_service=FakeJiraService(),
+        settings=_test_settings(),
+    ).sync_from_jira(session=db_session)
+    jira_service = CountingJiraService()
+
+    result = await SyncService(
+        jira_service=jira_service,
+        settings=_test_settings(),
+    ).sync_from_jira(session=db_session, mode="full")
+
+    assert result["sync_mode"] == "full"
+    assert result["fallback_reason"] is None
+    assert result["issue_details_skipped_unchanged"] == 0
+    assert result["changelogs_skipped_unchanged"] == 0
+    assert jira_service.detail_calls == 1
+    assert jira_service.changelog_calls == 1
 
 
 @pytest.mark.asyncio
@@ -386,6 +489,100 @@ async def test_sync_from_jira_failure_preserves_project_cursor(db_session: Sessi
 
 
 @pytest.mark.asyncio
+async def test_partial_issue_fetch_preserves_project_cursor(
+    db_session: Session,
+) -> None:
+    initial_service = SyncService(
+        jira_service=FakeJiraService(),
+        settings=_test_settings(),
+    )
+    await initial_service.sync_from_jira(session=db_session)
+    initial_state = db_session.scalar(select(JiraProjectSyncState))
+    assert initial_state is not None
+    original_cursor = initial_state.last_successful_jira_updated_at
+
+    class PartiallyFailingJiraService(FakeJiraService):
+        failed_updated_at = datetime(2026, 4, 2, 10, 0, tzinfo=UTC)
+        accepted_updated_at = datetime(2026, 4, 3, 10, 0, tzinfo=UTC)
+
+        async def search_issues(
+            self,
+            jql: str,
+            next_page_token: str | None = None,
+            max_results: int = 50,
+            fields: list[str] | None = None,
+        ) -> tuple[list[JiraIssueSummary], str | None]:
+            if next_page_token is not None:
+                return ([], None)
+            return (
+                [
+                    JiraIssueSummary(
+                        key="LHPM-1",
+                        summary="Changed but unavailable",
+                        status="In Progress",
+                        issue_type="Bug",
+                        priority="High",
+                        assignee="alice",
+                        updated=self.failed_updated_at,
+                        created=self.jira_created_at,
+                        fix_versions=["Release 1"],
+                    ),
+                    JiraIssueSummary(
+                        key="LHPM-2",
+                        summary="Changed and accepted",
+                        status="In Progress",
+                        issue_type="Story",
+                        priority="Medium",
+                        assignee="bob",
+                        updated=self.accepted_updated_at,
+                        created=self.jira_created_at,
+                        fix_versions=["Release 1"],
+                    ),
+                ],
+                None,
+            )
+
+        async def get_issue_details(
+            self,
+            issue_key: str,
+            fields: list[str] | None = None,
+        ) -> JiraIssueDetail:
+            if issue_key == "LHPM-1":
+                raise JiraAuthError("temporary detail failure")
+            return JiraIssueDetail(
+                key=issue_key,
+                summary="Changed and accepted",
+                status="In Progress",
+                issue_type="Story",
+                priority="Medium",
+                assignee="bob",
+                updated=self.accepted_updated_at,
+                created=self.jira_created_at,
+                fix_versions=["Release 1"],
+                story_points=3.0,
+            )
+
+        async def get_issue_changelog(
+            self,
+            issue_key: str,
+            start_at: int = 0,
+            max_results: int = 100,
+        ) -> list[JiraChangelogEntry]:
+            return []
+
+    result = await SyncService(
+        jira_service=PartiallyFailingJiraService(),
+        settings=_test_settings(),
+    ).sync_from_jira(session=db_session)
+
+    sync_state = db_session.scalar(select(JiraProjectSyncState))
+    assert sync_state is not None
+    assert result["issues_skipped"] == 1
+    assert result["cursor_advanced"] is False
+    assert sync_state.last_successful_jira_updated_at == original_cursor
+
+
+@pytest.mark.asyncio
 async def test_sync_from_jira_skips_unchanged_existing_issue_detail_and_changelog(
     db_session: Session,
 ) -> None:
@@ -429,6 +626,43 @@ async def test_sync_from_jira_skips_unchanged_existing_issue_detail_and_changelo
     assert result["history_fetched"] == 0
     assert jira_service.detail_calls == 0
     assert jira_service.changelog_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_sync_recomputes_stored_project_sprints_when_issues_are_unchanged(
+    db_session: Session,
+) -> None:
+    await SyncService(
+        jira_service=FakeJiraService(),
+        settings=_test_settings(),
+    ).sync_from_jira(session=db_session)
+    db_session.add(
+        Sprint(
+            sprint_id="SPRINT-10",
+            name="Sprint 10",
+            state="active",
+            project_key="LHPM",
+            start_date=datetime(2026, 3, 30, tzinfo=UTC),
+            end_date=datetime(2026, 4, 10, tzinfo=UTC),
+        )
+    )
+    db_session.flush()
+
+    result = await SyncService(
+        jira_service=FakeJiraService(),
+        settings=_test_settings(),
+    ).sync_from_jira(session=db_session)
+
+    snapshots = list(
+        db_session.scalars(
+            select(SprintMetricSnapshot).where(
+                SprintMetricSnapshot.sprint_id == "SPRINT-10"
+            )
+        ).all()
+    )
+    assert result["issue_details_skipped_unchanged"] == 1
+    assert len(snapshots) == 1
+    assert snapshots[0].ruleset_version == 5
 
 
 @pytest.mark.asyncio

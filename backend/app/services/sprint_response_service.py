@@ -18,6 +18,7 @@ from app.schemas.issues import (
     SprintIssueListResponse,
     SprintIssueResponse,
 )
+from app.schemas.availability import MetricAvailabilityItem
 from app.schemas.sprints import (
     CurrentSprintResponse,
     ComputationStatus,
@@ -30,6 +31,8 @@ from app.schemas.sprints import (
     SprintMetricIssueKeys,
     SprintMetricsResponse,
     SprintMetricValues,
+    SprintScopeMovementDetail,
+    SprintScopeMovementEvidence,
     SprintResponse,
     StoryPointCoverage,
     WorkloadDistributionDetail,
@@ -42,6 +45,7 @@ from app.services.driver_analysis_service import DriverAnalysisService
 from app.services.jira_field_mapper import JiraFieldMapper
 from app.services.metric_availability_service import (
     MetricAvailabilityService,
+    SPRINT_METRIC_DEPENDENCIES,
     UNAVAILABLE_REASON_SPRINT_EMPTY,
 )
 from app.services.recommendation_engine import RecommendationEngine
@@ -49,6 +53,10 @@ from app.services.snapshot_comparison_service import SnapshotComparisonService
 
 
 SPRINT_METRIC_NAMES = list(metric_api_fields("sprint", api_location="metric_values"))
+LEGACY_SCOPE_CREEP_REASON = (
+    "Scope creep is unavailable because this stored snapshot does not contain "
+    "an authoritative scope-creep artifact."
+)
 
 
 def _build_sprint_metric_availability(session: Session, sprint_id: str):
@@ -117,6 +125,19 @@ def _build_workload_distribution(snapshot):
         explanations=snapshot.workload_distribution_explanations or [],
         evidence=WorkloadDistributionEvidence.model_validate(
             snapshot.workload_distribution_evidence
+        ),
+    )
+
+
+def _build_scope_movement(snapshot):
+    if snapshot.scope_creep_evidence is None:
+        return None
+    return SprintScopeMovementDetail(
+        status=snapshot.scope_creep_status,
+        percentage=snapshot.scope_creep_pct,
+        explanations=snapshot.scope_creep_explanations or [],
+        evidence=SprintScopeMovementEvidence.model_validate(
+            snapshot.scope_creep_evidence
         ),
     )
 
@@ -426,6 +447,7 @@ class SprintResponseService:
                 metrics=SprintMetricValues(
                     committed_scope=None,
                     completed_scope_pct=None,
+                    scope_creep_pct=None,
                     open_blockers=None,
                     open_high_severity_bugs=None,
                     bugs_created_during_sprint=None,
@@ -458,6 +480,7 @@ class SprintResponseService:
                     "Delivery confidence has not been computed for this sprint snapshot."
                 ],
                 delivery_confidence=None,
+                scope_movement=None,
                 workload_distribution=None,
                 confidence_breakdown=None,
                 biggest_driver=None,
@@ -482,6 +505,15 @@ class SprintResponseService:
         if snapshot.ruleset_version > 0 and isinstance(stored_availability, dict):
             metric_availability = type(metric_availability).model_validate(
                 stored_availability
+            )
+        if "scope_creep_pct" not in metric_availability.metrics:
+            metric_availability.metrics["scope_creep_pct"] = MetricAvailabilityItem(
+                status="NOT_COMPUTED",
+                available=False,
+                reason=LEGACY_SCOPE_CREEP_REASON,
+                explanations=[LEGACY_SCOPE_CREEP_REASON],
+                missing_issue_keys=[],
+                depends_on=SPRINT_METRIC_DEPENDENCIES["scope_creep_pct"],
             )
         has_delivery_confidence = (
             snapshot.delivery_confidence_status in {"PARTIAL", "COMPUTED"}
@@ -532,6 +564,11 @@ class SprintResponseService:
             metrics=SprintMetricValues(
                 committed_scope=snapshot.committed_scope,
                 completed_scope_pct=snapshot.completed_scope_pct,
+                scope_creep_pct=(
+                    snapshot.scope_creep_pct
+                    if metric_availability.metrics["scope_creep_pct"].available
+                    else None
+                ),
                 open_blockers=(
                     snapshot.open_blockers
                     if metric_availability.metrics["open_blockers"].available
@@ -609,6 +646,7 @@ class SprintResponseService:
             ),
             delivery_confidence_explanations=snapshot.delivery_confidence_explanations,
             delivery_confidence=_build_delivery_confidence(snapshot),
+            scope_movement=_build_scope_movement(snapshot),
             workload_distribution=_build_workload_distribution(snapshot),
             confidence_breakdown=(
                 component_outputs.get("confidence_breakdown")

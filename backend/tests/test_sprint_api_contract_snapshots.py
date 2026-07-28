@@ -242,7 +242,7 @@ def _seed_sprint_contract_data(session: Session) -> None:
         name="Sprint 41 Partial",
         state="future",
         project_key="LHPM",
-        start_date=datetime(2026, 7, 22, tzinfo=UTC),
+        start_date=datetime(2026, 7, 20, tzinfo=UTC),
         end_date=datetime(2026, 8, 5, tzinfo=UTC),
         complete_date=None,
         goal="Show partial story-point coverage honestly.",

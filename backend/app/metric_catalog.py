@@ -14,7 +14,7 @@ from app.utils.constants import RULESET_VERSION
 
 MetricScope = Literal["release", "sprint"]
 MetricCategory = Literal["delivery", "quality", "flow", "risk", "snapshot"]
-MetricUnit = Literal["tickets", "percent", "days", "score", "gates"]
+MetricUnit = Literal["tickets", "events", "percent", "days", "score", "gates"]
 MetricFormat = Literal["integer", "decimal_1", "decimal_2", "decimal_4", "percent_2"]
 MetricSeverity = Literal["watch", "critical"]
 MetricComparison = Literal["gt", "gte", "lt", "lte"]
@@ -26,7 +26,7 @@ PartialValuePolicy = Literal[
     "not_supported",
 ]
 
-CATALOG_VERSION = 1
+CATALOG_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,7 +233,7 @@ RELEASE_METRICS: tuple[MetricDefinition, ...] = (
         scope="release",
         api_field="scope_churn_7d_pct",
         label="Scope churn 7d",
-        description="Distinct release membership changes per 100 observed-scope tickets in the inclusive seven-day window.",
+        description="Release addition and removal events per 100 distinct observed-scope tickets in the inclusive seven-day window.",
         category="risk",
         unit="percent",
         formatting="percent_2",
@@ -274,9 +274,9 @@ RELEASE_METRICS: tuple[MetricDefinition, ...] = (
         scope="release",
         api_field="scope_added_7d_count",
         label="Scope added 7d",
-        description="Distinct tickets added to the release in the inclusive seven-day window.",
+        description="Distinct addition events into the release in the inclusive seven-day window, including repeated additions of one ticket.",
         category="snapshot",
-        unit="tickets",
+        unit="events",
         formatting="integer",
         display_order=6,
         thresholds=(),
@@ -303,9 +303,9 @@ RELEASE_METRICS: tuple[MetricDefinition, ...] = (
         scope="release",
         api_field="scope_removed_7d_count",
         label="Scope removed 7d",
-        description="Distinct tickets removed from the release in the inclusive seven-day window.",
+        description="Distinct removal events from the release in the inclusive seven-day window, including repeated removals of one ticket.",
         category="snapshot",
-        unit="tickets",
+        unit="events",
         formatting="integer",
         display_order=7,
         thresholds=(),
@@ -558,6 +558,48 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         ruleset_version=RULESET_VERSION,
     ),
     MetricDefinition(
+        key="sprint.scope_creep_pct",
+        scope="sprint",
+        api_field="scope_creep_pct",
+        label="Scope creep",
+        description="Post-start sprint addition and removal events per 100 initial-commitment tickets.",
+        category="delivery",
+        unit="percent",
+        formatting="percent_2",
+        display_order=3,
+        thresholds=(
+            MetricThreshold(
+                severity="critical",
+                comparison="gt",
+                value=20.0,
+                meaning="Scope creep above 20% is critical.",
+            ),
+            MetricThreshold(
+                severity="watch",
+                comparison="gt",
+                value=10.0,
+                meaning="Scope creep above 10% through 20% is watch.",
+            ),
+        ),
+        severity_meaning="Values at or below 10% are healthy; the most severe matching threshold wins.",
+        availability=_availability(
+            "sprint_duration",
+            "project_changelog_completeness",
+            "sprint_assignment",
+            partial_value_policy="unavailable",
+            evidence_fields=(
+                "scope_movement.evidence",
+                "calculation_provenance.metric_evidence.scope_creep_pct",
+            ),
+        ),
+        historical_series=True,
+        signal_participation=False,
+        confidence_participation=True,
+        chart_participation=True,
+        report_participation=True,
+        ruleset_version=RULESET_VERSION,
+    ),
+    MetricDefinition(
         key="sprint.open_blockers",
         scope="sprint",
         api_field="open_blockers",
@@ -566,7 +608,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="risk",
         unit="tickets",
         formatting="integer",
-        display_order=3,
+        display_order=4,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -594,7 +636,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="quality",
         unit="tickets",
         formatting="integer",
-        display_order=4,
+        display_order=5,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -622,7 +664,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="quality",
         unit="tickets",
         formatting="integer",
-        display_order=5,
+        display_order=6,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -651,7 +693,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="snapshot",
         unit="tickets",
         formatting="integer",
-        display_order=6,
+        display_order=7,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -679,7 +721,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="snapshot",
         unit="tickets",
         formatting="integer",
-        display_order=7,
+        display_order=8,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -707,7 +749,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="delivery",
         unit="tickets",
         formatting="integer",
-        display_order=8,
+        display_order=9,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -734,7 +776,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="flow",
         unit="days",
         formatting="decimal_4",
-        display_order=9,
+        display_order=10,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -763,7 +805,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="quality",
         unit="percent",
         formatting="percent_2",
-        display_order=10,
+        display_order=11,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(
@@ -789,7 +831,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="risk",
         unit="percent",
         formatting="percent_2",
-        display_order=11,
+        display_order=12,
         thresholds=(
             MetricThreshold(
                 severity="critical",
@@ -835,7 +877,7 @@ SPRINT_METRICS: tuple[MetricDefinition, ...] = (
         category="delivery",
         unit="score",
         formatting="decimal_2",
-        display_order=12,
+        display_order=13,
         thresholds=(),
         severity_meaning=NO_APPROVED_SEVERITY,
         availability=_availability(

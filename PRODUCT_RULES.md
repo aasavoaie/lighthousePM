@@ -235,20 +235,29 @@ case-insensitively:
 - Removed: the old value references the release and the new value does not.
 - A record that does not change release membership is ignored.
 
-An issue can appear in both the added and removed evidence lists when it moves
-more than once. It appears only once in the distinct churn numerator.
-
 Definitions:
 
-- `churned issue keys = distinct union of added and removed issue keys`;
+- `addition events = distinct qualifying outside-to-inside release-membership
+  transitions`;
+- `removal events = distinct qualifying inside-to-outside release-membership
+  transitions`;
+- event identity is the unique combination of issue key, transition timestamp,
+  normalized old value, and normalized new value, so duplicate copies of the
+  same event count once;
+- every distinct event is counted, so repeated removal and re-addition
+  transitions for the same ticket increase their respective event counts;
+- `scope change event count = addition event count + removal event count`;
+- `churned issue keys = distinct union of issue keys represented by addition
+  and removal events`;
 - `observed scope issue keys = current release issue keys union churned issue
   keys`; and
-- `scope_churn_7d_pct = 100 * churned issue count / observed scope issue
+- `scope_churn_7d_pct = 100 * scope change event count / observed scope issue
   count`.
 
-The percentage is rounded to two decimal places and is naturally bounded from
-`0` to `100`; it is not capped after calculation. Added and removed counts are
-the lengths of their distinct evidence lists and can overlap.
+The percentage is rounded to two decimal places, is not capped, and may exceed
+`100%`. `scope_added_7d_count` is the addition event count and
+`scope_removed_7d_count` is the removal event count. Distinct added and removed
+issue-key lists remain supporting evidence and do not define these counts.
 
 Availability rules:
 
@@ -272,10 +281,18 @@ produce a computed result. A partial or unavailable percentage must not be
 replaced by zero in confidence, signal, readiness, or reporting calculations.
 
 `calculation_provenance` stores the window boundaries, synchronized project
-issue keys, current-scope keys, observed-scope keys and denominator, churned
-keys, added keys, removed keys, incomplete-project-changelog keys, configured
+issue keys, current-scope keys, observed-scope keys and denominator, ordered
+addition and removal events, event counts, net scope change, churned keys,
+distinct added and removed keys, incomplete-project-changelog keys, configured
 changelog aliases, and normalized release value used by the calculation. Every
-issue-key list is sorted.
+issue-key list is sorted. Events are ordered by transition time and stable
+history identity.
+
+Configured Jira release and sprint field identifiers are authoritative
+changelog aliases in addition to the display-name aliases. This is required
+because Jira may identify the same transition by its configured field ID.
+All Jira issue, sprint, and changelog timestamps are normalized to UTC before
+persistence so metric windows compare one time basis in every database mode.
 
 ### Median cycle time (`median_cycle_time_days`)
 
@@ -490,6 +507,74 @@ Status: **Approved — Phase 2.5**
   the value is `null` and the metric is `PARTIAL`.
 - Empty scope: the API value is `null` and status is `NOT_COMPUTED`.
 - Story points are not used.
+
+### Scope creep (`scope_creep_pct`)
+
+Status: **Approved — Phase 2.6**
+
+Scope creep measures sprint-membership transition events after sprint start.
+It is ticket-event-based and is evaluated independently of story-point
+coverage and delivery-confidence availability.
+
+The calculation window uses the stored snapshot time as its calculation
+boundary:
+
+- `window_start = sprint start`;
+- for a closed sprint, `window_end` is completion time when present, otherwise
+  configured end time, otherwise snapshot time;
+- for an active or other non-closed sprint, `window_end` is the earlier of
+  configured end time and snapshot time, or snapshot time when no end exists;
+- the start boundary is exclusive and the end boundary is inclusive.
+
+Sprint membership is matched by exact normalized sprint ID or exact normalized
+sprint name. Substring matches are forbidden: sprint `10` must not match
+`110`, and `Sprint 1` must not match `Sprint 10`.
+
+Definitions:
+
+- `addition events`: stored sprint-changelog transitions from outside to inside
+  the exact sprint;
+- `removal events`: stored sprint-changelog transitions from inside to outside
+  the exact sprint;
+- every qualifying transition is counted, so a ticket that is removed and
+  re-added contributes another addition event;
+- `added issue keys` and `removed issue keys` are distinct, sorted supporting
+  evidence and do not define the event counts;
+- `scope change count = addition event count + removal event count`;
+- `initial commitment count =
+  max(current sprint-scope count - addition event count + removal event count,
+  0)`;
+- `scope_creep_pct =
+  100 * scope change count / initial commitment count`.
+
+The percentage is rounded to two decimal places. It is not capped and may
+exceed `100%`. No intermediate count or ratio is rounded.
+
+Availability rules:
+
+- `COMPUTED`: sprint start and a valid window exist, all synchronized project
+  issue histories are complete, and initial commitment is greater than zero.
+- `PARTIAL`: any synchronized project issue has incomplete Jira changelog
+  ingestion. Addition and removal event counts remain confirmed minimum
+  counts, while `scope_creep_pct` is `null`.
+- `NOT_COMPUTED`: sprint start is missing, the effective window ends before
+  sprint start, no current or changed scope exists, or initial commitment is
+  zero. Zero initial commitment must never be presented as zero creep or
+  perfect stability.
+- Complete evidence with an initial commitment and no changes returns `0%`.
+
+Risk bands use strict upper breaches:
+
+- `10%` or below: healthy;
+- greater than `10%` through `20%`: watch; and
+- greater than `20%`: critical.
+
+Stored evidence includes window boundaries, synchronized project issue keys,
+current-scope keys, initial commitment, ordered addition and removal events,
+distinct added, removed, and changed keys, event counts, net scope change,
+incomplete-history keys, configured changelog aliases, exact sprint
+identifiers, percentage, and calculation status. Every issue-key list is
+sorted. Events are ordered by transition time and stable history identity.
 
 ### Sprint blockers and high-severity bugs
 
@@ -715,15 +800,13 @@ sprint or scope stability.
 
 #### Scope stability
 
-- Post-start additions and removals are reconstructed from sprint changelog.
-- Initial commitment count:
-  `max(current ticket count - added count + removed count, 0)`.
-- Stability index:
-  `(added count + removed count) / initial commitment count`.
-- Component: `clamp(100 * (1 - stability index), 0, 100)`.
-- Missing sprint start or incomplete project sprint-membership history makes
-  scope stability unavailable and delivery confidence `INCONCLUSIVE`; missing
-  stability is never replaced by zero churn.
+- Scope stability consumes the authoritative stored Scope creep result and
+  does not independently reconstruct sprint movement.
+- Stability index: `scope_creep_pct / 100`.
+- Component: `clamp(100 - scope_creep_pct, 0, 100)`.
+- A `PARTIAL` or `NOT_COMPUTED` Scope creep result makes scope stability
+  unavailable and delivery confidence `INCONCLUSIVE`; missing stability is
+  never replaced by zero churn or a healthy component.
 
 Delivery confidence formula:
 
@@ -994,6 +1077,12 @@ Status: **Approved — Phase 0.6**
   implemented in runtime code.
 - Version `2` identifies the approved Phase 2 metric-contract hardening once
   that contract is implemented in runtime code.
+- Version `3` identifies the approved Phase 2.6 authoritative sprint Scope
+  creep metric and its delivery-confidence integration.
+- Version `4` identifies event-based Scope creep counting, including repeated
+  removal and re-addition transitions for the same ticket.
+- Version `5` identifies event-based seven-day release scope churn, addition,
+  and removal counting, including repeated transitions for the same ticket.
 - The version increments whenever a formula, threshold, weight,
   classification, availability rule, or output meaning changes.
 - Wording, layout, and other presentation-only changes do not increment the
@@ -1162,18 +1251,18 @@ A successful health response is the desktop's proof that the backend startup
 lifecycle, including migration, has completed. The health endpoint is not a
 second migration mechanism and must not contain schema-changing logic.
 
-This readiness contract changes startup ordering and failure handling only. It
-does not change metric formulas, thresholds, availability, or output meaning,
-so the runtime `ruleset_version` remains `2`.
+This readiness contract changed startup ordering and failure handling only. It
+did not change metric formulas, thresholds, availability, or output meaning,
+and therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Supported Schema Upgrade Matrix
 
 Status: **Approved — Phase 3.3**
 
 Every non-head revision retained in the single Alembic ancestor chain is a
-supported versioned upgrade source. With current head `20260724_0019`, the
+supported versioned upgrade source. With current head `20260727_0022`, the
 supported prior versioned revisions are `20260407_0001` through
-`20260724_0018`. The current head is also a supported startup source and must
+`20260726_0021`. The current head is also a supported startup source and must
 remain idempotent.
 
 Supported unversioned legacy schemas are limited to the explicit deterministic
@@ -1268,9 +1357,9 @@ process alone is not sufficient evidence. Automated tests and acceptance runs
 must use isolated temporary storage or disposable PostgreSQL databases and must
 never modify developer or production application data.
 
-This startup-acceptance contract changes upgrade assurance only. It does not
-change metrics, signals, thresholds, or output meaning, so the runtime
-`ruleset_version` remains `2`.
+This startup-acceptance contract changed upgrade assurance only. It did not
+change metrics, signals, thresholds, or output meaning, and therefore did not
+increment the then-current `ruleset_version` of `2`.
 
 ## Atomic SQLite Migration Backups
 
@@ -1315,9 +1404,9 @@ backup; inclusion of committed WAL-resident data; and unchanged fresh-database
 and current-head behavior. Existing migration-matrix and application-startup
 coverage must continue to pass.
 
-This backup-publication contract changes operational safety only. It does not
-change metrics, signals, thresholds, or API meaning, so the runtime
-`ruleset_version` remains `2`.
+This backup-publication contract changed operational safety only. It did not
+change metrics, signals, thresholds, or API meaning, and therefore did not
+increment the then-current `ruleset_version` of `2`.
 
 ## Backup Version and Integrity Validation
 
@@ -1421,9 +1510,9 @@ token validation; preflight before backend shutdown; stale WAL/SHM removal;
 explicit user-facing errors; and existing migration, startup, desktop, and
 backend regressions.
 
-This validation contract changes operational backup safety only. It does not
-change metrics, signals, thresholds, API meaning, or output meaning, so the
-runtime `ruleset_version` remains `2`.
+This validation contract changed operational backup safety only. It did not
+change metrics, signals, thresholds, API meaning, or output meaning, and
+therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Transactional Desktop Storage Operations and Recovery Tests
 
@@ -1533,9 +1622,9 @@ change or clearing, restore with visible data and usable configuration/token,
 Clear Data with empty APIs and retained settings, Factory Reset with first-run
 state, and retention of automatic migration backups after both reset actions.
 
-This contract changes desktop operational safety only. It does not change
-metrics, signals, thresholds, API meaning, or output meaning, so the runtime
-`ruleset_version` remains `2`.
+This contract changed desktop operational safety only. It did not change
+metrics, signals, thresholds, API meaning, or output meaning, and therefore did
+not increment the then-current `ruleset_version` of `2`.
 
 ## Supported Deployment-Mode Security Contract
 
@@ -1625,9 +1714,9 @@ Across all three modes:
 - Direct public deployment of FastAPI or PostgreSQL without an explicitly
   documented protective boundary is unsupported.
 
-This contract defines supported security boundaries only. It does not change
-metrics, signals, thresholds, availability, or output meaning, so the runtime
-`ruleset_version` remains `2`.
+This contract defined supported security boundaries only. It did not change
+metrics, signals, thresholds, availability, or output meaning, and therefore
+did not increment the then-current `ruleset_version` of `2`.
 
 ## API-Token Requirements by Deployment Mode
 
@@ -1697,8 +1786,9 @@ returned through APIs, persisted in application data, or embedded in frontend
 bundles. Desktop tokens remain per-process and memory-only. Browser handling
 and non-Electron persistence are defined by a later Phase 4 point.
 
-This authentication contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This authentication contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Secure Docker Network Defaults
 
@@ -1769,8 +1859,9 @@ token, successful `docker compose config` with isolated test credentials, and
 documentation that does not describe the defaults as LAN- or publicly
 accessible.
 
-This infrastructure contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This infrastructure contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Mutating and Administrative Endpoint Protection
 
@@ -1844,8 +1935,9 @@ on sensitive responses, absence of token values from configuration responses,
 read-only behavior for protected GET operations, and failure when a new route
 is not deliberately classified.
 
-This API-security contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This API-security contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Secure Non-Electron Credential Persistence
 
@@ -1930,8 +2022,9 @@ persistence; transient connection testing; unchanged Electron `safeStorage`
 behavior; Docker secret declarations without committed values; and frontend
 bearer-token storage restrictions.
 
-This credential contract does not change metrics, signals, thresholds,
-availability, or output meaning, so the runtime `ruleset_version` remains `2`.
+This credential contract did not change metrics, signals, thresholds,
+availability, or output meaning, and therefore did not increment the
+then-current `ruleset_version` of `2`.
 
 ## Deployment-Mode Authentication and Configuration-Write Tests
 
@@ -2033,23 +2126,25 @@ data. The acceptance matrix is the authoritative set of supported mode,
 environment, and binding combinations; changing that set requires updating the
 matrix and its tests together.
 
-This testing contract changes security assurance only. It does not change
-metric formulas, signals, thresholds, availability, or output meaning, so the
-runtime `ruleset_version` remains `2`.
+This testing contract changed security assurance only. It did not change
+metric formulas, signals, thresholds, availability, or output meaning, and
+therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Application Response-Assembly Boundaries
 
 Status: **Approved — Phase 5.1**
 
-Release-metric and sprint response assembly belongs to focused application
-services, not FastAPI route modules. These services coordinate repositories and
-the existing analytics, availability, comparison, recommendation, confidence,
-and driver services and return the established Pydantic response models.
+Release-metric, release-signal, and sprint response assembly belongs to focused
+application services, not FastAPI route modules. These services coordinate
+repositories and the existing analytics, availability, comparison,
+recommendation, confidence, signal, and driver services and return the
+established Pydantic response models.
 
-API routes retain only HTTP concerns: FastAPI parameter and dependency
-declarations, one application-service call, and explicit translation of
-defined service outcomes into HTTP responses. Metric calculation remains in
-`analytics_service`; availability decisions remain in
+Derived response routes retain only HTTP concerns: FastAPI parameter and
+dependency declarations, one application-service call, and explicit
+translation of defined service outcomes into HTTP responses. Metric
+calculation remains in `analytics_service`; signal evaluation remains in
+`signal_service`; availability decisions remain in
 `metric_availability_service`; comparison logic remains in
 `snapshot_comparison_service`. Response-assembly services must not duplicate
 those rules.
@@ -2218,9 +2313,9 @@ catalog supply mechanical endpoint and metric metadata; contract tests do not
 attempt subjective prose generation.
 
 An explicit command may export current OpenAPI JSON for external tooling, but a
-generated `openapi.json` file is not committed. This assurance contract does
-not change endpoint behavior, authentication enforcement, metric meaning, or
-the runtime `ruleset_version`, which remains `2`.
+generated `openapi.json` file is not committed. This assurance contract did
+not change endpoint behavior, authentication enforcement, or metric meaning,
+and therefore did not increment the then-current `ruleset_version` of `2`.
 
 ## Continuous-Integration Execution Contract
 
@@ -2573,8 +2668,9 @@ GitHub settings are not changed automatically.
 
 Final reporting separates locally passed gates, environment-dependent gates,
 and CI-only results that have not actually run. Existing warnings, including
-the frontend bundle-size warning, remain visible. Delivery-control and IPC
-security changes do not alter metric meaning, so `ruleset_version` remains `2`.
+the frontend bundle-size warning, remain visible. These delivery-control and
+IPC-security changes did not alter metric meaning and therefore did not
+increment the then-current `ruleset_version` of `2`.
 
 ## Jira Incremental Sync State
 
@@ -2594,16 +2690,20 @@ durably stored all accepted issue data and changelog data needed by the current
 rules. Failed, cancelled, rejected, or partially persisted sync attempts must
 not advance the marker.
 
-First sync and explicit full sync remain supported. When no marker exists, when
-the marker is invalid, or when incremental Jira queries fail in a way that
-prevents trustworthy freshness filtering, the service falls back to the
-existing full-sync behavior and reports the fallback reason. Incremental sync
-does not change metric formulas, thresholds, availability rules, evidence
+The default incremental mode scans the complete project issue-summary inventory
+so removals and current membership remain visible, then uses the trusted cursor
+to avoid refetching unchanged issue details and changelogs. Explicit full mode
+refetches every issue detail and changelog. When no trusted marker exists,
+incremental mode falls back to full detail fetching and reports the fallback
+reason. A project-summary search failure fails the sync because neither mode can
+reconstruct a trustworthy complete project inventory without it. Incremental
+sync does not change metric formulas, thresholds, availability rules, evidence
 requirements, snapshot interpretation, or `ruleset_version`.
 
-Tests must cover first sync with no marker, successful marker advancement,
-unchanged Jira issues, changed Jira issues, failed sync preserving the previous
-marker, and fallback to full sync when incremental freshness cannot be trusted.
+Tests must cover first sync with no marker, explicit full mode, successful
+marker advancement, unchanged Jira issues, changed Jira issues, failed and
+partially persisted syncs preserving the previous marker, and fallback to full
+detail fetching when incremental freshness cannot be trusted.
 
 ## Jira Unchanged Issue Fetch Avoidance
 
@@ -2627,11 +2727,14 @@ ruleset version, or historical snapshot interpretation. Sync results must
 expose how many issue details and changelogs were skipped because Jira reported
 them as unchanged.
 
-If Jira incremental search fails or returns data that cannot be trusted for
-freshness filtering, sync falls back to full fetch behavior and reports the
-fallback reason. The project cursor advances only after the successful
-transaction, using the max accepted Jira update timestamp from fetched or
-trusted unchanged issue summaries.
+If the project cursor is absent or cannot be trusted, sync falls back to full
+detail and changelog fetching and reports the fallback reason. The project
+cursor advances only after the successful transaction, using the max accepted
+Jira update timestamp from fetched or trusted unchanged issue summaries. If any
+issue detail is skipped because its fetch failed, the attempt may retain its
+other accepted data and report success with skipped counts, but it must
+preserve the previous project cursor so the failed issue remains eligible for
+retry.
 
 ## Jira Sync Visibility
 

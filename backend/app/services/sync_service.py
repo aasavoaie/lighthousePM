@@ -2,6 +2,7 @@ import asyncio
 import logging
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
+from typing import Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -19,11 +20,15 @@ from app.utils.error_sanitizer import sanitize_error_detail
 
 logger = logging.getLogger(__name__)
 _sync_lock = asyncio.Lock()
+SyncMode = Literal["incremental", "full"]
 
 
 @dataclass
 class SyncResult:
     project_key: str
+    sync_mode: SyncMode = "full"
+    fallback_reason: str | None = None
+    cursor_advanced: bool = False
     releases_fetched: int = 0
     releases_inserted: int = 0
     releases_updated: int = 0
@@ -175,24 +180,38 @@ class SyncService:
             assignee=self._sanitize_persisted_text(issue_detail.assignee),
             fix_versions=[self._sanitize_persisted_text(version) or "" for version in issue_detail.fix_versions],
             sprints=[self._sanitize_sprint_ref(sprint_ref) for sprint_ref in issue_detail.sprints],
+            created=self._normalized_jira_datetime(issue_detail.created),
+            updated=self._normalized_jira_datetime(issue_detail.updated),
         )
 
     def _sanitize_history_entry(self, entry: JiraChangelogEntry) -> JiraChangelogEntry:
+        normalized_changed_at = self._normalized_jira_datetime(entry.changed_at)
+        if normalized_changed_at is None:
+            raise ValueError("Jira changelog timestamp cannot be missing")
         return replace(
             entry,
             field_name=self._sanitize_persisted_text(entry.field_name) or "",
             from_value=self._sanitize_persisted_text(entry.from_value),
             to_value=self._sanitize_persisted_text(entry.to_value),
+            changed_at=normalized_changed_at,
         )
 
-    async def sync_from_jira(self, session: Session) -> dict[str, int | str]:
+    async def sync_from_jira(
+        self,
+        session: Session,
+        mode: SyncMode = "incremental",
+    ) -> dict[str, object]:
         if _sync_lock.locked():
             raise SyncAlreadyRunningError("Jira sync is already running")
 
         async with _sync_lock:
-            return await self._sync_from_jira_locked(session=session)
+            return await self._sync_from_jira_locked(session=session, mode=mode)
 
-    async def _sync_from_jira_locked(self, session: Session) -> dict[str, int | str]:
+    async def _sync_from_jira_locked(
+        self,
+        session: Session,
+        mode: SyncMode,
+    ) -> dict[str, object]:
         project_key = self._validate_sync_settings()
         result = SyncResult(project_key=project_key)
         recompute_release_count = 0
@@ -246,11 +265,22 @@ class SyncService:
                 if project_sync_state is not None
                 else None
             )
+            normalized_project_cursor = self._normalized_jira_datetime(project_cursor)
+            if mode == "full":
+                result.sync_mode = "full"
+            elif normalized_project_cursor is None:
+                result.sync_mode = "full"
+                result.fallback_reason = (
+                    "No trusted project cursor is available; fetched full issue details "
+                    "and changelogs."
+                )
+            else:
+                result.sync_mode = "incremental"
 
             for issue_summary in issue_summaries:
-                if self._can_skip_unchanged_issue(
+                if result.sync_mode == "incremental" and self._can_skip_unchanged_issue(
                     issue_summary=issue_summary,
-                    project_cursor=project_cursor,
+                    project_cursor=normalized_project_cursor,
                     local_freshness=SyncRepository.get_issue_sync_freshness(
                         session=session,
                         issue_key=issue_summary.key,
@@ -367,6 +397,12 @@ class SyncService:
             )
 
             # Keep metrics snapshots in sync with each successful Jira ingestion run.
+            sprint_ids_seen.update(
+                SyncRepository.list_project_sprint_ids(
+                    session=session,
+                    project_key=project_key,
+                )
+            )
             analytics_service = AnalyticsService()
             signal_service = SignalService()
             for release_id in version_name_to_release_id.values():
@@ -384,14 +420,18 @@ class SyncService:
             )
 
             OperationalStatusRepository.mark_sync_succeeded(session=session)
+            next_cursor = normalized_project_cursor
+            if result.issues_skipped == 0:
+                next_cursor = max(
+                    accepted_issue_updated_at,
+                    default=normalized_project_cursor,
+                )
+            result.cursor_advanced = next_cursor != normalized_project_cursor
             result_payload = asdict(result)
             SyncRepository.mark_project_sync_succeeded(
                 session=session,
                 project_key=project_key,
-                jira_updated_cursor=max(
-                    accepted_issue_updated_at,
-                    default=self._normalized_jira_datetime(project_cursor),
-                ),
+                jira_updated_cursor=next_cursor,
                 latest_sync_result=result_payload,
             )
 

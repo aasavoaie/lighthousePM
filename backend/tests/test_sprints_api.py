@@ -8,10 +8,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.main as main_module
+from app.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db_session
 from app.main import app
 from app.models import Issue, IssueHistory, IssueSprint, Sprint, SprintMetricSnapshot
+from app.services.jira_field_mapper import JiraFieldMapper
+from app.services.metric_availability_service import MetricAvailabilityService
 
 
 @pytest.fixture
@@ -303,6 +306,48 @@ def test_recompute_and_get_sprint_metrics(client: TestClient) -> None:
     assert payload["biggest_driver"] is None
 
 
+def test_scope_creep_api_is_available_without_delivery_confidence(
+    client: TestClient,
+) -> None:
+    now = datetime.now(UTC)
+    with app.state.testing_session_local() as session:
+        _seed_sprint(
+            session,
+            "12",
+            "active",
+            start_date=now - timedelta(days=2),
+            end_date=now + timedelta(days=2),
+        )
+        _seed_issue(session, "12", "LHPM-1", story_points=None)
+        _seed_issue(session, "12", "LHPM-2", story_points=None)
+        session.add(
+            IssueHistory(
+                issue_key="LHPM-2",
+                field_name="sprint",
+                old_value="Sprint 11",
+                new_value="Sprint 12",
+                changed_at=now - timedelta(days=1),
+            )
+        )
+        session.commit()
+
+    assert client.post("/sprints/12/recompute").status_code == 200
+    response = client.get("/sprints/12/metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["delivery_confidence"] is None
+    assert payload["metrics"]["scope_creep_pct"] == 100.0
+    assert payload["scope_movement"]["status"] == "COMPUTED"
+    assert payload["scope_movement"]["evidence"]["initial_commitment_count"] == 1
+    assert payload["scope_movement"]["evidence"]["scope_added_issue_keys"] == [
+        "LHPM-2"
+    ]
+    assert payload["metric_availability"]["metrics"]["scope_creep_pct"][
+        "available"
+    ] is True
+
+
 def test_sprint_metrics_withhold_confidence_when_duration_is_missing(
     client: TestClient,
 ) -> None:
@@ -469,6 +514,12 @@ def test_get_sprint_metrics_suppresses_legacy_confidence_without_story_points(cl
     with app.state.testing_session_local() as session:
         _seed_sprint(session, "12", "active")
         _seed_issue(session, "12", "LHPM-1", story_points=None)
+        stored_availability = MetricAvailabilityService.build_sprint_availability(
+            session=session,
+            sprint_id="12",
+            field_mapper=JiraFieldMapper(get_settings()),
+        ).model_dump()
+        stored_availability["metrics"].pop("scope_creep_pct")
         _seed_sprint_snapshot(
             session=session,
             sprint_id="12",
@@ -478,6 +529,15 @@ def test_get_sprint_metrics_suppresses_legacy_confidence_without_story_points(cl
             velocity_fit=65.0,
             delivery_confidence_status="INCONCLUSIVE",
         )
+        pending_snapshot = next(
+            item
+            for item in session.new
+            if isinstance(item, SprintMetricSnapshot)
+        )
+        pending_snapshot.calculation_provenance = {
+            **pending_snapshot.calculation_provenance,
+            "availability": stored_availability,
+        }
         session.commit()
 
     response = client.get("/sprints/12/metrics")
@@ -490,6 +550,26 @@ def test_get_sprint_metrics_suppresses_legacy_confidence_without_story_points(cl
     assert payload["metric_availability"]["context"]["has_story_points"] is False
     assert payload["metrics"]["committed_scope"] == 10
     assert payload["metrics"]["delivery_confidence_score"] is None
+    assert payload["metrics"]["scope_creep_pct"] is None
+    assert payload["scope_movement"] is None
+    assert payload["metric_availability"]["metrics"]["scope_creep_pct"] == {
+        "status": "NOT_COMPUTED",
+        "available": False,
+        "reason": (
+            "Scope creep is unavailable because this stored snapshot does not "
+            "contain an authoritative scope-creep artifact."
+        ),
+        "explanations": [
+            "Scope creep is unavailable because this stored snapshot does not "
+            "contain an authoritative scope-creep artifact."
+        ],
+        "missing_issue_keys": [],
+        "depends_on": [
+            "sprint_duration",
+            "project_changelog_completeness",
+            "sprint_assignment",
+        ],
+    }
     assert payload["delivery_confidence"] is None
     assert payload["confidence_breakdown"] is None
     assert payload["biggest_driver"] is None

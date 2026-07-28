@@ -1,7 +1,7 @@
 {
   "sprint_id": "LHPM-SPRINT-40",
-  "ruleset_version": 2,
-  "ruleset_label": "Ruleset v2",
+  "ruleset_version": 5,
+  "ruleset_label": "Ruleset v5",
   "calculation_provenance": {
     "source_calculated_at": "2026-07-21T13:00:00+00:00",
     "thresholds": {
@@ -87,6 +87,20 @@
           "depends_on": [
             "ticket_count",
             "ticket_status",
+            "sprint_assignment"
+          ]
+        },
+        "scope_creep_pct": {
+          "status": "NOT_COMPUTED",
+          "available": false,
+          "reason": "Scope creep is not computed because the effective sprint window ends before sprint start.",
+          "explanations": [
+            "Scope creep is not computed because the effective sprint window ends before sprint start."
+          ],
+          "missing_issue_keys": [],
+          "depends_on": [
+            "sprint_duration",
+            "project_changelog_completeness",
             "sprint_assignment"
           ]
         },
@@ -236,6 +250,53 @@
         "LHPM-4002",
         "LHPM-4003"
       ]
+    },
+    "scope_movement": {
+      "status": "NOT_COMPUTED",
+      "value": null,
+      "explanations": [
+        "Scope creep is not computed because the effective sprint window ends before sprint start."
+      ],
+      "missing_issue_keys": [],
+      "evidence": {
+        "calculation_status": "NOT_COMPUTED",
+        "scope_creep_pct": null,
+        "window_start": "2026-07-22T00:00:00+00:00",
+        "window_end": "2026-07-21T13:00:00+00:00",
+        "current_scope_issue_keys": [
+          "LHPM-4001",
+          "LHPM-4002",
+          "LHPM-4003"
+        ],
+        "project_issue_keys": [
+          "LHPM-3901",
+          "LHPM-3902",
+          "LHPM-4001",
+          "LHPM-4002",
+          "LHPM-4003",
+          "LHPM-4101",
+          "LHPM-4102",
+          "LHPM-4201",
+          "LHPM-4202",
+          "LHPM-4203"
+        ],
+        "initial_commitment_count": 3,
+        "scope_change_count": 0,
+        "scope_added_count": 0,
+        "scope_removed_count": 0,
+        "net_scope_change": 0,
+        "scope_change_issue_keys": [],
+        "scope_added_issue_keys": [],
+        "scope_removed_issue_keys": [],
+        "scope_addition_events": [],
+        "scope_removal_events": [],
+        "incomplete_history_issue_keys": [],
+        "sprint_id": "LHPM-SPRINT-40",
+        "sprint_name": "Sprint 40 Inconclusive",
+        "sprint_changelog_fields": [
+          "sprint"
+        ]
+      }
     },
     "delivery_confidence_prerequisites": {
       "status": "COMPUTED",
@@ -418,6 +479,45 @@
           "LHPM-4001"
         ]
       },
+      "scope_creep_pct": {
+        "calculation_status": "NOT_COMPUTED",
+        "scope_creep_pct": null,
+        "window_start": "2026-07-22T00:00:00+00:00",
+        "window_end": "2026-07-21T13:00:00+00:00",
+        "current_scope_issue_keys": [
+          "LHPM-4001",
+          "LHPM-4002",
+          "LHPM-4003"
+        ],
+        "project_issue_keys": [
+          "LHPM-3901",
+          "LHPM-3902",
+          "LHPM-4001",
+          "LHPM-4002",
+          "LHPM-4003",
+          "LHPM-4101",
+          "LHPM-4102",
+          "LHPM-4201",
+          "LHPM-4202",
+          "LHPM-4203"
+        ],
+        "initial_commitment_count": 3,
+        "scope_change_count": 0,
+        "scope_added_count": 0,
+        "scope_removed_count": 0,
+        "net_scope_change": 0,
+        "scope_change_issue_keys": [],
+        "scope_added_issue_keys": [],
+        "scope_removed_issue_keys": [],
+        "scope_addition_events": [],
+        "scope_removal_events": [],
+        "incomplete_history_issue_keys": [],
+        "sprint_id": "LHPM-SPRINT-40",
+        "sprint_name": "Sprint 40 Inconclusive",
+        "sprint_changelog_fields": [
+          "sprint"
+        ]
+      },
       "in_progress_count": {
         "current_scope_issue_keys": [
           "LHPM-4001",
@@ -496,6 +596,7 @@
   "metrics": {
     "committed_scope": 3,
     "completed_scope_pct": 33.33,
+    "scope_creep_pct": null,
     "open_blockers": 0,
     "open_high_severity_bugs": 0,
     "bugs_created_during_sprint": 0,
@@ -517,6 +618,7 @@
   "metric_names": [
     "committed_scope",
     "completed_scope_pct",
+    "scope_creep_pct",
     "open_blockers",
     "open_high_severity_bugs",
     "bugs_created_during_sprint",
@@ -558,6 +660,20 @@
         "depends_on": [
           "ticket_count",
           "ticket_status",
+          "sprint_assignment"
+        ]
+      },
+      "scope_creep_pct": {
+        "status": "NOT_COMPUTED",
+        "available": false,
+        "reason": "Scope creep is not computed because the effective sprint window ends before sprint start.",
+        "explanations": [
+          "Scope creep is not computed because the effective sprint window ends before sprint start."
+        ],
+        "missing_issue_keys": [],
+        "depends_on": [
+          "sprint_duration",
+          "project_changelog_completeness",
           "sprint_assignment"
         ]
       },
@@ -708,9 +824,56 @@
   },
   "delivery_confidence_status": "INCONCLUSIVE",
   "delivery_confidence_explanations": [
-    "Delivery confidence is inconclusive because fewer than 50% of the sprint tickets have story points. At least 50% of the tickets inside the sprint must have story points to calculate delivery confidence. Ideally, all tickets should have story points."
+    "Delivery confidence is inconclusive because fewer than 50% of the sprint tickets have story points. At least 50% of the tickets inside the sprint must have story points to calculate delivery confidence. Ideally, all tickets should have story points.",
+    "Delivery confidence is inconclusive because Scope creep is unavailable: Scope creep is not computed because the effective sprint window ends before sprint start."
   ],
   "delivery_confidence": null,
+  "scope_movement": {
+    "status": "NOT_COMPUTED",
+    "percentage": null,
+    "explanations": [
+      "Scope creep is not computed because the effective sprint window ends before sprint start."
+    ],
+    "evidence": {
+      "calculation_status": "NOT_COMPUTED",
+      "scope_creep_pct": null,
+      "window_start": "2026-07-22T00:00:00Z",
+      "window_end": "2026-07-21T13:00:00Z",
+      "current_scope_issue_keys": [
+        "LHPM-4001",
+        "LHPM-4002",
+        "LHPM-4003"
+      ],
+      "project_issue_keys": [
+        "LHPM-3901",
+        "LHPM-3902",
+        "LHPM-4001",
+        "LHPM-4002",
+        "LHPM-4003",
+        "LHPM-4101",
+        "LHPM-4102",
+        "LHPM-4201",
+        "LHPM-4202",
+        "LHPM-4203"
+      ],
+      "initial_commitment_count": 3,
+      "scope_change_count": 0,
+      "scope_added_count": 0,
+      "scope_removed_count": 0,
+      "net_scope_change": 0,
+      "scope_change_issue_keys": [],
+      "scope_added_issue_keys": [],
+      "scope_removed_issue_keys": [],
+      "scope_addition_events": [],
+      "scope_removal_events": [],
+      "incomplete_history_issue_keys": [],
+      "sprint_id": "LHPM-SPRINT-40",
+      "sprint_name": "Sprint 40 Inconclusive",
+      "sprint_changelog_fields": [
+        "sprint"
+      ]
+    }
+  },
   "workload_distribution": {
     "status": "INCONCLUSIVE",
     "percentage": null,

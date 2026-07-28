@@ -43,7 +43,7 @@ const sprintFallback = fallbackResponse.sprint;
 
 const validApiLocations = new Set(["metric_values", "response_field", "chart_only"]);
 const validCategories = new Set(["delivery", "quality", "flow", "risk", "snapshot"]);
-const validUnits = new Set(["tickets", "percent", "days", "score", "gates"]);
+const validUnits = new Set(["tickets", "events", "percent", "days", "score", "gates"]);
 const validFormatting = new Set(["integer", "decimal_1", "decimal_2", "decimal_4", "percent_2"]);
 const validPartialValuePolicies = new Set([
   "confirmed_minimum",

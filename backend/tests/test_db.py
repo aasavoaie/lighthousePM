@@ -67,7 +67,7 @@ def test_migration_graph_has_single_head() -> None:
         str(Path(__file__).resolve().parents[1] / "alembic"),
     )
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260724_0019"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260727_0022"]
 
 
 def test_create_database_engine_supports_file_backed_sqlite(tmp_path: Path) -> None:
@@ -141,7 +141,7 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "sprint_metric_snapshots",
         "sprints",
     }.issubset(table_names)
-    assert current_revision == "20260724_0019"
+    assert current_revision == "20260727_0022"
     assert revision_after_second_start == current_revision
     assert {
         "completed_tickets",
@@ -213,6 +213,62 @@ def test_application_migration_supports_fresh_sqlite(tmp_path: Path) -> None:
         "last_failure_summary",
         "latest_sync_result",
     }.issubset(sync_state_columns)
+
+
+def test_changelog_refetch_migration_invalidates_prior_completeness(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "changelog-refetch.db"
+    database_engine = create_database_engine(
+        Settings(_env_file=None, database_url=_sqlite_url(database_path))
+    )
+    alembic_config = Config(
+        str(Path(__file__).resolve().parents[1] / "alembic.ini")
+    )
+
+    try:
+        with database_engine.begin() as connection:
+            alembic_config.attributes["connection"] = connection
+            command.upgrade(alembic_config, "20260726_0020")
+            connection.execute(
+                text(
+                    "INSERT INTO issues "
+                    "(issue_key, summary, issue_type, status, is_blocker, "
+                    "jira_changelog_complete) "
+                    "VALUES "
+                    "('LHPM-1', 'Previously complete', 'Story', 'To Do', false, true), "
+                    "('LHPM-2', 'Already incomplete', 'Story', 'To Do', false, false)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO issue_history "
+                    "(issue_key, field_name, old_value, new_value, changed_at) "
+                    "VALUES "
+                    "('LHPM-1', 'customfield_10020', '', 'Sprint 10', "
+                    "'2026-07-27 09:49:09')"
+                )
+            )
+            command.upgrade(alembic_config, "head")
+
+            completeness = connection.execute(
+                text(
+                    "SELECT issue_key, jira_changelog_complete "
+                    "FROM issues ORDER BY issue_key"
+                )
+            ).all()
+            current_revision = connection.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
+            history_count = connection.scalar(
+                text("SELECT COUNT(*) FROM issue_history")
+            )
+    finally:
+        database_engine.dispose()
+
+    assert completeness == [("LHPM-1", 0), ("LHPM-2", 0)]
+    assert history_count == 0
+    assert current_revision == "20260727_0022"
 
 
 def test_nullable_issue_classification_migration_round_trip(tmp_path: Path) -> None:
@@ -525,12 +581,12 @@ def test_migrate_database_upgrades_unversioned_legacy_sqlite_and_preserves_data(
         assert "ruleset_version" in {column["name"] for column in schema.get_columns("metric_snapshots")}
         assert "jira_created_at" in {column["name"] for column in schema.get_columns("issues")}
         with database_engine.connect() as connection:
-            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260724_0019"
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "20260727_0022"
             assert connection.scalar(
                 text("SELECT name FROM releases WHERE release_id = 'legacy-release'")
             ) == "Legacy release"
 
-        backup_path = tmp_path / "legacy.db.pre-20260724_0019.bak"
+        backup_path = tmp_path / "legacy.db.pre-20260727_0022.bak"
         assert backup_path.is_file()
         backup_mtime = backup_path.stat().st_mtime_ns
 

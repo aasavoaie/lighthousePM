@@ -13,8 +13,14 @@ from app.utils.constants import RULESET_VERSION
 def test_runtime_ruleset_version_matches_product_catalog() -> None:
     catalog = (Path(__file__).resolve().parents[2] / "PRODUCT_RULES.md").read_text(encoding="utf-8")
 
-    assert RULESET_VERSION == 2
-    assert "Version `2` identifies the approved Phase 2 metric-contract hardening" in catalog
+    assert RULESET_VERSION == 5
+    assert (
+        "Version `5` identifies event-based seven-day release scope churn"
+        in catalog
+    )
+    assert "`ruleset_version` remains `2`" not in catalog
+    assert "runtime `ruleset_version`, which remains `2`" not in catalog
+    assert catalog.count("then-current `ruleset_version` of `2`") == 13
 
 
 def test_derived_results_are_immutable_after_persistence() -> None:

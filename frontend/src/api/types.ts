@@ -47,7 +47,7 @@ export type ComputationStatus = "COMPUTED" | "PARTIAL" | "NOT_COMPUTED";
 
 export type MetricScope = "release" | "sprint";
 export type MetricCategory = "delivery" | "quality" | "flow" | "risk" | "snapshot";
-export type MetricUnit = "tickets" | "percent" | "days" | "score" | "gates";
+export type MetricUnit = "tickets" | "events" | "percent" | "days" | "score" | "gates";
 export type MetricFormat = "integer" | "decimal_1" | "decimal_2" | "decimal_4" | "percent_2";
 export type MetricSeverity = "watch" | "critical";
 export type MetricComparison = "gt" | "gte" | "lt" | "lte";
@@ -105,6 +105,7 @@ export interface MetricCatalogResponse {
 export interface SprintMetricValues {
   committed_scope: number | null;
   completed_scope_pct: number | null;
+  scope_creep_pct: number | null;
   open_blockers: number | null;
   open_high_severity_bugs: number | null;
   bugs_created_during_sprint: number | null;
@@ -173,6 +174,44 @@ export interface DeliveryConfidenceDetail {
   weights: DeliveryConfidenceWeights;
   components: DeliveryConfidenceComponents;
   inputs: DeliveryConfidenceInputs;
+}
+
+export interface SprintScopeMovementEvent {
+  history_id: number;
+  issue_key: string;
+  changed_at: string;
+  from_value: string | null;
+  to_value: string | null;
+}
+
+export interface SprintScopeMovementEvidence {
+  calculation_status: ComputationStatus;
+  scope_creep_pct: number | null;
+  window_start: string | null;
+  window_end: string | null;
+  current_scope_issue_keys: string[];
+  project_issue_keys: string[];
+  initial_commitment_count: number;
+  scope_change_count: number;
+  scope_added_count: number;
+  scope_removed_count: number;
+  net_scope_change: number;
+  scope_change_issue_keys: string[];
+  scope_added_issue_keys: string[];
+  scope_removed_issue_keys: string[];
+  scope_addition_events: SprintScopeMovementEvent[];
+  scope_removal_events: SprintScopeMovementEvent[];
+  incomplete_history_issue_keys: string[];
+  sprint_id: string;
+  sprint_name: string;
+  sprint_changelog_fields: string[];
+}
+
+export interface SprintScopeMovementDetail {
+  status: ComputationStatus;
+  percentage: number | null;
+  explanations: string[];
+  evidence: SprintScopeMovementEvidence;
 }
 
 export type ConfidenceBreakdownStatus = "good" | "warning" | "critical";
@@ -302,6 +341,7 @@ export interface SprintMetricsResponse {
   delivery_confidence_status: DeliveryConfidenceStatus;
   delivery_confidence_explanations: string[];
   delivery_confidence: DeliveryConfidenceDetail | null;
+  scope_movement: SprintScopeMovementDetail | null;
   workload_distribution: WorkloadDistributionDetail | null;
   confidence_breakdown: ConfidenceBreakdown | null;
   biggest_driver: DriverAnalysis | null;
@@ -690,6 +730,9 @@ export interface JiraConnectionTestResponse {
 
 export interface SyncJiraResponse {
   project_key: string;
+  sync_mode: "incremental" | "full";
+  fallback_reason: string | null;
+  cursor_advanced: boolean;
   releases_fetched: number;
   releases_inserted: number;
   releases_updated: number;
@@ -699,9 +742,11 @@ export interface SyncJiraResponse {
   issues_inserted: number;
   issues_updated: number;
   issues_skipped: number;
+  issue_details_skipped_unchanged: number;
   history_fetched: number;
   history_inserted: number;
   history_skipped: number;
+  changelogs_skipped_unchanged: number;
 }
 
 export interface HealthResponse {

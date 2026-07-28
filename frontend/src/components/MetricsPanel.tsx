@@ -334,10 +334,10 @@ export function MetricsPanel({ metrics, charts, isLoading, onSelectIssue, focuse
                             details: [
                               ...(metrics.metrics.scope_added_7d_count === null
                                 ? []
-                                : [`${metrics.metrics.scope_added_7d_count} issues added`]),
+                                : [`${metrics.metrics.scope_added_7d_count} addition events`]),
                               ...(metrics.metrics.scope_removed_7d_count === null
                                 ? []
-                                : [`${metrics.metrics.scope_removed_7d_count} issues removed`]),
+                                : [`${metrics.metrics.scope_removed_7d_count} removal events`]),
                             ],
                           }
                         : undefined,

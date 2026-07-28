@@ -6,7 +6,7 @@
       "state": "future",
       "project_key": "LHPM",
       "board_id": "board-7",
-      "start_date": "2026-07-22T00:00:00",
+      "start_date": "2026-07-20T00:00:00",
       "end_date": "2026-08-05T00:00:00",
       "complete_date": null,
       "goal": "Show partial story-point coverage honestly.",

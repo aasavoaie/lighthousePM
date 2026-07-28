@@ -86,6 +86,13 @@ export function AdminPanel({
       appendSyncLog("info", "Request sent to the local backend: POST /sync/jira.");
       const result: SyncJiraResponse = await apiClient.syncJira();
       appendSyncLog(
+        "info",
+        `Sync mode: ${result.sync_mode}; cursor ${result.cursor_advanced ? "advanced" : "unchanged"}.`
+      );
+      if (result.fallback_reason) {
+        appendSyncLog("info", `Full-fetch fallback: ${result.fallback_reason}`);
+      }
+      appendSyncLog(
         "success",
         `Fetched ${result.releases_fetched} releases, ${result.issues_fetched} issues, and ${result.history_fetched} changelog entries for ${result.project_key}.`
       );
@@ -95,7 +102,7 @@ export function AdminPanel({
       );
       appendSyncLog(
         "success",
-        `History inserted ${result.history_inserted}; skipped issues ${result.issues_skipped}; skipped history ${result.history_skipped}.`
+        `History inserted ${result.history_inserted}; skipped issues ${result.issues_skipped}; skipped history ${result.history_skipped}; unchanged details ${result.issue_details_skipped_unchanged}; unchanged changelogs ${result.changelogs_skipped_unchanged}.`
       );
       setSyncMessage(
         `Sync complete for ${result.project_key}: issues inserted ${result.issues_inserted}, updated ${result.issues_updated}, history inserted ${result.history_inserted}.`

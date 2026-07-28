@@ -55,8 +55,8 @@ Jira -> jira_service -> sync_service -> repositories -> database
                                                                             |
                                                                             +-> signal_service
 
-FastAPI routes -> response/recompute/catalog services -> structured JSON
-               -> reporting_service -> prepared data -> templates -> charts/PDF
+Derived API routes -> response/recompute/catalog services -> structured JSON
+                   -> reporting_service -> prepared data -> templates -> charts/PDF
 
 React API client -> workspace hooks and page containers -> focused components
 ```
@@ -66,14 +66,14 @@ Core responsibilities:
 | Component | Responsibility |
 |---|---|
 | `jira_service` | Jira API requests and response normalization |
-| `sync_service` | Ingestion orchestration and deterministic upserts |
+| `sync_service` | Full project-summary scans, trusted unchanged-detail skipping, deterministic upserts, and cursor/status persistence |
 | `analytics_service` | Release and sprint metric computation |
 | `signal_service` | Release risk rules, readiness, and Release Outlook |
-| Response services | Release and sprint response assembly from stored artifacts |
+| Response services | Release metric, release signal, and sprint response assembly from stored artifacts |
 | `metric_recompute_service` | Release and sprint recomputation orchestration |
 | Metric catalog | Shared labels, units, formatting, thresholds, availability metadata, ordering, and feature participation |
 | Reporting pipeline | Data preparation, document models, focused templates, chart rendering, and PDF rendering behind `reporting_service` |
-| FastAPI routes | Request validation, dependency injection, service delegation, and HTTP error mapping |
+| FastAPI routes | HTTP validation and error mapping; service delegation for derived, mutating, multi-repository, and report workflows |
 | PostgreSQL | Default backend storage |
 | SQLite | Local and packaged desktop storage |
 | React + TypeScript | Authenticated dashboard, reporting, Jira settings, sync, and recomputation workflows |
@@ -250,6 +250,11 @@ confidence, or chance of meeting a release target.
 - Version `0` identifies legacy results without an explicit ruleset.
 - Version `1` identifies the approved Phase 0 contract.
 - Version `2` identifies the approved Phase 2 metric-contract hardening.
+- Version `3` identifies authoritative sprint Scope creep and its
+  delivery-confidence integration.
+- Version `4` identifies event-based sprint Scope creep counting.
+- Version `5` identifies event-based seven-day release scope churn, addition,
+  and removal counting.
 - Metric snapshots and release signals are immutable.
 - Recompute creates a new metric snapshot and an append-only signal result.
 - Historical derived values are read from their stored artifacts, not
@@ -262,15 +267,27 @@ confidence, or chance of meeting a release target.
 ## Data flow
 
 1. `POST /sync/jira` validates the configured Jira connection.
-2. Jira releases, issues, sprints, and relevant changelog entries are
-   normalized and upserted.
-3. Release and sprint metrics are recomputed into new immutable snapshots.
-4. A release signal is stored for each new release metric snapshot.
-5. APIs and PDF reports read the stored results and their provenance.
+2. Jira releases and the complete project issue-summary inventory are fetched.
+   Default incremental mode skips trusted unchanged issue details and
+   changelogs; `mode=full` refetches them all.
+3. Jira issues, sprints, and relevant changelog entries are normalized and
+   upserted.
+4. Release and sprint metrics are recomputed into new immutable snapshots.
+5. A release signal is stored for each new release metric snapshot.
+6. APIs and PDF reports read the stored results and their provenance.
 
 Sync failures are sanitized before they are persisted or returned. Operational
 status records the latest successful and failed sync times and the latest
 metric and signal recomputations.
+
+The default `mode=incremental` still scans all issue summaries so current
+project membership remains visible. It skips a detail and changelog only when
+the project cursor, local Jira update timestamp, local issue, and changelog
+completeness are trusted. Without a trusted cursor it reports a full-fetch
+fallback. `mode=full` explicitly bypasses unchanged-detail skipping. Responses
+include the effective mode, fallback reason, whether the cursor advanced, and
+fetched, stored, failed, duplicate, and unchanged-skip counts. Any failed issue
+detail preserves the previous cursor so that issue remains eligible for retry.
 
 ## Data model
 
@@ -291,11 +308,13 @@ Primary tables:
 
 ## REST API
 
-All controllers return structured JSON except PDF export endpoints.
-FastAPI routes validate inputs and delegate to focused application services;
-metric and sprint response assembly and report construction do not live in the
-route modules. OpenAPI provides the runtime mechanical endpoint schema, while
-[`HELPER.md`](HELPER.md) provides operational guidance.
+All controllers return structured JSON except PDF export endpoints. Derived,
+mutating, multi-repository, and report workflows delegate to focused
+application services; release metric, release signal, sprint, and report
+assembly do not live in route modules. Simple health and single-resource reads
+may serialize one configuration or repository result directly. OpenAPI provides
+the runtime mechanical endpoint schema, while [`HELPER.md`](HELPER.md) provides
+operational guidance.
 
 ### Health and configuration
 
@@ -307,6 +326,8 @@ route modules. OpenAPI provides the runtime mechanical endpoint schema, while
 - `POST /config/jira/test`
 - `GET /sync/jira/status`
 - `POST /sync/jira`
+
+`POST /sync/jira` accepts `mode=incremental|full`; incremental is the default.
 
 ### Releases
 
@@ -367,12 +388,14 @@ minimum values; percentages whose denominator classification is incomplete
 return `null`.
 
 Seven-day release scope churn uses the stored snapshot time as an inclusive
-window boundary. Its denominator is the distinct union of current release
+window boundary. Its numerator is the count of distinct addition and removal
+events; repeated transitions for one ticket count separately, so the percentage
+may exceed `100%`. Its denominator is the distinct union of current release
 scope and tickets with confirmed additions or removals. Changelog completeness
 is evaluated across synchronized tickets in the configured Jira project. When
-that history is incomplete, added and removed counts remain confirmed minima,
-the churn percentage is `null`, and availability identifies the missing Jira
-keys. An absence of changelog rows is not itself incomplete history.
+that history is incomplete, added and removed event counts remain confirmed
+minima, the churn percentage is `null`, and availability identifies the missing
+Jira keys. An absence of changelog rows is not itself incomplete history.
 
 If blocker or high-severity-bug classification is partial, or the scope-churn
 percentage is unavailable because project changelog ingestion is incomplete,
@@ -431,7 +454,8 @@ Field mappings are explicit per Jira instance:
 - `JIRA_FIELD_SPRINT` identifies the sprint custom field;
 - `JIRA_FIELD_STORY_POINTS` identifies the story-point field;
 - `JIRA_FIELD_BLOCKER` optionally identifies an explicit blocker flag;
-- changelog aliases identify fix-version and sprint membership changes.
+- changelog aliases identify fix-version and sprint membership changes; the
+  configured release and sprint field identifiers are always recognized too.
 
 Jira workflow classifications are also explicit, comma-separated settings:
 
@@ -453,7 +477,7 @@ still available when Jira sync itself is enabled.
 
 Application startup runs the Alembic migration chain before accepting API
 requests or starting scheduled work. The current single head is
-`20260724_0019`.
+`20260727_0022`.
 
 Alembic is the only runtime schema authority for both PostgreSQL and SQLite.
 Application startup does not use `Base.metadata.create_all()` and does not run
@@ -468,7 +492,7 @@ fixtures.
 - Before migration, a consistent SQLite backup is written to a unique
   temporary file beside the active database, flushed and closed, and then
   atomically published. For the current migration head its canonical suffix is
-  `.pre-20260724_0019.bak`.
+  `.pre-20260727_0022.bak`.
 - Unknown or partially migrated legacy schemas stop startup instead of being
   guessed or silently modified.
 - Repeated startup at the current revision is idempotent.
@@ -477,7 +501,7 @@ fixtures.
 
 Every prior revision retained in the single Alembic chain is a supported
 versioned upgrade source. For the current chain, this is `20260407_0001`
-through `20260724_0018`. Recognized unversioned SQLite sources are limited to
+through `20260726_0021`. Recognized unversioned SQLite sources are limited to
 the explicit legacy-shape registry, currently `20260407_0001` through
 `20260716_0010`; other unversioned shapes fail closed.
 
@@ -544,7 +568,7 @@ Run the packaged validator from the backend executable directory:
 
 ```powershell
 .\lighthousepm-backend.exe --validate-sqlite-backup `
-  "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260724_0019.bak" `
+  "$env:APPDATA\LighthousePM\data\lighthouse.db.pre-20260727_0022.bak" `
   --migration-backup
 ```
 

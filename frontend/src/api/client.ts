@@ -193,8 +193,8 @@ export const apiClient = {
   getAdminStatus(): Promise<AdminStatusResponse> {
     return request<AdminStatusResponse>("/admin/status");
   },
-  syncJira(): Promise<SyncJiraResponse> {
-    return request<SyncJiraResponse>("/sync/jira", { method: "POST" });
+  syncJira(mode: "incremental" | "full" = "incremental"): Promise<SyncJiraResponse> {
+    return request<SyncJiraResponse>(`/sync/jira?mode=${mode}`, { method: "POST" });
   },
   getHealth(): Promise<HealthResponse> {
     return request<HealthResponse>("/health");

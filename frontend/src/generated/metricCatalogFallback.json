@@ -1,6 +1,6 @@
 {
-  "catalog_version": 1,
-  "ruleset_version": 2,
+  "catalog_version": 3,
+  "ruleset_version": 5,
   "release": [
     {
       "key": "release.open_blockers",
@@ -40,7 +40,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.open_high_severity_bugs",
@@ -86,7 +86,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_completed_pct",
@@ -118,7 +118,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.completed_tickets",
@@ -151,7 +151,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_churn_7d_pct",
@@ -159,7 +159,7 @@
       "api_field": "scope_churn_7d_pct",
       "api_location": "metric_values",
       "label": "Scope churn 7d",
-      "description": "Distinct release membership changes per 100 observed-scope tickets in the inclusive seven-day window.",
+      "description": "Release addition and removal events per 100 distinct observed-scope tickets in the inclusive seven-day window.",
       "category": "risk",
       "unit": "percent",
       "formatting": "percent_2",
@@ -197,7 +197,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_added_7d_count",
@@ -205,9 +205,9 @@
       "api_field": "scope_added_7d_count",
       "api_location": "metric_values",
       "label": "Scope added 7d",
-      "description": "Distinct tickets added to the release in the inclusive seven-day window.",
+      "description": "Distinct addition events into the release in the inclusive seven-day window, including repeated additions of one ticket.",
       "category": "snapshot",
-      "unit": "tickets",
+      "unit": "events",
       "formatting": "integer",
       "display_order": 6,
       "thresholds": [],
@@ -231,7 +231,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.scope_removed_7d_count",
@@ -239,9 +239,9 @@
       "api_field": "scope_removed_7d_count",
       "api_location": "metric_values",
       "label": "Scope removed 7d",
-      "description": "Distinct tickets removed from the release in the inclusive seven-day window.",
+      "description": "Distinct removal events from the release in the inclusive seven-day window, including repeated removals of one ticket.",
       "category": "snapshot",
-      "unit": "tickets",
+      "unit": "events",
       "formatting": "integer",
       "display_order": 7,
       "thresholds": [],
@@ -265,7 +265,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.median_cycle_time_days",
@@ -306,7 +306,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.reopen_rate_pct",
@@ -352,7 +352,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.confidence_score",
@@ -399,7 +399,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.gates_passed_count",
@@ -431,7 +431,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "release.readiness_pct",
@@ -464,7 +464,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     }
   ],
   "sprint": [
@@ -498,7 +498,7 @@
       "confidence_participation": true,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.completed_scope_pct",
@@ -531,7 +531,54 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
+    },
+    {
+      "key": "sprint.scope_creep_pct",
+      "scope": "sprint",
+      "api_field": "scope_creep_pct",
+      "api_location": "metric_values",
+      "label": "Scope creep",
+      "description": "Post-start sprint addition and removal events per 100 initial-commitment tickets.",
+      "category": "delivery",
+      "unit": "percent",
+      "formatting": "percent_2",
+      "display_order": 3,
+      "thresholds": [
+        {
+          "severity": "critical",
+          "comparison": "gt",
+          "value": 20.0,
+          "meaning": "Scope creep above 20% is critical."
+        },
+        {
+          "severity": "watch",
+          "comparison": "gt",
+          "value": 10.0,
+          "meaning": "Scope creep above 10% through 20% is watch."
+        }
+      ],
+      "severity_meaning": "Values at or below 10% are healthy; the most severe matching threshold wins.",
+      "availability": {
+        "dependencies": [
+          "sprint_duration",
+          "project_changelog_completeness",
+          "sprint_assignment"
+        ],
+        "partial_value_policy": "unavailable",
+        "supports_not_applicable": false,
+        "evidence_fields": [
+          "scope_movement.evidence",
+          "calculation_provenance.metric_evidence.scope_creep_pct"
+        ],
+        "minimum_coverage_pct": null
+      },
+      "historical_series": true,
+      "signal_participation": false,
+      "confidence_participation": true,
+      "chart_participation": true,
+      "report_participation": true,
+      "ruleset_version": 5
     },
     {
       "key": "sprint.open_blockers",
@@ -543,7 +590,7 @@
       "category": "risk",
       "unit": "tickets",
       "formatting": "integer",
-      "display_order": 3,
+      "display_order": 4,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -564,7 +611,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.open_high_severity_bugs",
@@ -576,7 +623,7 @@
       "category": "quality",
       "unit": "tickets",
       "formatting": "integer",
-      "display_order": 4,
+      "display_order": 5,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -597,7 +644,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.bugs_created_during_sprint",
@@ -609,7 +656,7 @@
       "category": "quality",
       "unit": "tickets",
       "formatting": "integer",
-      "display_order": 5,
+      "display_order": 6,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -631,7 +678,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.in_progress_count",
@@ -643,7 +690,7 @@
       "category": "snapshot",
       "unit": "tickets",
       "formatting": "integer",
-      "display_order": 6,
+      "display_order": 7,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -664,7 +711,7 @@
       "confidence_participation": false,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.not_started_count",
@@ -676,7 +723,7 @@
       "category": "snapshot",
       "unit": "tickets",
       "formatting": "integer",
-      "display_order": 7,
+      "display_order": 8,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -697,7 +744,7 @@
       "confidence_participation": false,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.rollover_count",
@@ -709,7 +756,7 @@
       "category": "delivery",
       "unit": "tickets",
       "formatting": "integer",
-      "display_order": 8,
+      "display_order": 9,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -730,7 +777,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.median_cycle_time_days",
@@ -742,7 +789,7 @@
       "category": "flow",
       "unit": "days",
       "formatting": "decimal_4",
-      "display_order": 9,
+      "display_order": 10,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -764,7 +811,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.reopen_rate_pct",
@@ -776,7 +823,7 @@
       "category": "quality",
       "unit": "percent",
       "formatting": "percent_2",
-      "display_order": 10,
+      "display_order": 11,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -797,7 +844,7 @@
       "confidence_participation": false,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.workload_concentration_pct",
@@ -809,7 +856,7 @@
       "category": "risk",
       "unit": "percent",
       "formatting": "percent_2",
-      "display_order": 11,
+      "display_order": 12,
       "thresholds": [
         {
           "severity": "critical",
@@ -846,7 +893,7 @@
       "confidence_participation": false,
       "chart_participation": false,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     },
     {
       "key": "sprint.delivery_confidence_score",
@@ -858,7 +905,7 @@
       "category": "delivery",
       "unit": "score",
       "formatting": "decimal_2",
-      "display_order": 12,
+      "display_order": 13,
       "thresholds": [],
       "severity_meaning": "No product-rule severity classification applies to this metric.",
       "availability": {
@@ -887,7 +934,7 @@
       "confidence_participation": true,
       "chart_participation": true,
       "report_participation": true,
-      "ruleset_version": 2
+      "ruleset_version": 5
     }
   ]
 }

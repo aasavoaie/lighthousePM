@@ -363,8 +363,8 @@ export function SprintReportsPanel({
               data={sprintChartRows}
               bars={[
                 { key: "scope_change_count", label: "Scope changes", color: MetricColors.scopeChurn },
-                { key: "scope_added_count", label: "Added issues", color: MetricColors.completedScope },
-                { key: "scope_removed_count", label: "Removed issues", color: MetricColors.bugs },
+                { key: "scope_added_count", label: "Addition events", color: MetricColors.completedScope },
+                { key: "scope_removed_count", label: "Removal events", color: MetricColors.bugs },
                 { key: "net_scope_change", label: "Net scope change", color: MetricColors.neutralRisk },
               ]}
               dataKey="name"

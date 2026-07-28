@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 import statistics
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -47,7 +48,6 @@ WORKLOAD_CONCENTRATION_CRITICAL_MIN_EXCLUSIVE_PCT = metric_threshold_value(
 WORKLOAD_CONCENTRATION_WATCH_MIN_PCT = metric_threshold_value(
     "sprint.workload_concentration_pct", "watch"
 )
-
 DELIVERY_CONFIDENCE_WEIGHTS = {
     "progress_alignment": 0.4,
     "velocity_fit": 0.3,
@@ -81,15 +81,20 @@ class _BugsCreatedDuringSprintResult(TypedDict):
     missing_created_at_issue_keys: list[str]
 
 
-class _ScopeStabilityInputs(TypedDict):
-    initial_commitment_count: int
-    scope_change_count: int
-    scope_added_count: int
-    scope_removed_count: int
-    scope_stability_index: float | None
-    scope_change_issue_keys: list[str]
-    scope_added_issue_keys: list[str]
-    scope_removed_issue_keys: list[str]
+class _ScopeCreepResult(TypedDict):
+    status: str
+    value: float | None
+    explanations: list[str]
+    missing_issue_keys: list[str]
+    evidence: dict[str, object]
+
+
+class _ScopeMovementEvent(TypedDict):
+    history_id: int
+    issue_key: str
+    changed_at: str
+    from_value: str | None
+    to_value: str | None
 
 
 class _VelocityBaselineEvidence(TypedDict):
@@ -285,11 +290,6 @@ class AnalyticsService:
             sprint_id=sprint_id,
             field_mapper=field_mapper,
         )
-        workload_distribution = self._compute_workload_distribution(
-            session=session,
-            sprint_id=sprint_id,
-            field_mapper=field_mapper,
-        )
         open_blocker_issue_keys = classification_results["open_blockers"]["evidence"]["matching_issue_keys"]
         open_high_severity_bug_issue_keys = classification_results["open_high_severity_bugs"]["evidence"][
             "matching_issue_keys"
@@ -299,6 +299,17 @@ class AnalyticsService:
             session=session,
             sprint=sprint,
             snapshot_at=snapshot_at,
+            field_mapper=field_mapper,
+        )
+        scope_creep = self._compute_sprint_scope_creep(
+            session=session,
+            sprint=sprint,
+            snapshot_at=snapshot_at,
+            field_mapper=field_mapper,
+        )
+        workload_distribution = self._compute_workload_distribution(
+            session=session,
+            sprint_id=sprint_id,
             field_mapper=field_mapper,
         )
         flow_metrics = self.evaluate_sprint_flow_metrics(session, sprint_id, field_mapper)
@@ -317,6 +328,7 @@ class AnalyticsService:
             field_mapper=field_mapper,
             open_blockers=len(open_blocker_issue_keys),
             prerequisites=delivery_confidence_prerequisites,
+            scope_creep_result=scope_creep,
         )
 
         snapshot = SprintMetricSnapshot(
@@ -325,6 +337,10 @@ class AnalyticsService:
             ruleset_version=RULESET_VERSION,
             committed_scope=scope_metrics["committed_scope"]["value"],
             completed_scope_pct=scope_metrics["completed_scope_pct"]["value"],
+            scope_creep_pct=scope_creep["value"],
+            scope_creep_status=scope_creep["status"],
+            scope_creep_explanations=scope_creep["explanations"],
+            scope_creep_evidence=scope_creep["evidence"],
             open_blockers=len(open_blocker_issue_keys),
             open_high_severity_bugs=len(open_high_severity_bug_issue_keys),
             bugs_created_during_sprint=len(bugs_created_during_sprint["issue_keys"]),
@@ -364,6 +380,7 @@ class AnalyticsService:
             flow_metrics=flow_metrics,
             scope_metrics=scope_metrics,
             work_state_metrics=work_state_metrics,
+            scope_creep_result=scope_creep,
             delivery_confidence_result=delivery_confidence,
             workload_distribution=workload_distribution,
         )
@@ -570,6 +587,7 @@ class AnalyticsService:
         flow_metrics: dict[str, dict[str, object]],
         scope_metrics: dict[str, dict[str, object]],
         work_state_metrics: dict[str, dict[str, object]],
+        scope_creep_result: _ScopeCreepResult,
         delivery_confidence_result: _DeliveryConfidenceResult,
         workload_distribution: dict[str, object],
     ) -> dict[str, object]:
@@ -586,6 +604,7 @@ class AnalyticsService:
             flow_metric_results=flow_metrics,
             scope_metric_results=scope_metrics,
             work_state_metric_results=work_state_metrics,
+            scope_creep_result=cast(dict[str, object], scope_creep_result),
             delivery_confidence_result=cast(
                 dict[str, object],
                 delivery_confidence_result,
@@ -612,6 +631,7 @@ class AnalyticsService:
                 "coverage_pct": snapshot.story_point_coverage_pct,
                 "unpointed_issue_keys": snapshot.story_point_unpointed_issue_keys,
             },
+            "scope_movement": scope_creep_result,
             "delivery_confidence_prerequisites": delivery_confidence_result[
                 "prerequisites"
             ],
@@ -658,6 +678,7 @@ class AnalyticsService:
                 "reopen_rate_pct": flow_metrics["reopen_rate_pct"]["evidence"],
                 "committed_scope": scope_metrics["committed_scope"]["evidence"],
                 "completed_scope_pct": scope_metrics["completed_scope_pct"]["evidence"],
+                "scope_creep_pct": scope_creep_result["evidence"],
                 "in_progress_count": work_state_metrics["in_progress_count"]["evidence"],
                 "not_started_count": work_state_metrics["not_started_count"]["evidence"],
                 "rollover_count": work_state_metrics["rollover_count"]["evidence"],
@@ -687,8 +708,7 @@ class AnalyticsService:
             return flags
 
         snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
-        end_at = _coerce_utc(sprint.end_date)
-        upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
+        upper_bound = _effective_sprint_window_end(sprint, snapshot_at)
         if upper_bound <= start_at:
             return flags
 
@@ -774,8 +794,14 @@ class AnalyticsService:
             else []
         )
 
-        added_keys: set[str] = set()
-        removed_keys: set[str] = set()
+        addition_events_by_identity: dict[
+            tuple[str, datetime, str, str],
+            _ScopeMovementEvent,
+        ] = {}
+        removal_events_by_identity: dict[
+            tuple[str, datetime, str, str],
+            _ScopeMovementEvent,
+        ] = {}
         for entry in entries:
             if not field_mapper.is_fix_version_field(entry.field_name):
                 continue
@@ -787,24 +813,64 @@ class AnalyticsService:
                 entry.new_value,
                 normalized_release_value,
             )
-            if not old_references_release and new_references_release:
-                added_keys.add(entry.issue_key)
-            elif old_references_release and not new_references_release:
-                removed_keys.add(entry.issue_key)
+            if old_references_release == new_references_release:
+                continue
 
-        sorted_added_keys = sorted(added_keys)
-        sorted_removed_keys = sorted(removed_keys)
-        churned_issue_keys = sorted(added_keys | removed_keys)
+            normalized_changed_at = _coerce_utc(entry.changed_at)
+            assert normalized_changed_at is not None
+            event_identity = (
+                entry.issue_key,
+                normalized_changed_at,
+                _normalize_text(entry.old_value),
+                _normalize_text(entry.new_value),
+            )
+            event: _ScopeMovementEvent = {
+                "history_id": entry.id,
+                "issue_key": entry.issue_key,
+                "changed_at": normalized_changed_at.isoformat(),
+                "from_value": entry.old_value,
+                "to_value": entry.new_value,
+            }
+            if not old_references_release and new_references_release:
+                addition_events_by_identity.setdefault(event_identity, event)
+            else:
+                removal_events_by_identity.setdefault(event_identity, event)
+
+        def event_order(event: _ScopeMovementEvent) -> tuple[str, int, str]:
+            return (
+                event["changed_at"],
+                event["history_id"],
+                event["issue_key"],
+            )
+
+        addition_events = sorted(
+            addition_events_by_identity.values(),
+            key=event_order,
+        )
+        removal_events = sorted(
+            removal_events_by_identity.values(),
+            key=event_order,
+        )
+        sorted_added_keys = sorted(
+            {event["issue_key"] for event in addition_events}
+        )
+        sorted_removed_keys = sorted(
+            {event["issue_key"] for event in removal_events}
+        )
+        churned_issue_keys = sorted(set(sorted_added_keys) | set(sorted_removed_keys))
         observed_scope_issue_keys = sorted(set(current_scope_issue_keys) | set(churned_issue_keys))
         denominator = len(observed_scope_issue_keys)
+        addition_event_count = len(addition_events)
+        removal_event_count = len(removal_events)
+        scope_change_event_count = addition_event_count + removal_event_count
 
         if incomplete_project_changelog_issue_keys:
             status = "PARTIAL"
             scope_churn_7d_pct = None
             explanations = [
                 "Scope churn is partial because Jira changelog ingestion is incomplete for "
-                f"{len(incomplete_project_changelog_issue_keys)} project ticket(s). Added and "
-                "removed counts are confirmed minima; the percentage is unavailable."
+                f"{len(incomplete_project_changelog_issue_keys)} project ticket(s). Addition "
+                "and removal event counts are confirmed minima; the percentage is unavailable."
             ]
         elif denominator == 0:
             status = "NOT_COMPUTED"
@@ -815,23 +881,34 @@ class AnalyticsService:
             ]
         else:
             status = "COMPUTED"
-            scope_churn_7d_pct = round(100.0 * len(churned_issue_keys) / denominator, 2)
+            scope_churn_7d_pct = round(
+                100.0 * scope_change_event_count / denominator,
+                2,
+            )
             explanations = []
 
         return {
             "status": status,
             "scope_churn_7d_pct": scope_churn_7d_pct,
-            "scope_added_7d_count": len(sorted_added_keys),
-            "scope_removed_7d_count": len(sorted_removed_keys),
+            "scope_added_7d_count": addition_event_count,
+            "scope_removed_7d_count": removal_event_count,
             "explanations": explanations,
             "missing_issue_keys": incomplete_project_changelog_issue_keys,
             "evidence": {
+                "calculation_status": status,
+                "scope_churn_7d_pct": scope_churn_7d_pct,
                 "window_start": window_start.isoformat(),
                 "window_end": window_end.isoformat(),
                 "synchronized_project_issue_keys": project_issue_keys,
                 "current_scope_issue_keys": current_scope_issue_keys,
                 "observed_scope_issue_keys": observed_scope_issue_keys,
                 "observed_scope_denominator": denominator,
+                "scope_change_event_count": scope_change_event_count,
+                "scope_addition_event_count": addition_event_count,
+                "scope_removal_event_count": removal_event_count,
+                "net_scope_change": addition_event_count - removal_event_count,
+                "scope_addition_events": addition_events,
+                "scope_removal_events": removal_events,
                 "churned_issue_keys": churned_issue_keys,
                 "added_issue_keys": sorted_added_keys,
                 "removed_issue_keys": sorted_removed_keys,
@@ -993,19 +1070,7 @@ class AnalyticsService:
                 "missing_created_at_issue_keys": [],
             }
 
-        if sprint.state.casefold() == "closed":
-            upper_bound = (
-                _coerce_utc(sprint.complete_date)
-                or _coerce_utc(sprint.end_date)
-                or normalized_snapshot_at
-            )
-        else:
-            configured_end_at = _coerce_utc(sprint.end_date)
-            upper_bound = (
-                min(configured_end_at, normalized_snapshot_at)
-                if configured_end_at is not None
-                else normalized_snapshot_at
-            )
+        upper_bound = _effective_sprint_window_end(sprint, normalized_snapshot_at)
         if upper_bound < start_at:
             return {
                 "status": "COMPUTED",
@@ -1116,6 +1181,210 @@ class AnalyticsService:
             cycle_days.append((ended_at - started_at).total_seconds() / 86400)
 
         return round(statistics.median(cycle_days), 4) if cycle_days else None
+
+    @staticmethod
+    def _compute_sprint_scope_creep(
+        session: Session,
+        sprint: Sprint,
+        snapshot_at: datetime,
+        field_mapper: JiraFieldMapper,
+    ) -> _ScopeCreepResult:
+        """Compute authoritative post-start sprint scope movement."""
+        current_scope_issue_keys = sorted(
+            set(
+                session.scalars(
+                    select(IssueSprint.issue_key).where(
+                        IssueSprint.sprint_id == sprint.sprint_id
+                    )
+                ).all()
+            )
+        )
+        project_issues = list(
+            session.scalars(
+                select(Issue)
+                .where(_issue_key_matches_project(Issue.issue_key, sprint.project_key))
+                .order_by(Issue.issue_key)
+            ).all()
+        )
+        project_issue_keys = [issue.issue_key for issue in project_issues]
+        incomplete_history_issue_keys = sorted(
+            issue.issue_key
+            for issue in project_issues
+            if not issue.jira_changelog_complete
+        )
+        start_at = _coerce_utc(sprint.start_date)
+        normalized_snapshot_at = _coerce_utc(snapshot_at)
+        assert normalized_snapshot_at is not None
+        window_end = _effective_sprint_window_end(sprint, normalized_snapshot_at)
+
+        def build_result(
+            *,
+            status: str,
+            value: float | None,
+            explanations: list[str],
+            addition_events: list[_ScopeMovementEvent],
+            removal_events: list[_ScopeMovementEvent],
+        ) -> _ScopeCreepResult:
+            added_count = len(addition_events)
+            removed_count = len(removal_events)
+            added_issue_keys = sorted(
+                {event["issue_key"] for event in addition_events}
+            )
+            removed_issue_keys = sorted(
+                {event["issue_key"] for event in removal_events}
+            )
+            change_issue_keys = sorted(
+                set(added_issue_keys) | set(removed_issue_keys)
+            )
+            change_count = added_count + removed_count
+            initial_commitment_count = max(
+                len(current_scope_issue_keys) - added_count + removed_count,
+                0,
+            )
+            evidence: dict[str, object] = {
+                "calculation_status": status,
+                "scope_creep_pct": value,
+                "window_start": start_at.isoformat() if start_at is not None else None,
+                "window_end": window_end.isoformat(),
+                "current_scope_issue_keys": current_scope_issue_keys,
+                "project_issue_keys": project_issue_keys,
+                "initial_commitment_count": initial_commitment_count,
+                "scope_change_count": change_count,
+                "scope_added_count": added_count,
+                "scope_removed_count": removed_count,
+                "net_scope_change": added_count - removed_count,
+                "scope_change_issue_keys": change_issue_keys,
+                "scope_added_issue_keys": added_issue_keys,
+                "scope_removed_issue_keys": removed_issue_keys,
+                "scope_addition_events": addition_events,
+                "scope_removal_events": removal_events,
+                "incomplete_history_issue_keys": incomplete_history_issue_keys,
+                "sprint_id": sprint.sprint_id,
+                "sprint_name": sprint.name,
+                "sprint_changelog_fields": sorted(field_mapper.sprint_changelog_fields),
+            }
+            return {
+                "status": status,
+                "value": value,
+                "explanations": explanations,
+                "missing_issue_keys": incomplete_history_issue_keys,
+                "evidence": evidence,
+            }
+
+        if start_at is None:
+            return build_result(
+                status=COMPUTATION_STATUS_NOT_COMPUTED,
+                value=None,
+                explanations=[
+                    "Scope creep is not computed because the sprint start time is missing."
+                ],
+                addition_events=[],
+                removal_events=[],
+            )
+        if window_end < start_at:
+            return build_result(
+                status=COMPUTATION_STATUS_NOT_COMPUTED,
+                value=None,
+                explanations=[
+                    "Scope creep is not computed because the effective sprint window ends before sprint start."
+                ],
+                addition_events=[],
+                removal_events=[],
+            )
+
+        entries = session.scalars(
+            select(IssueHistory)
+            .where(
+                IssueHistory.issue_key.in_(project_issue_keys),
+                func.lower(IssueHistory.field_name).in_(
+                    field_mapper.sprint_changelog_fields
+                ),
+                IssueHistory.changed_at > start_at,
+                IssueHistory.changed_at <= window_end,
+            )
+            .order_by(
+                IssueHistory.changed_at,
+                IssueHistory.id,
+                IssueHistory.issue_key,
+            )
+        ).all()
+        addition_events: list[_ScopeMovementEvent] = []
+        removal_events: list[_ScopeMovementEvent] = []
+        for entry in entries:
+            old_references_sprint = _history_value_references_sprint(
+                entry.old_value, sprint
+            )
+            new_references_sprint = _history_value_references_sprint(
+                entry.new_value, sprint
+            )
+            normalized_changed_at = _coerce_utc(entry.changed_at)
+            assert normalized_changed_at is not None
+            event: _ScopeMovementEvent = {
+                "history_id": entry.id,
+                "issue_key": entry.issue_key,
+                "changed_at": normalized_changed_at.isoformat(),
+                "from_value": entry.old_value,
+                "to_value": entry.new_value,
+            }
+            if not old_references_sprint and new_references_sprint:
+                addition_events.append(event)
+            elif old_references_sprint and not new_references_sprint:
+                removal_events.append(event)
+
+        added_count = len(addition_events)
+        removed_count = len(removal_events)
+        initial_commitment_count = max(
+            len(current_scope_issue_keys) - added_count + removed_count,
+            0,
+        )
+        if incomplete_history_issue_keys:
+            return build_result(
+                status=COMPUTATION_STATUS_PARTIAL,
+                value=None,
+                explanations=[
+                    "Scope creep is partial because sprint-membership changelog history is incomplete for: "
+                    + ", ".join(incomplete_history_issue_keys)
+                    + ". Addition and removal event counts are confirmed minimums."
+                ],
+                addition_events=addition_events,
+                removal_events=removal_events,
+            )
+        if (
+            not current_scope_issue_keys
+            and not addition_events
+            and not removal_events
+        ):
+            return build_result(
+                status=COMPUTATION_STATUS_NOT_COMPUTED,
+                value=None,
+                explanations=[
+                    "Scope creep is not computed because no current or changed sprint scope is available."
+                ],
+                addition_events=[],
+                removal_events=[],
+            )
+        if initial_commitment_count == 0:
+            return build_result(
+                status=COMPUTATION_STATUS_NOT_COMPUTED,
+                value=None,
+                explanations=[
+                    "Scope creep is not computed because the reconstructed initial commitment is zero."
+                ],
+                addition_events=addition_events,
+                removal_events=removal_events,
+            )
+
+        value = round(
+            100.0 * (added_count + removed_count) / initial_commitment_count,
+            2,
+        )
+        return build_result(
+            status=COMPUTATION_STATUS_COMPUTED,
+            value=value,
+            explanations=[],
+            addition_events=addition_events,
+            removal_events=removal_events,
+        )
 
     @staticmethod
     def _compute_workload_distribution(
@@ -1364,6 +1633,7 @@ class AnalyticsService:
         field_mapper: JiraFieldMapper,
         open_blockers: int,
         prerequisites: dict[str, object],
+        scope_creep_result: _ScopeCreepResult,
     ) -> _DeliveryConfidenceResult:
         sprint_issues = AnalyticsService._list_sprint_issues(session, sprint.sprint_id)
         committed_issue_count = len(sprint_issues)
@@ -1394,7 +1664,26 @@ class AnalyticsService:
                 prerequisites.get("explanations", []),
             )
         ]
-        if coverage_explanations or not bool(prerequisites["available"]):
+        scope_creep_explanations = (
+            []
+            if (
+                scope_creep_result["status"] == COMPUTATION_STATUS_COMPUTED
+                or not bool(prerequisites["available"])
+            )
+            else [
+                "Delivery confidence is inconclusive because Scope creep is unavailable: "
+                + (
+                    scope_creep_result["explanations"][0]
+                    if scope_creep_result["explanations"]
+                    else "the metric was not computed."
+                )
+            ]
+        )
+        if (
+            coverage_explanations
+            or not bool(prerequisites["available"])
+            or scope_creep_explanations
+        ):
             return {
                 "status": DELIVERY_CONFIDENCE_STATUS_INCONCLUSIVE,
                 "score": None,
@@ -1402,7 +1691,11 @@ class AnalyticsService:
                 "inputs": None,
                 "coverage": coverage,
                 "prerequisites": prerequisites,
-                "explanations": coverage_explanations + prerequisite_explanations,
+                "explanations": (
+                    coverage_explanations
+                    + prerequisite_explanations
+                    + scope_creep_explanations
+                ),
             }
 
         pointed_issues = [issue for issue in sprint_issues if _valid_story_points(issue.story_points) is not None]
@@ -1511,16 +1804,28 @@ class AnalyticsService:
         blocked_issue_ratio = 0.0 if committed_issue_count == 0 else open_blockers / committed_issue_count
         blocker_penalty = _clamp(100.0 * (1.0 - blocked_issue_ratio), 0.0, 100.0)
 
-        scope_stability_inputs = AnalyticsService._compute_sprint_scope_stability_inputs(
-            session=session,
-            sprint=sprint,
-            snapshot_at=snapshot_at,
-            field_mapper=field_mapper,
-            current_issue_count=committed_issue_count,
-        )
-        scope_stability_index = scope_stability_inputs["scope_stability_index"]
-        scope_stability_ratio = 0.0 if scope_stability_index is None else float(scope_stability_index)
-        scope_stability = _clamp(100.0 * (1.0 - scope_stability_ratio), 0.0, 100.0)
+        scope_evidence = scope_creep_result["evidence"]
+        scope_creep_pct = float(cast(float, scope_creep_result["value"]))
+        scope_stability_index = round(scope_creep_pct / 100.0, 4)
+        scope_stability = _clamp(100.0 - scope_creep_pct, 0.0, 100.0)
+        scope_stability_inputs = {
+            "initial_commitment_count": cast(
+                int, scope_evidence["initial_commitment_count"]
+            ),
+            "scope_change_count": cast(int, scope_evidence["scope_change_count"]),
+            "scope_added_count": cast(int, scope_evidence["scope_added_count"]),
+            "scope_removed_count": cast(int, scope_evidence["scope_removed_count"]),
+            "scope_stability_index": scope_stability_index,
+            "scope_change_issue_keys": list(
+                cast(Sequence[str], scope_evidence["scope_change_issue_keys"])
+            ),
+            "scope_added_issue_keys": list(
+                cast(Sequence[str], scope_evidence["scope_added_issue_keys"])
+            ),
+            "scope_removed_issue_keys": list(
+                cast(Sequence[str], scope_evidence["scope_removed_issue_keys"])
+            ),
+        }
 
         components = {
             "progress_alignment": round(progress_alignment, 2),
@@ -1579,7 +1884,7 @@ class AnalyticsService:
 
     @staticmethod
     def _list_velocity_baseline_sprints(session: Session, sprint: Sprint) -> list[Sprint]:
-        target_start = _coerce_utc(sprint.start_date) or _coerce_utc(sprint.complete_date) or _coerce_utc(sprint.end_date)
+        target_start = _coerce_utc(sprint.start_date)
         candidates = list(
             session.scalars(
                 select(Sprint)
@@ -1593,8 +1898,8 @@ class AnalyticsService:
 
         dated_candidates: list[tuple[datetime, Sprint]] = []
         for candidate in candidates:
-            candidate_date = _coerce_utc(candidate.complete_date) or _coerce_utc(candidate.end_date) or _coerce_utc(
-                candidate.start_date
+            candidate_date = _coerce_utc(candidate.complete_date) or _coerce_utc(
+                candidate.end_date
             )
             if candidate_date is None:
                 continue
@@ -1614,68 +1919,6 @@ class AnalyticsService:
             if len(eligible) == HISTORICAL_VELOCITY_SPRINT_COUNT:
                 break
         return eligible
-
-    @staticmethod
-    def _compute_sprint_scope_stability_inputs(
-        session: Session,
-        sprint: Sprint,
-        snapshot_at: datetime,
-        field_mapper: JiraFieldMapper,
-        current_issue_count: int,
-    ) -> _ScopeStabilityInputs:
-        """Compute post-start scope movement as (added + removed) / initial commitment."""
-        start_at = _coerce_utc(sprint.start_date)
-        if start_at is None:
-            return _build_scope_stability_inputs(
-                added_issue_keys=[],
-                removed_issue_keys=[],
-                current_issue_count=current_issue_count,
-            )
-
-        snapshot_at = _coerce_utc(snapshot_at) or snapshot_at
-        end_at = _coerce_utc(sprint.end_date)
-        upper_bound = min(snapshot_at, end_at) if end_at is not None else snapshot_at
-        if upper_bound <= start_at:
-            return _build_scope_stability_inputs(
-                added_issue_keys=[],
-                removed_issue_keys=[],
-                current_issue_count=current_issue_count,
-            )
-
-        entries = session.scalars(
-            select(IssueHistory)
-            .where(
-                IssueHistory.issue_key.in_(
-                    select(Issue.issue_key).where(
-                        or_(
-                            Issue.issue_key.in_(AnalyticsService._sprint_issue_keys_subquery(sprint.sprint_id)),
-                            _issue_key_matches_project(Issue.issue_key, sprint.project_key),
-                        )
-                    )
-                ),
-                func.lower(IssueHistory.field_name).in_(field_mapper.sprint_changelog_fields),
-                IssueHistory.changed_at > start_at,
-                IssueHistory.changed_at <= upper_bound,
-            )
-            .order_by(IssueHistory.issue_key, IssueHistory.changed_at)
-        ).all()
-
-        added_issue_keys: set[str] = set()
-        removed_issue_keys: set[str] = set()
-        for entry in entries:
-            old_references_sprint = _history_value_references_sprint(entry.old_value, sprint)
-            new_references_sprint = _history_value_references_sprint(entry.new_value, sprint)
-            if not old_references_sprint and new_references_sprint:
-                added_issue_keys.add(entry.issue_key)
-            elif old_references_sprint and not new_references_sprint:
-                removed_issue_keys.add(entry.issue_key)
-
-        return _build_scope_stability_inputs(
-            added_issue_keys=sorted(added_issue_keys),
-            removed_issue_keys=sorted(removed_issue_keys),
-            current_issue_count=current_issue_count,
-        )
-
 
 def _story_points(issue: Issue) -> float:
     value = _valid_story_points(issue.story_points)
@@ -2025,6 +2268,23 @@ def _compute_time_elapsed_pct(sprint: Sprint, snapshot_at: datetime) -> float | 
     return _clamp(100.0 * elapsed_seconds / total_seconds, 0.0, 100.0)
 
 
+def _effective_sprint_window_end(sprint: Sprint, snapshot_at: datetime) -> datetime:
+    normalized_snapshot_at = _coerce_utc(snapshot_at)
+    assert normalized_snapshot_at is not None
+    if sprint.state.strip().casefold() == "closed":
+        return (
+            _coerce_utc(sprint.complete_date)
+            or _coerce_utc(sprint.end_date)
+            or normalized_snapshot_at
+        )
+    configured_end_at = _coerce_utc(sprint.end_date)
+    return (
+        min(configured_end_at, normalized_snapshot_at)
+        if configured_end_at is not None
+        else normalized_snapshot_at
+    )
+
+
 def _score_progress_alignment(completed_scope_pct: float, time_elapsed_pct: float) -> float:
     if time_elapsed_pct <= 0:
         return 100.0
@@ -2045,37 +2305,35 @@ def _score_velocity_fit(
     return _clamp(100.0 * remaining_capacity_points / remaining_effective_points, 0.0, 100.0)
 
 
-def _build_scope_stability_inputs(
-    added_issue_keys: list[str],
-    removed_issue_keys: list[str],
-    current_issue_count: int,
-) -> _ScopeStabilityInputs:
-    added_count = len(added_issue_keys)
-    removed_count = len(removed_issue_keys)
-    change_count = added_count + removed_count
-    initial_commitment_count = max(current_issue_count - added_count + removed_count, 0)
-    scope_stability_index = (
-        None
-        if initial_commitment_count == 0
-        else round(change_count / initial_commitment_count, 4)
-    )
-    return {
-        "initial_commitment_count": initial_commitment_count,
-        "scope_change_count": change_count,
-        "scope_added_count": added_count,
-        "scope_removed_count": removed_count,
-        "scope_stability_index": scope_stability_index,
-        "scope_change_issue_keys": sorted(set(added_issue_keys) | set(removed_issue_keys)),
-        "scope_added_issue_keys": added_issue_keys,
-        "scope_removed_issue_keys": removed_issue_keys,
-    }
-
-
 def _history_value_references_sprint(value: str | None, sprint: Sprint) -> bool:
     if value is None:
         return False
-    normalized = value.casefold()
-    return sprint.sprint_id.casefold() in normalized or sprint.name.casefold() in normalized
+    normalized_value = value.strip().casefold()
+    expected_id = sprint.sprint_id.strip().casefold()
+    expected_name = sprint.name.strip().casefold()
+    expected_values = {expected_id, expected_name}
+    if normalized_value in expected_values:
+        return True
+
+    tokens = {
+        token.strip().strip("'\"")
+        for token in re.split(r"[,;\[\]\{\}]", normalized_value)
+        if token.strip()
+    }
+    if tokens & expected_values:
+        return True
+
+    structured_values: dict[str, set[str]] = {"id": set(), "name": set()}
+    for match in re.finditer(
+        r"(?:^|[,\[\{\s])['\"]?(id|name)['\"]?\s*[:=]\s*['\"]?([^,\]\}]+)",
+        normalized_value,
+    ):
+        key = match.group(1)
+        structured_values[key].add(match.group(2).strip().strip("'\""))
+    return (
+        expected_id in structured_values["id"]
+        or expected_name in structured_values["name"]
+    )
 
 
 def _history_value_references_release(

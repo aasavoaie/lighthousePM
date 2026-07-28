@@ -57,15 +57,18 @@ FastAPI provides the API and PostgreSQL provides persistent storage. Business be
 | `signal_service.py` | Rule-based risk signals and reasons |
 | `metric_recompute_service.py` | Mutating metric recomputation and its transaction boundary |
 | `release_metrics_response_service.py` | Release metric response assembly |
+| `release_signal_response_service.py` | Release signal response assembly from stored signal and metric artifacts |
 | `sprint_response_service.py` | Sprint list, detail, history, and comparison response assembly |
 | `metric_availability_service.py` | Runtime metric availability and coverage states |
 | `metric_catalog_service.py` | Public catalog selection and serialization |
 
-API routes are thin controllers. They may validate requests, resolve dependencies, call one application service, and translate known application errors to HTTP responses. They must not contain formulas, response assembly, transaction orchestration, report construction, or duplicated authorization policy.
+API routes are thin controllers. Derived, mutating, multi-repository, and report workflows validate requests, resolve dependencies, call one application service, and translate known application errors to HTTP responses. Simple health and single-resource reads may serialize one configuration or repository result directly. Routes must not contain formulas, multi-artifact response assembly, transaction orchestration, report construction, or duplicated authorization policy.
 
 Response-assembly services coordinate reads and construct API schemas. They must preserve stored artifact provenance, ruleset versions, legacy behavior, availability, and evidence. They do not redefine formulas or current catalog semantics, and read-only assembly must not commit database transactions.
 
 Mutation services own writes and transaction boundaries. A multi-step mutation must succeed or fail atomically unless an approved product rule explicitly says otherwise.
+
+Jira synchronization scans the complete configured-project issue-summary inventory. Default incremental mode skips detail and changelog fetches only when the persisted Jira update cursor, local Jira timestamp, local issue, and changelog-completeness evidence are all trusted. Explicit full mode refetches every detail and changelog. Missing cursor evidence produces a reported full-fetch fallback, and any failed issue fetch preserves the previous cursor.
 
 ## Metrics and signals
 

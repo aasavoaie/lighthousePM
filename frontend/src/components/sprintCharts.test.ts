@@ -60,6 +60,7 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
     metrics: {
       committed_scope: 10,
       completed_scope_pct: 70,
+      scope_creep_pct: 15,
       open_blockers: 0,
       open_high_severity_bugs: 1,
       bugs_created_during_sprint: 2,
@@ -112,6 +113,33 @@ function metricsResponse(overrides: Partial<SprintMetricsResponse> = {}): Sprint
         scope_removed_issue_keys: [],
       },
     },
+    scope_movement: {
+      status: "COMPUTED",
+      percentage: 15,
+      explanations: [],
+      evidence: {
+        calculation_status: "COMPUTED",
+        scope_creep_pct: 15,
+        window_start: "2026-05-18T00:00:00Z",
+        window_end: "2026-06-01T10:00:00Z",
+        current_scope_issue_keys: [],
+        project_issue_keys: [],
+        initial_commitment_count: 20,
+        scope_change_count: 3,
+        scope_added_count: 4,
+        scope_removed_count: 1,
+        net_scope_change: 3,
+        scope_change_issue_keys: [],
+        scope_added_issue_keys: [],
+        scope_removed_issue_keys: [],
+        scope_addition_events: [],
+        scope_removal_events: [],
+        incomplete_history_issue_keys: [],
+        sprint_id: "sprint-1",
+        sprint_name: "Sprint 1",
+        sprint_changelog_fields: ["Sprint"],
+      },
+    },
     workload_distribution: null,
     ...overrides,
     ruleset_version: overrides.ruleset_version ?? 1,
@@ -129,7 +157,7 @@ assertDeepEqual(
   "moving average requires a full numeric window"
 );
 
-const normalizedScope = normalizeScopeChange(metricsResponse().delivery_confidence!);
+const normalizedScope = normalizeScopeChange(metricsResponse());
 assertDeepEqual(
   normalizedScope,
   {

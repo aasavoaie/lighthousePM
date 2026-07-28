@@ -19,7 +19,6 @@ from app.services.report_template_helpers import (
     _ruleset_label,
     _sprint_component,
     _sprint_confidence_status_rows,
-    _sprint_input,
     _stored_sprint_confidence_artifacts,
     breakdown_rows,
     confidence_band,
@@ -163,7 +162,7 @@ class SprintReportTemplate:
             ),
             ReportSection("Workload Distribution", rows=sprint_workload_rows(snapshot)),
             ReportSection(
-                "Scope Stability", rows=sprint_scope_rows(snapshot, has_story_points)
+                "Scope Movement", rows=sprint_scope_rows(snapshot, has_story_points)
             ),
             ReportSection(
                 "Quality Signals",
@@ -393,16 +392,17 @@ class SprintReportTemplate:
                 value_suffix="%",
             ),
             ChartSpec(
-                title="Historical Scope Changes",
-                kind="bar",
+                title="Historical Scope Creep",
+                kind="line",
                 points=[
                     (
                         format_short_datetime(snapshot.snapshot_at),
-                        _sprint_input(snapshot, "scope_change_count"),
+                        snapshot.scope_creep_pct,
                     )
                     for snapshot in snapshots
                 ],
                 color=self.theme.metric_colors["scopeChurn"].rgb,
+                value_suffix="%",
             ),
             ChartSpec(
                 title="Historical High-Severity Bugs",
